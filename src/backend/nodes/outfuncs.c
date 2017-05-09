@@ -1920,8 +1920,6 @@ _outUniquePath(StringInfo str, UniquePath *node)
 
 	_outPathInfo(str, (Path *) node);
 	WRITE_ENUM_FIELD(umethod, UniquePathMethod);
-	WRITE_NODE_FIELD(in_operators);
-	WRITE_NODE_FIELD(uniq_exprs);
 	WRITE_FLOAT_FIELD(rows, "%.0f");
     WRITE_BOOL_FIELD(must_repartition);                 /*CDB*/
     WRITE_BITMAPSET_FIELD(distinct_on_rowid_relids);    /*CDB*/
@@ -2242,6 +2240,7 @@ _outFlattenedSubLink(StringInfo str, FlattenedSubLink *node)
 	WRITE_BITMAPSET_FIELD(lefthand);
 	WRITE_BITMAPSET_FIELD(righthand);
 	WRITE_NODE_FIELD(quals);
+	WRITE_BOOL_FIELD(try_join_unique);	/*CDB*/
 }
 
 static void
@@ -2268,6 +2267,7 @@ _outInClauseInfo(StringInfo str, InClauseInfo *node)
     WRITE_BOOL_FIELD(try_join_unique);                  /*CDB*/
 	WRITE_NODE_FIELD(sub_targetlist);
 	WRITE_NODE_FIELD(in_operators);
+	WRITE_BOOL_FIELD(try_join_unique);	/*CDB*/
 }
 
 static void
