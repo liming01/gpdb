@@ -978,9 +978,6 @@ explain_outNode(StringInfo str,
 				case JOIN_ANTI:
 					pname = "Nested Loop Anti Join";
 					break;
-				case JOIN_LASJ:
-					pname = "Nested Loop Left Anti Semi Join";
-					break;
 				case JOIN_LASJ_NOTIN:
 					pname = "Nested Loop Left Anti Semi Join (Not-In)";
 					break;
@@ -1010,9 +1007,6 @@ explain_outNode(StringInfo str,
 				case JOIN_ANTI:
 					pname = "Merge Anti Join";
 					break;
-				case JOIN_LASJ:
-					pname = "Merge Left Anti Semi Join";
-					break;
 				case JOIN_LASJ_NOTIN:
 					pname = "Merge Left Anti Semi Join (Not-In)";
 					break;
@@ -1041,9 +1035,6 @@ explain_outNode(StringInfo str,
 					break;
 				case JOIN_ANTI:
 					pname = "Hash Anti Join";
-					break;
-				case JOIN_LASJ:
-					pname = "Hash Left Anti Semi Join";
 					break;
 				case JOIN_LASJ_NOTIN:
 					pname = "Hash Left Anti Semi Join (Not-In)";
