@@ -310,7 +310,7 @@ void ReportSrehResults(CdbSreh *cdbsreh, int total_rejected)
  * Using this function the QE sends back to the client QD the number 
  * of rows that were rejected in this last data load in SREH mode.
  */
-void SendNumRowsRejected(int numrejected)
+void SendNumRowsRejected(int numrejected, int numcompleted)
 {
 	StringInfoData buf;
 	
@@ -319,6 +319,8 @@ void SendNumRowsRejected(int numrejected)
 
 	pq_beginmessage(&buf, 'j'); /* 'j' is the msg code for rejected records */
 	pq_sendint(&buf, numrejected, 4);
+	if (numcompleted > 0) /* optional send completed num for COPY FROM ON SEGMENT */
+		pq_sendint(&buf, numcompleted, 4);
 	pq_endmessage(&buf);	
 }
 
