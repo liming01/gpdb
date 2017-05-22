@@ -1290,21 +1290,7 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 	{
 		if (cstate->on_segment) /* Save data to a local file */
 		{
-			StringInfoData filepath;
-			initStringInfo(&filepath);
-			appendStringInfoString(&filepath, stmt->filename);
-
-			replaceStringInfoString(&filepath, "<SEG_DATA_DIR>", DataDir);
-
-			if (strstr(stmt->filename, "<SEGID>") == NULL)
-				ereport(ERROR,
-					(0, errmsg("<SEGID> is required for file name")));
-
-			char segid_buf[8];
-			snprintf(segid_buf, 8, "%d", GpIdentity.segindex);
-			replaceStringInfoString(&filepath, "<SEGID>", segid_buf);
-
-			cstate->filename = filepath.data;
+			cstate->filename = stmt->filename;
 
 			pipe = false;
 		}
@@ -2815,6 +2801,9 @@ static int CopyFromCreateDispatchCommand(CopyState cstate,
 		appendStringInfo(cdbcopy_cmd, " FROM %s WITH", quote_literal_internal(cstate->filename));
 	else
 		appendStringInfo(cdbcopy_cmd, " FROM STDIN WITH");
+	
+	if(cstate->on_segment)
+		appendStringInfo(cdbcopy_cmd, " ON SEGMENT");
 
 	if (cstate->oids)
 		appendStringInfo(cdbcopy_cmd, " OIDS");
@@ -4062,11 +4051,14 @@ CopyFromDispatch(CopyState cstate)
 				}
 				
 				/* send modified data */
-				cdbCopySendData(cdbCopy,
-								target_seg,
-								line_buf_with_lineno.data,
-								line_buf_with_lineno.len);
-				RESET_LINEBUF_WITH_LINENO;
+				if (!cstate->on_segment){
+					cdbCopySendData(cdbCopy,
+									target_seg,
+									line_buf_with_lineno.data,
+									line_buf_with_lineno.len);
+					RESET_LINEBUF_WITH_LINENO;
+				}
+
 
 				cstate->processed++;
 				if (estate->es_result_partitions)
@@ -4485,7 +4477,7 @@ CopyFrom(CopyState cstate)
 	errcontext.previous = error_context_stack;
 	error_context_stack = &errcontext;
 
-	if (Gp_role == GP_ROLE_EXECUTE)
+	if (Gp_role == GP_ROLE_EXECUTE && (cstate->on_segment == false))
 		cstate->err_loc_type = ROWNUM_EMBEDDED; /* get original row num from QD COPY */
 	else
 		cstate->err_loc_type = ROWNUM_ORIGINAL; /* we can count rows by ourselves */
@@ -5030,6 +5022,7 @@ CopyFrom(CopyState cstate)
 		}
 	} while (!no_more_data);
 
+	elog(NOTICE, "Segment %u, Copy %u", GpIdentity.segindex, cstate->processed);
 
 	/* Done, clean up */
 	error_context_stack = errcontext.previous;
