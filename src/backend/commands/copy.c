@@ -1290,7 +1290,21 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 	{
 		if (cstate->on_segment) /* Save data to a local file */
 		{
-			cstate->filename = stmt->filename;
+			StringInfoData filepath;
+			initStringInfo(&filepath);
+			appendStringInfoString(&filepath, stmt->filename);
+
+			replaceStringInfoString(&filepath, "<SEG_DATA_DIR>", DataDir);
+
+			if (strstr(stmt->filename, "<SEGID>") == NULL)
+				ereport(ERROR,
+					(0, errmsg("<SEGID> is required for file name")));
+
+			char segid_buf[8];
+			snprintf(segid_buf, 8, "%d", GpIdentity.segindex);
+			replaceStringInfoString(&filepath, "<SEGID>", segid_buf);
+
+			cstate->filename = filepath.data;
 
 			pipe = false;
 		}
@@ -1617,14 +1631,18 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 		else
 		{
 			struct stat st;
+			char *filename = cstate->filename;
 
-			cstate->copy_file = AllocateFile(cstate->filename, PG_BINARY_R);
+			if (cstate->on_segment && Gp_role == GP_ROLE_DISPATCH)
+				filename = "/dev/null";
+
+			cstate->copy_file = AllocateFile(filename, PG_BINARY_R);
 
 			if (cstate->copy_file == NULL)
 				ereport(ERROR,
 						(errcode_for_file_access(),
 						 errmsg("could not open file \"%s\" for reading: %m",
-								cstate->filename)));
+								filename)));
 
 			// Increase buffer size to improve performance  (cmcdevitt)
             setvbuf(cstate->copy_file, NULL, _IOFBF, 393216); // 384 Kbytes
@@ -1633,7 +1651,7 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 			if (S_ISDIR(st.st_mode))
 				ereport(ERROR,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						 errmsg("\"%s\" is a directory", cstate->filename)));
+						 errmsg("\"%s\" is a directory", filename)));
 		}
 
 
@@ -3363,12 +3381,18 @@ CopyFromDispatch(CopyState cstate)
 		}
 
 		/* Send binary header to all segments */
-		uint32 buf;
-		cdbCopySendDataToAll(cdbCopy, (char *) BinarySignature, 11);
-		buf = htonl((uint32) tmp_flags);
-		cdbCopySendDataToAll(cdbCopy, (char *) &buf, 4);
-		buf = htonl((uint32) 0);
-		cdbCopySendDataToAll(cdbCopy, (char *) &buf, 4);
+		if (Gp_role == GP_ROLE_DISPATCH && cstate->on_segment)
+		{
+		}
+		else
+		{
+			uint32 buf;
+			cdbCopySendDataToAll(cdbCopy, (char *) BinarySignature, 11);
+			buf = htonl((uint32) tmp_flags);
+			cdbCopySendDataToAll(cdbCopy, (char *) &buf, 4);
+			buf = htonl((uint32) 0);
+			cdbCopySendDataToAll(cdbCopy, (char *) &buf, 4);
+		}
 	}
 
 	if (file_has_oids && cstate->binary)
@@ -4058,7 +4082,6 @@ CopyFromDispatch(CopyState cstate)
 									line_buf_with_lineno.len);
 					RESET_LINEBUF_WITH_LINENO;
 				}
-
 
 				cstate->processed++;
 				if (estate->es_result_partitions)
@@ -5022,7 +5045,7 @@ CopyFrom(CopyState cstate)
 		}
 	} while (!no_more_data);
 
-	elog(NOTICE, "Segment %u, Copy %u", GpIdentity.segindex, cstate->processed);
+	elog(INFO, "Segment %u, Copy %u", GpIdentity.segindex, cstate->processed);
 
 	/* Done, clean up */
 	error_context_stack = errcontext.previous;
