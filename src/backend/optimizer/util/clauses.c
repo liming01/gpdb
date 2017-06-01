@@ -1321,15 +1321,6 @@ find_nonnullable_rels_walker(Node *node, bool top_level)
 			 expr->booltesttype == IS_NOT_UNKNOWN))
 			result = find_nonnullable_rels_walker((Node *) expr->arg, false);
 	}
-	else if (IsA(node, FlattenedSubLink))
-	{
-		/* JOIN_SEMI sublinks preserve strictness, but JOIN_ANTI ones don't */
-		FlattenedSubLink *expr = (FlattenedSubLink *) node;
-
-		if (expr->jointype == JOIN_SEMI)
-			result = find_nonnullable_rels_walker((Node *) expr->quals,
-												  top_level);
-	}
 	return result;
 }
 
@@ -1525,15 +1516,6 @@ find_nonnullable_vars_walker(Node *node, bool top_level)
 			 expr->booltesttype == IS_FALSE ||
 			 expr->booltesttype == IS_NOT_UNKNOWN))
 			result = find_nonnullable_vars_walker((Node *) expr->arg, false);
-	}
-	else if (IsA(node, FlattenedSubLink))
-	{
-		/* JOIN_SEMI sublinks preserve strictness, but JOIN_ANTI ones don't */
-		FlattenedSubLink *expr = (FlattenedSubLink *) node;
-
-		if (expr->jointype == JOIN_SEMI)
-			result = find_nonnullable_vars_walker((Node *) expr->quals,
-												  top_level);
 	}
 	return result;
 }
@@ -3185,25 +3167,6 @@ eval_const_expressions_mutator(Node *node,
 		newbtest->arg = (Expr *) arg;
 		newbtest->booltesttype = btest->booltesttype;
 		return (Node *) newbtest;
-	}
-	if (IsA(node, FlattenedSubLink))
-	{
-		FlattenedSubLink *fslink = (FlattenedSubLink *) node;
-		FlattenedSubLink *newfslink;
-		Expr	   *quals;
-
-		/* Simplify and also canonicalize the arguments */
-		quals = (Expr *) eval_const_expressions_mutator((Node *) fslink->quals,
-														context);
-		quals = canonicalize_qual(quals);
-
-		newfslink = makeNode(FlattenedSubLink);
-		newfslink->jointype = fslink->jointype;
-		newfslink->lefthand = fslink->lefthand;
-		newfslink->righthand = fslink->righthand;
-		newfslink->quals = quals;
-		newfslink->try_join_unique = fslink->try_join_unique;
-		return (Node *) newfslink;
 	}
 
 	/* prevent recursion into sublinks */
@@ -4857,17 +4820,6 @@ expression_tree_mutator(Node *node,
 				MUTATE(newnode->rarg, setop->rarg, Node *);
 				return (Node *) newnode;
 			}
-			break;
-		case T_FlattenedSubLink:
-		{
-			FlattenedSubLink *fslink = (FlattenedSubLink *) node;
-			FlattenedSubLink *newnode;
-
-			FLATCOPY(newnode, fslink, FlattenedSubLink);
-			/* Assume we need not copy the relids bitmapsets */
-			MUTATE(newnode->quals, fslink->quals, Expr *);
-			return (Node *) newnode;
-		}
 			break;
 		case T_AppendRelInfo:
 			{
