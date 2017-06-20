@@ -145,6 +145,7 @@ static Node* normalize_query_jointree(Node *node)
 					join->rtindex = 0;
 					join->subqfromlist = NIL;
 					join->usingClause = NIL;
+					join->isCorrelated = false;
 					result = (Node *) join;
 				}
 				break;

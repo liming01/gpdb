@@ -1526,6 +1526,8 @@ typedef struct SpecialJoinInfo
 								 * go ahead with INNER JOIN path for this JOIN_SEMI
 								 * then we MAY need to deduplicate the join result.
 								 */
+	List		*in_operators;
+	List		*sub_targetlist;
 } SpecialJoinInfo;
 
 /*

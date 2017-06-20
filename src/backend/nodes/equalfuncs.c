@@ -711,6 +711,7 @@ _equalJoinExpr(JoinExpr *a, JoinExpr *b)
 	COMPARE_NODE_FIELD(quals);
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_SCALAR_FIELD(rtindex);
+	COMPARE_SCALAR_FIELD(isCorrelated);
 
 	return true;
 }

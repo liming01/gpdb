@@ -1293,6 +1293,7 @@ typedef struct JoinExpr
 	int			rtindex;		/* RT index assigned for join, or 0 */
     List       *subqfromlist;   /* CDB: List of join subtrees resulting from
                                  *  flattening of sublinks */
+	bool		isCorrelated;
 } JoinExpr;
 
 /*----------

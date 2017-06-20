@@ -53,7 +53,7 @@ static List *deconstruct_recurse(PlannerInfo *root, Node *jtnode,
 static SpecialJoinInfo *make_outerjoininfo(PlannerInfo *root,
 											Relids left_rels, Relids right_rels,
 											Relids inner_join_rels,
-											JoinType jointype, List *clause);
+											JoinType jointype, List *clause, bool is_correlated);
 static void distribute_qual_to_rels(PlannerInfo *root, Node *clause,
 						bool is_deduced,
 						bool below_outer_join,
@@ -539,7 +539,8 @@ deconstruct_recurse(PlannerInfo *root, Node *jtnode, bool below_outer_join,
 										leftids, rightids,
 										*inner_join_rels,
 										j->jointype,
-										(List *) j->quals);
+										(List *) j->quals,
+										j->isCorrelated);
 			if (j->jointype == JOIN_SEMI)
 				ojscope = NULL;
 			else
@@ -656,7 +657,7 @@ static SpecialJoinInfo *
 make_outerjoininfo(PlannerInfo *root,
 				   Relids left_rels, Relids right_rels,
 				   Relids inner_join_rels,
-				   JoinType jointype, List *clause)
+				   JoinType jointype, List *clause, bool is_correlated)
 {
 	SpecialJoinInfo *sjinfo = makeNode(SpecialJoinInfo);
 	Relids		clause_relids;
@@ -701,17 +702,14 @@ make_outerjoininfo(PlannerInfo *root,
 	sjinfo->jointype = jointype;
 	/* this always starts out false */
 	sjinfo->delay_upper_joins = false;
+	sjinfo->in_operators = NIL;
+	sjinfo->sub_targetlist = NIL;
 	sjinfo->join_quals = clause;
 
 	/* If we chose to take inner join path for this semi join then we MAY
 	 * need to deduplicate the join result.
 	 */
 	sjinfo->consider_dedup = jointype == JOIN_SEMI ? true : false;
-
-	/*
-	 * GPDB_90_MERGE_FIXME: Set try_join_unique appropriately once we have
-	 * pre-join-deduplication mechanism implemented.
-	 */
 	sjinfo->try_join_unique = false;
 
 	if (jointype == JOIN_FULL)
@@ -828,6 +826,74 @@ make_outerjoininfo(PlannerInfo *root,
 
 	sjinfo->min_lefthand = min_lefthand;
 	sjinfo->min_righthand = min_righthand;
+
+	/*
+	 * Uncorrelated "=ANY" or EXISTS subqueries can use JOIN_UNIQUE dedup technique
+	 * Prepare information for pre-join deduplication here which is later used
+	 * by cdb_make_rel_dedup_info()
+	 */
+	if (!is_correlated && sjinfo->join_quals)
+	{
+		List	*right_exprs = NIL;
+		List	*in_operators = NIL;
+		List	*in_vars;
+		ListCell* lc;
+		Relids parent_relids = NULL;
+
+		foreach(lc, sjinfo->join_quals)
+		{
+			Node *qual = lfirst(lc);
+
+			if (IsA(qual, OpExpr))
+			{
+				OpExpr *op = (OpExpr *) qual;
+				Oid opno = op->opno;
+				List *opfamilies;
+				List *opstrats;
+				get_op_btree_interpretation(opno, &opfamilies, &opstrats);
+				if (list_member_int(opstrats, ROWCOMPARE_EQ) &&
+					list_length(op->args) == 2)
+				{
+					right_exprs = lappend(right_exprs, lsecond(op->args));
+					in_operators = lappend_oid(in_operators, opno);
+					sjinfo->try_join_unique = true;
+				}
+			}
+		}
+		sjinfo->in_operators = in_operators;
+		sjinfo->sub_targetlist = right_exprs;
+
+		/*
+		 * If the lefthand side of qual is an inherited relation, then
+		 * cdb_make_rel_dedup_info() expects its parent relid as well
+		 * Get the parent relid here and add it to left hand.
+		 */
+		foreach(l, root->append_rel_list)
+		{
+			AppendRelInfo *appinfo = (AppendRelInfo *) lfirst(l);
+
+			if (bms_is_member(appinfo->child_relid, sjinfo->min_lefthand))
+			{
+				parent_relids = bms_add_member(parent_relids, appinfo->parent_relid);
+			}
+		}
+
+		/*
+		 * We need the IN/EXISTS's righthand-side vars to be available at the join,
+		 * in case we try to unique-ify the subselect's outputs.
+		 * Add targetlist entries for each var needed sub_targetlist we computed above.
+		 */
+		in_vars = pull_var_clause((Node *) sjinfo->sub_targetlist, false);
+		if (in_vars != NIL)
+		{
+			Relids all_relids = NULL;
+			all_relids = bms_union(parent_relids, sjinfo->min_lefthand);
+			all_relids = bms_union(all_relids, sjinfo->min_righthand);
+
+			add_vars_to_targetlist(root, in_vars, all_relids);
+			list_free(in_vars);
+		}
+	}
 
 	return sjinfo;
 }

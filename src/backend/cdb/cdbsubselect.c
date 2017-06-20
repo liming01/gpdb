@@ -842,6 +842,7 @@ make_join_expr(Node *larg, int r_rtindex, int join_type)
 	jexpr->larg = larg;
 	jexpr->rarg = (Node *) rhs;
 	jexpr->rtindex = 0;
+	jexpr->isCorrelated = false;
 
 	return jexpr;
 }

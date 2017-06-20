@@ -1202,18 +1202,7 @@ convert_ANY_sublink_to_join(PlannerInfo *root, SubLink *sublink,
 	result->quals = quals;
 	result->alias = NULL;
 	result->rtindex = 0;
-
-	/*
-	 * GPDB_90_MERGE_FIXME: How to handle try_join_unique?
-	 * try_join_unique is used for pre-join-deduplication decision in
-	 * cdb_make_rel_dedupinfo()
-	 * Following the previous logic from convert_IN_to_join(), this flag is
-	 * now needed later on when creating SpecialJoinInfo. That needs to be
-	 * passed through CdbRelDedupInfo via JoinExpr. Thus try_join_unique
-	 * needs to be initialized here correctly.
-	 * NOTE: Similarly, we may also need to initialize sub_targetlist and
-	 * in_operators lists (present previously in InClauseInfo) here.
-	 */
+	result->isCorrelated = correlated;
 
 	return result;
 }
@@ -1491,6 +1480,7 @@ convert_EXISTS_sublink_to_join(PlannerInfo *root, SubLink *sublink,
 	result->quals = whereClause;
 	result->alias = NULL;
 	result->rtindex = 0;
+	result->isCorrelated = true; /* Otherwise we won't be here */
 
 	return (Node *) result;
 }
