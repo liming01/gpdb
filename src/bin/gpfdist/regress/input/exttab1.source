@@ -117,8 +117,8 @@ location ('gpfdist://@hostname@:7070/test_pipe' )
 FORMAT 'text' (delimiter '|');
 
 select * from create_pipe;
-\! psql -d regression -c 'select count(*) from pipe_ext1;' > @abs_srcdir@/data/sql1.out 2>&1  &
-\! psql -d regression -c 'select count(*) from pipe_ext2;' > @abs_srcdir@/data/sql2.out 2>&1  &
+\! psql -d gpfdist_regression -c 'select count(*) from pipe_ext1;' > @abs_srcdir@/data/sql1.out 2>&1  &
+\! psql -d gpfdist_regression -c 'select count(*) from pipe_ext2;' > @abs_srcdir@/data/sql2.out 2>&1  &
 select * from write_pipe;
 select * from cat_sqlout_result;
 
