@@ -192,7 +192,7 @@ DROP EXTERNAL TABLE IF EXISTS pipe_ext2;
 NOTICE:  table "pipe_ext2" does not exist, skipping
 -- end_ignore
 CREATE EXTERNAL TABLE pipe_ext2(LIKE EXT_NATION)
-location ('gpfdist://@hostname@:7070/test_pipe' )
+location ('file://@hostname@@abs_srcdir@/data/test_pipe' )
 FORMAT 'text' (delimiter '|');
 select * from create_pipe;
         x         

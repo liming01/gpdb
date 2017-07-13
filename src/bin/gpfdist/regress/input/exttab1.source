@@ -113,7 +113,7 @@ FORMAT 'text' (delimiter '|');
 
 DROP EXTERNAL TABLE IF EXISTS pipe_ext2;
 CREATE EXTERNAL TABLE pipe_ext2(LIKE EXT_NATION)
-location ('gpfdist://@hostname@:7070/test_pipe' )
+location ('file://@hostname@@abs_srcdir@/data/test_pipe' )
 FORMAT 'text' (delimiter '|');
 
 select * from create_pipe;
