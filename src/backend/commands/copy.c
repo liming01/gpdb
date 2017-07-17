@@ -1621,6 +1621,9 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 					(errcode(ERRCODE_GP_FEATURE_NOT_SUPPORTED),
 					 errmsg("COPY single row error handling only available for distributed user tables")));
 
+		if (cstate->on_segment && Gp_role == GP_ROLE_EXECUTE){
+			pipe = true;
+		}
 		if (pipe)
 		{
 			if (whereToSendOutput == DestRemote)
@@ -1757,6 +1760,9 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 
 	/* Clean up storage (probably not really necessary) */
 	processed = cstate->processed;
+
+//	if(Gp_role == GP_ROLE_DISPATCH && cstate->on_segment)
+//		processed = result->numCompleted;
 
     /* MPP-4407. Logging number of tuples copied */
 	if (Gp_role == GP_ROLE_DISPATCH
@@ -2915,6 +2921,7 @@ CopyFromDispatch(CopyState cstate)
 	bool	   *nulls;
 	int		   *attr_offsets;
 	int			total_rejected_from_qes = 0;
+	int			total_completed_from_qes = 0;
 	bool		isnull;
 	bool	   *isvarlena;
 	ResultRelInfo *resultRelInfo;
@@ -4113,7 +4120,7 @@ CopyFromDispatch(CopyState cstate)
 	 * databases Now we would like to end the copy command on
 	 * all segment databases across the cluster.
 	 */
-	total_rejected_from_qes = cdbCopyEnd(cdbCopy);
+	total_rejected_from_qes = cdbCopyEndAndFetchRejectNum(cdbCopy, &total_completed_from_qes);
 
 	/*
 	 * If we quit the processing loop earlier due to a
@@ -4182,6 +4189,7 @@ CopyFromDispatch(CopyState cstate)
 		ReportSrehResults(cstate->cdbsreh, total_rejected);
 	}
 
+	cstate->processed += total_completed_from_qes;
 
 	/*
 	 * Done, clean up
@@ -4319,6 +4327,7 @@ CopyFrom(CopyState cstate)
 	num_phys_attrs = tupDesc->natts;
 	attr_count = list_length(cstate->attnumlist);
 	num_defaults = 0;
+	bool		need_retry = (cstate->on_segment && Gp_role == GP_ROLE_EXECUTE)?true:false;
 
 	/*----------
 	 * Check to see if we can avoid writing WAL
@@ -4507,6 +4516,7 @@ CopyFrom(CopyState cstate)
 
 	CopyInitDataParser(cstate);
 
+RETRY_READ:
 	do
 	{
 		size_t		bytesread = 0;
@@ -5045,7 +5055,31 @@ CopyFrom(CopyState cstate)
 		}
 	} while (!no_more_data);
 
-	elog(INFO, "Segment %u, Copy %u", GpIdentity.segindex, cstate->processed);
+	if (need_retry){ /*only first time &  cstate->on_segment && Gp_role == GP_ROLE_DISPATCH*/
+		struct stat st;
+		char *filename = cstate->filename;	
+		cstate->copy_file = AllocateFile(filename, PG_BINARY_R);
+
+		if (cstate->copy_file == NULL)
+			ereport(ERROR,
+					(errcode_for_file_access(),
+						errmsg("could not open file \"%s\" for reading: %m",
+							filename)));
+
+		// Increase buffer size to improve performance  (cmcdevitt)
+		setvbuf(cstate->copy_file, NULL, _IOFBF, 393216); // 384 Kbytes
+
+		fstat(fileno(cstate->copy_file), &st);
+		if (S_ISDIR(st.st_mode))
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						errmsg("\"%s\" is a directory", filename)));
+		need_retry = false;
+		cstate->copy_dest = COPY_FILE;
+		goto RETRY_READ;
+	}
+
+	elog(DEBUG1, "Segment %u, Copied %u rows.", GpIdentity.segindex, cstate->processed);
 
 	/* Done, clean up */
 	error_context_stack = errcontext.previous;
@@ -5061,9 +5095,11 @@ CopyFrom(CopyState cstate)
 	/*
 	 * If SREH and in executor mode send the number of rejected
 	 * rows to the client (QD COPY).
+	 * If COPY ... FROM ... ON SEGMENT, then need to send the number of completed.
 	 */
-	if(cstate->errMode != ALL_OR_NOTHING && Gp_role == GP_ROLE_EXECUTE)
-		SendNumRowsRejected(cstate->cdbsreh->rejectcount);
+	if((cstate->on_segment || cstate->errMode != ALL_OR_NOTHING) && Gp_role == GP_ROLE_EXECUTE)
+		SendNumRowsRejected(cstate->errMode != ALL_OR_NOTHING?cstate->cdbsreh->rejectcount:0,
+				cstate->on_segment?cstate->processed:0);
 
 	if (estate->es_result_partitions && Gp_role == GP_ROLE_EXECUTE)
 		SendAOTupCounts(estate);

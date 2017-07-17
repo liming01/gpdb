@@ -696,8 +696,15 @@ SELECT COUNT(*) FROM test_first_segment_reject_limit;
 
 -- start_ignore
 DROP TABLE IF EXISTS test_copy_on_segment;
+DROP TABLE IF EXISTS test_copy_on_segment_withoids;
+DROP TABLE IF EXISTS test_copy_from_on_segment_txt;
+DROP TABLE IF EXISTS test_copy_from_on_segment_binary;
+DROP TABLE IF EXISTS test_copy_from_on_segment_csv;
+DROP TABLE IF EXISTS test_copy_from_on_segment_withoids;
+DROP TABLE IF EXISTS onek_copy_from_onsegment;
 DROP EXTERNAL TABLE IF EXISTS check_copy_onsegment_txt1;
 DROP EXTERNAL TABLE IF EXISTS check_copy_onsegment_csv1;
+DROP EXTERNAL TABLE IF EXISTS check_onek_copy_onsegment;
 DROP EXTERNAL TABLE IF EXISTS rm_copy_onsegment_files;
 -- end_ignore
 
@@ -737,6 +744,23 @@ ON SEGMENT 0
 FORMAT 'text';
 SELECT * FROM check_copy_onsegment_withoids;
 
+CREATE TABLE test_copy_from_on_segment_txt (LIKE test_copy_on_segment);
+COPY test_copy_from_on_segment_txt FROM '/tmp/invalid_filename.txt' ON SEGMENT;
+COPY test_copy_from_on_segment_txt FROM '/tmp/valid_filename<SEGID>.txt' ON SEGMENT;
+SELECT * FROM test_copy_from_on_segment_txt ORDER BY a;
+
+CREATE TABLE test_copy_from_on_segment_binary (LIKE test_copy_on_segment);
+COPY test_copy_from_on_segment_binary FROM '/tmp/valid_filename<SEGID>.bin' ON SEGMENT BINARY;
+SELECT * FROM test_copy_from_on_segment_binary ORDER BY a;
+
+CREATE TABLE test_copy_from_on_segment_csv (LIKE test_copy_on_segment);
+COPY test_copy_from_on_segment_csv FROM '/tmp/valid_filename<SEGID>.csv' WITH ON SEGMENT CSV QUOTE '"' FORCE QUOTE a,b,c ESCAPE E'\\' NULL '\N' DELIMITER ',' HEADER IGNORE EXTERNAL PARTITIONS;
+SELECT * FROM test_copy_from_on_segment_csv ORDER BY a;
+
+CREATE TABLE test_copy_from_on_segment_withoids (LIKE test_copy_on_segment_withoids);
+COPY test_copy_from_on_segment_withoids FROM '/tmp/withoids_valid_filename<SEGID>.csv' WITH ON SEGMENT OIDS CSV QUOTE '"' FORCE QUOTE a,b,c ESCAPE E'\\' NULL '\N' DELIMITER ',' IGNORE EXTERNAL PARTITIONS;
+SELECT * FROM test_copy_from_on_segment_withoids;
+
 CREATE TABLE onek_copy_onsegment (
     unique1     int4,
     unique2     int4,
@@ -765,6 +789,10 @@ ON SEGMENT 0
 FORMAT 'text';
 SELECT * FROM check_onek_copy_onsegment;
 
+CREATE TABLE onek_copy_from_onsegment (LIKE onek_copy_onsegment);
+COPY onek_copy_from_onsegment FROM '/tmp/valid_filename_onek_copy_onsegment<SEGID>.txt' ON SEGMENT;
+SELECT count(*) FROM onek_copy_from_onsegment;
+
 CREATE EXTERNAL WEB TABLE rm_copy_onsegment_files (a int)
 EXECUTE E'(rm -rf /tmp/*valid_filename*.*)'
 ON SEGMENT 0
@@ -772,6 +800,12 @@ FORMAT 'text';
 SELECT * FROM rm_copy_onsegment_files;
 
 DROP TABLE IF EXISTS test_copy_on_segment;
+DROP TABLE IF EXISTS test_copy_on_segment_withoids;
+DROP TABLE IF EXISTS test_copy_from_on_segment_txt;
+DROP TABLE IF EXISTS test_copy_from_on_segment_binary;
+DROP TABLE IF EXISTS test_copy_from_on_segment_csv;
+DROP TABLE IF EXISTS test_copy_from_on_segment_withoids;
+DROP TABLE IF EXISTS onek_copy_from_onsegment;
 DROP EXTERNAL TABLE IF EXISTS check_copy_onsegment_txt1;
 DROP EXTERNAL TABLE IF EXISTS check_copy_onsegment_csv1;
 DROP EXTERNAL TABLE IF EXISTS check_onek_copy_onsegment;

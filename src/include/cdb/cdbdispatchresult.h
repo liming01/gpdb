@@ -108,6 +108,8 @@ typedef struct CdbDispatchResult
 
 	/* num rows rejected in SREH mode */
 	int	numrowsrejected;
+	/* num rows completed in COPY FROM ON SEGMENT*/
+	int	numrowscompleted;
 } CdbDispatchResult;
 
 /*
