@@ -770,8 +770,9 @@ SELECT * FROM test_copy_from_on_segment_binary ORDER BY a;
  4 | i | l
  5 | q | w
 (5 rows)
+
 CREATE TABLE test_copy_from_on_segment_csv (LIKE test_copy_on_segment);
-COPY test_copy_from_on_segment_csv FROM '/tmp/valid_filename<SEGID>.csv' WITH ON SEGMENT CSV QUOTE '"' FORCE QUOTE a,b,c ESCAPE E'\\' NULL '\N' DELIMITER ',' HEADER IGNORE EXTERNAL PARTITIONS;
+COPY test_copy_from_on_segment_csv FROM '/tmp/valid_filename<SEGID>.csv' WITH ON SEGMENT CSV QUOTE '"' ESCAPE E'\\' NULL '\N' DELIMITER ',' HEADER IGNORE EXTERNAL PARTITIONS;
 SELECT * FROM test_copy_from_on_segment_csv ORDER BY a;
  a | b | c 
 ---+---+---
@@ -781,9 +782,18 @@ SELECT * FROM test_copy_from_on_segment_csv ORDER BY a;
  4 | i | l
  5 | q | w
 (5 rows)
-CREATE TABLE test_copy_from_on_segment_withoids (LIKE test_copy_on_segment_withoids);
-COPY test_copy_from_on_segment_withoids FROM '/tmp/withoids_valid_filename<SEGID>.csv' WITH ON SEGMENT OIDS CSV QUOTE '"' FORCE QUOTE a,b,c ESCAPE E'\\' NULL '\N' DELIMITER ',' IGNORE EXTERNAL PARTITIONS;
-SELECT * FROM test_copy_from_on_segment_withoids;
+
+CREATE TABLE test_copy_from_on_segment_withoids (LIKE test_copy_on_segment_withoids) WITH OIDS;
+NOTICE:  OIDS=TRUE is not recommended for user-created tables. Use OIDS=FALSE to prevent wrap-around of the OID counter
+COPY test_copy_from_on_segment_withoids FROM '/tmp/withoids_valid_filename<SEGID>.csv' WITH ON SEGMENT OIDS CSV QUOTE '"' ESCAPE E'\\' NULL '\N' DELIMITER ',' IGNORE EXTERNAL PARTITIONS;
+SELECT * FROM test_copy_from_on_segment_withoids ORDER BY a;
+ a | b | c 
+---+---+---
+ 1 | s | d
+ 2 | f | g
+ 3 | h | j
+(3 rows)
+
 CREATE TABLE onek_copy_onsegment (
     unique1     int4,
     unique2     int4,
