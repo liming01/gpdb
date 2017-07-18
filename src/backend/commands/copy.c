@@ -2926,6 +2926,14 @@ static int CopyFromCreateDispatchCommand(CopyState cstate,
 		if (cstate->csv_mode)
 		{
 			appendStringInfo(cdbcopy_cmd, " CSV");
+
+			/*
+			 * If on_segment, QE needs to write their own CSV header. If not,
+			 * only QD needs to, QE doesn't send CSV header to QD
+			 */
+			if (cstate->on_segment && cstate->header_line)
+				appendStringInfo(cdbcopy_cmd, " HEADER");
+
 			appendStringInfo(cdbcopy_cmd, " QUOTE AS E'%s'", escape_quotes(cstate->quote));
 			appendStringInfo(cdbcopy_cmd, " ESCAPE AS E'%s'", escape_quotes(cstate->escape));
 
@@ -4511,16 +4519,52 @@ RETRY_READ:
 		 */
 		if (bytesread > 0 || !cstate->fe_eof)
 		{
-			/* handle HEADER, but only if we're in utility mode */
-			if (cstate->header_line)
+			/* handle HEADER, but only if COPY FROM ON SEGMENT */
+			if (cstate->header_line && cstate->on_segment)
 			{
-				cstate->line_done = cstate->csv_mode ?
-					CopyReadLineCSV(cstate, bytesread) :
-					CopyReadLineText(cstate, bytesread);
-				cstate->cur_lineno++;
-				cstate->header_line = false;
+				/* on first time around just throw the header line away */
+				PG_TRY();
+				{
+					cstate->line_done = cstate->csv_mode ?
+						CopyReadLineCSV(cstate, bytesread) :
+						CopyReadLineText(cstate, bytesread);
+				}
+				PG_CATCH();
+				{
+					/*
+					 * TODO: use COPY_HANDLE_ERROR here, but make sure to
+					 * ignore this error per the "note:" below.
+					 */
 
+					/*
+					 * got here? encoding conversion error occured on the
+					 * header line (first row).
+					 */
+					if(cstate->errMode == ALL_OR_NOTHING)
+					{
+						/* re-throw error and abort */
+						cdbCopyEnd(cdbCopy);
+						PG_RE_THROW();
+					}
+					else
+					{
+						/* SREH - release error state */
+						if(!elog_dismiss(DEBUG5))
+							PG_RE_THROW(); /* hope to never get here! */
+
+						/*
+						 * note: we don't bother doing anything special here.
+						 * we are never interested in logging a header line
+						 * error. just continue the workflow.
+						 */
+					}
+				}
+				PG_END_TRY();
+
+				cstate->cur_lineno++;
 				RESET_LINEBUF;
+
+				cstate->header_line = false;
 			}
 
 			while (!cstate->raw_buf_done)
