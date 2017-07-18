@@ -654,6 +654,26 @@ COPY errcopy from stdin delimiter '/' log errors segment reject limit 3 rows;
 \.
 SELECT relname, filename, bytenum, errmsg FROM gp_read_error_log('errcopy');
 
+-- exceed reject limit  on segment
+DROP TABLE IF EXISTS segment_reject_limit;
+CREATE TABLE segment_reject_limit (a int,b char) distributed by (a);
+INSERT INTO segment_reject_limit values(1,'1');
+INSERT INTO segment_reject_limit values(1,'2');
+INSERT INTO segment_reject_limit values(1,'a');
+INSERT INTO segment_reject_limit values(1,'b');
+
+COPY segment_reject_limit TO '/tmp/segment_reject_limit<SEGID>.csv' on segment;
+
+DROP TABLE IF EXISTS segment_reject_limit_from;
+CREATE TABLE segment_reject_limit_from (a int,b int);
+COPY segment_reject_limit_from from '/tmp/segment_reject_limit<SEGID>.csv' on segment log errors segment reject limit 2 rows;
+
+SELECT * FROM segment_reject_limit_from;
+SELECT relname, filename, bytenum, errmsg FROM gp_read_error_log('segment_reject_limit_from');
+--not exceed reject limit  on segment
+COPY segment_reject_limit_from from '/tmp/segment_reject_limit<SEGID>.csv' on segment log errors segment reject limit 3 rows;
+SELECT * FROM segment_reject_limit_from;
+
 -- gp_initial_bad_row_limit guc test. This guc allows user to set the initial
 -- number of rows which can contain errors before the database stops loading
 -- the data. If there is a valid row within the first 'n' rows specified by
@@ -810,3 +830,4 @@ DROP EXTERNAL TABLE IF EXISTS check_copy_onsegment_txt1;
 DROP EXTERNAL TABLE IF EXISTS check_copy_onsegment_csv1;
 DROP EXTERNAL TABLE IF EXISTS check_onek_copy_onsegment;
 DROP EXTERNAL TABLE IF EXISTS rm_copy_onsegment_files;
+
