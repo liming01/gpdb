@@ -87,6 +87,7 @@ extern void CopyToDispatch(CopyState cstate);
 static void CopyTo(CopyState cstate);
 extern void CopyFromDispatch(CopyState cstate);
 static void CopyFrom(CopyState cstate);
+static void CopyFromProcessDataFileHeader(CopyState cstate, CdbCopy *cdbCopy);
 static char *CopyReadOidAttr(CopyState cstate, bool *isnull);
 static void CopyAttributeOutText(CopyState cstate, char *string);
 static void CopyAttributeOutCSV(CopyState cstate, char *string,
@@ -1636,6 +1637,7 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 			struct stat st;
 			char *filename = cstate->filename;
 
+			/* Use dummy file on master for COPY FROM ON SEGMENT */
 			if (cstate->on_segment && Gp_role == GP_ROLE_DISPATCH)
 				filename = "/dev/null";
 
@@ -2705,7 +2707,76 @@ CopyOneRowTo(CopyState cstate, Oid tupleOid, Datum *values, bool *nulls)
 	MemoryContextSwitchTo(oldcontext);
 }
 
+static void CopyFromProcessDataFileHeader(CopyState cstate, CdbCopy *cdbCopy)
+{
+	bool		file_has_oids;
 
+	if (!cstate->binary)
+			file_has_oids = cstate->oids;	/* must rely on user to tell us... */
+		else
+		{
+			/* Read and verify binary header */
+			char		readSig[11];
+			int32		tmp_flags, tmp_extension;
+			int32		tmp;
+
+			/* Signature */
+			if (CopyGetData(cstate, readSig, 11) != 11 ||
+				memcmp(readSig, BinarySignature, 11) != 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
+						errmsg("COPY file signature not recognized")));
+			/* Flags field */
+			if (!CopyGetInt32(cstate, &tmp_flags))
+				ereport(ERROR,
+						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
+						errmsg("invalid COPY file header (missing flags)")));
+			file_has_oids = (tmp_flags & (1 << 16)) != 0;
+			tmp = tmp_flags & ~(1 << 16);
+			if ((tmp >> 16) != 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
+					errmsg("unrecognized critical flags in COPY file header")));
+			/* Header extension length */
+			if (!CopyGetInt32(cstate, &tmp_extension) ||
+				tmp_extension < 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
+						errmsg("invalid COPY file header (missing length)")));
+			/* Skip extension header, if present */
+			while (tmp_extension-- > 0)
+			{
+				if (CopyGetData(cstate, readSig, 1) != 1)
+					ereport(ERROR,
+							(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
+							errmsg("invalid COPY file header (wrong length)")));
+			}
+
+			/* Send binary header to all segments except:
+			 * dummy file on master for COPY FROM ON SEGMENT
+			 */
+			if(Gp_role == GP_ROLE_DISPATCH && !cstate->on_segment)
+			{
+				uint32 buf;
+				cdbCopySendDataToAll(cdbCopy, (char *) BinarySignature, 11);
+				buf = htonl((uint32) tmp_flags);
+				cdbCopySendDataToAll(cdbCopy, (char *) &buf, 4);
+				buf = htonl((uint32) 0);
+				cdbCopySendDataToAll(cdbCopy, (char *) &buf, 4);
+			}
+		}
+
+		if (file_has_oids && cstate->binary)
+		{
+			FmgrInfo	oid_in_function;
+			Oid			oid_typioparam;
+			Oid			in_func_oid;
+
+			getTypeBinaryInputInfo(OIDOID,
+								&in_func_oid, &oid_typioparam);
+			fmgr_info(in_func_oid, &oid_in_function);
+		}
+}
 /*
  * CopyFromCreateDispatchCommand
  *
@@ -3346,67 +3417,10 @@ CopyFromDispatch(CopyState cstate)
 	 */
 	//ExecBSInsertTriggers(estate, resultRelInfo);
 
-	if (!cstate->binary)
-		file_has_oids = cstate->oids;	/* must rely on user to tell us... */
-	else
+	/* Skip header processing if dummy file on master for COPY FROM ON SEGMENT */
+	if (!cstate->on_segment || Gp_role != GP_ROLE_DISPATCH)
 	{
-		/* Read and verify binary header */
-		char		readSig[11];
-		int32		tmp_flags, tmp_extension;
-		int32		tmp;
-
-		/* Signature */
-		if (CopyGetData(cstate, readSig, 11) != 11 ||
-			memcmp(readSig, BinarySignature, 11) != 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-					 errmsg("COPY file signature not recognized")));
-		/* Flags field */
-		if (!CopyGetInt32(cstate, &tmp_flags))
-			ereport(ERROR,
-					(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-					 errmsg("invalid COPY file header (missing flags)")));
-		file_has_oids = (tmp_flags & (1 << 16)) != 0;
-		tmp = tmp_flags & ~(1 << 16);
-		if ((tmp >> 16) != 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-				 errmsg("unrecognized critical flags in COPY file header")));
-		/* Header extension length */
-		if (!CopyGetInt32(cstate, &tmp_extension) ||
-			tmp_extension < 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-					 errmsg("invalid COPY file header (missing length)")));
-		/* Skip extension header, if present */
-		while (tmp_extension-- > 0)
-		{
-			if (CopyGetData(cstate, readSig, 1) != 1)
-				ereport(ERROR,
-						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-						 errmsg("invalid COPY file header (wrong length)")));
-		}
-
-		/* Send binary header to all segments */
-		if (Gp_role == GP_ROLE_DISPATCH && cstate->on_segment)
-		{
-		}
-		else
-		{
-			uint32 buf;
-			cdbCopySendDataToAll(cdbCopy, (char *) BinarySignature, 11);
-			buf = htonl((uint32) tmp_flags);
-			cdbCopySendDataToAll(cdbCopy, (char *) &buf, 4);
-			buf = htonl((uint32) 0);
-			cdbCopySendDataToAll(cdbCopy, (char *) &buf, 4);
-		}
-	}
-
-	if (file_has_oids && cstate->binary)
-	{
-		getTypeBinaryInputInfo(OIDOID,
-							   &in_func_oid, &oid_typioparam);
-		fmgr_info(in_func_oid, &oid_in_function);
+		CopyFromProcessDataFileHeader(cstate, cdbCopy);
 	}
 
 	values = (Datum *) palloc(num_phys_attrs * sizeof(Datum));
@@ -4448,52 +4462,10 @@ CopyFrom(CopyState cstate)
 	 */
 	ExecBSInsertTriggers(estate, resultRelInfo);
 
-	if (!cstate->binary)
-		file_has_oids = cstate->oids;	/* must rely on user to tell us... */
-	else
+	/* Skip header processing if dummy file get from master for COPY FROM ON SEGMENT */
+	if(!cstate->on_segment || Gp_role != GP_ROLE_EXECUTE)
 	{
-		/* Read and verify binary header */
-		char		readSig[11];
-		int32		tmp;
-
-		/* Signature */
-		if (CopyGetData(cstate, readSig, 11) != 11 ||
-			memcmp(readSig, BinarySignature, 11) != 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-					 errmsg("COPY file signature not recognized")));
-		/* Flags field */
-		if (!CopyGetInt32(cstate, &tmp))
-			ereport(ERROR,
-					(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-					 errmsg("invalid COPY file header (missing flags)")));
-		file_has_oids = (tmp & (1 << 16)) != 0;
-		tmp &= ~(1 << 16);
-		if ((tmp >> 16) != 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-				 errmsg("unrecognized critical flags in COPY file header")));
-		/* Header extension length */
-		if (!CopyGetInt32(cstate, &tmp) ||
-			tmp < 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-					 errmsg("invalid COPY file header (missing length)")));
-		/* Skip extension header, if present */
-		while (tmp-- > 0)
-		{
-			if (CopyGetData(cstate, readSig, 1) != 1)
-				ereport(ERROR,
-						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-						 errmsg("invalid COPY file header (wrong length)")));
-		}
-	}
-
-	if (file_has_oids && cstate->binary)
-	{
-		getTypeBinaryInputInfo(OIDOID,
-							   &in_func_oid, &oid_typioparam);
-		fmgr_info(in_func_oid, &oid_in_function);
+		CopyFromProcessDataFileHeader(cstate, cdbCopy);
 	}
 
 	baseValues = (Datum *) palloc(num_phys_attrs * sizeof(Datum));
@@ -5076,10 +5048,13 @@ RETRY_READ:
 						errmsg("\"%s\" is a directory", filename)));
 		need_retry = false;
 		cstate->copy_dest = COPY_FILE;
+
+		CopyFromProcessDataFileHeader(cstate, cdbCopy);
+		CopyInitDataParser(cstate);
 		goto RETRY_READ;
 	}
 
-	elog(DEBUG1, "Segment %u, Copied %u rows.", GpIdentity.segindex, cstate->processed);
+	elog(DEBUG1, "Segment %u, Copied %lu rows.", GpIdentity.segindex, cstate->processed);
 
 	/* Done, clean up */
 	error_context_stack = errcontext.previous;

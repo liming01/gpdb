@@ -754,11 +754,11 @@ COPY test_copy_from_on_segment_binary FROM '/tmp/valid_filename<SEGID>.bin' ON S
 SELECT * FROM test_copy_from_on_segment_binary ORDER BY a;
 
 CREATE TABLE test_copy_from_on_segment_csv (LIKE test_copy_on_segment);
-COPY test_copy_from_on_segment_csv FROM '/tmp/valid_filename<SEGID>.csv' WITH ON SEGMENT CSV QUOTE '"' FORCE QUOTE a,b,c ESCAPE E'\\' NULL '\N' DELIMITER ',' HEADER IGNORE EXTERNAL PARTITIONS;
+COPY test_copy_from_on_segment_csv FROM '/tmp/valid_filename<SEGID>.csv' WITH ON SEGMENT CSV QUOTE '"' ESCAPE E'\\' NULL '\N' DELIMITER ',' HEADER IGNORE EXTERNAL PARTITIONS;
 SELECT * FROM test_copy_from_on_segment_csv ORDER BY a;
 
 CREATE TABLE test_copy_from_on_segment_withoids (LIKE test_copy_on_segment_withoids);
-COPY test_copy_from_on_segment_withoids FROM '/tmp/withoids_valid_filename<SEGID>.csv' WITH ON SEGMENT OIDS CSV QUOTE '"' FORCE QUOTE a,b,c ESCAPE E'\\' NULL '\N' DELIMITER ',' IGNORE EXTERNAL PARTITIONS;
+COPY test_copy_from_on_segment_withoids FROM '/tmp/withoids_valid_filename<SEGID>.csv' WITH ON SEGMENT OIDS CSV QUOTE '"' ESCAPE E'\\' NULL '\N' DELIMITER ',' IGNORE EXTERNAL PARTITIONS;
 SELECT * FROM test_copy_from_on_segment_withoids;
 
 CREATE TABLE onek_copy_onsegment (
