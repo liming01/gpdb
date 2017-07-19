@@ -206,7 +206,7 @@ else \
 	if (!elog_dismiss(DEBUG5)) \
 		PG_RE_THROW(); /* <-- hope to never get here! */ \
 \
-	if (Gp_role == GP_ROLE_DISPATCH)\
+	if (Gp_role == GP_ROLE_DISPATCH || cstate->on_segment)\
 	{\
 		Insist(cstate->err_loc_type == ROWNUM_ORIGINAL);\
 		cstate->cdbsreh->rawdata = (char *) palloc(strlen(cstate->line_buf.data) * \
