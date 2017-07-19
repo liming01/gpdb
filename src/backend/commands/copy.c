@@ -1306,6 +1306,11 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 			replaceStringInfoString(&filepath, "<SEGID>", segid_buf);
 
 			cstate->filename = filepath.data;
+			/* Rename filename if error log needed*/
+			if (NULL != cstate->cdbsreh) 
+			{
+				snprintf(cstate->cdbsreh->filename, sizeof(cstate->cdbsreh->filename), "%s", filepath.data);
+			}
 
 			pipe = false;
 		}
