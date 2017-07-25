@@ -811,6 +811,7 @@ SELECT * FROM check_onek_copy_onsegment;
 
 CREATE TABLE onek_copy_from_onsegment (LIKE onek_copy_onsegment);
 COPY onek_copy_from_onsegment FROM '/tmp/valid_filename_onek_copy_onsegment<SEGID>.txt' ON SEGMENT;
+SELECT * FROM onek_copy_onsegment EXCEPT SELECT * FROM onek_copy_from_onsegment;
 SELECT count(*) FROM onek_copy_from_onsegment;
 
 CREATE EXTERNAL WEB TABLE rm_copy_onsegment_files (a int)
