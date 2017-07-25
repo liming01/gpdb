@@ -1110,7 +1110,7 @@ processResults(CdbDispatchResult *dispatchResult)
 				dispatchResult->numrowsrejected += pRes->numRejected;
 
 			/*
-			 * COPY FROM ON SEGMENT - get number of rows rejected by QE if any
+			 * COPY FROM ON SEGMENT - get number of rows completed by QE if any
 			 */
 			if (pRes->numCompleted > 0)
 				dispatchResult->numrowscompleted += pRes->numCompleted;

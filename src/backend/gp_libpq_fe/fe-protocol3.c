@@ -480,7 +480,8 @@ pqParseInput3(PGconn *conn)
 					conn->result->numRejected += numRejected;
 
 					/* Optionally receive completed number when COPY FROM ON SEGMENT */
-					if (msgLength >= 8 && !pqGetInt(&numCompleted, 4, conn)) {
+					if (msgLength >= 8 && !pqGetInt(&numCompleted, 4, conn))
+					{
 						conn->result->numCompleted += numCompleted;
 					}
 

@@ -1629,7 +1629,8 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 					(errcode(ERRCODE_GP_FEATURE_NOT_SUPPORTED),
 					 errmsg("COPY single row error handling only available for distributed user tables")));
 
-		if (cstate->on_segment && Gp_role == GP_ROLE_EXECUTE) {
+		if (cstate->on_segment && Gp_role == GP_ROLE_EXECUTE)
+		{
 			pipe = true;
 		}
 
@@ -2716,7 +2717,7 @@ static void CopyFromProcessDataFileHeader(CopyState cstate, CdbCopy *cdbCopy, bo
 {
 	if (!cstate->binary)
 	{
-			*pfile_has_oids = cstate->oids;	/* must rely on user to tell us... */
+		*pfile_has_oids = cstate->oids;	/* must rely on user to tell us... */
 	}
 	else
 	{
@@ -5082,7 +5083,8 @@ PROCESS_SEGMENT_DATA:
 	 * to process the data on segment, only one shot if cstate->on_segment &&
 	 * Gp_role == GP_ROLE_DISPATCH
 	 */
-	if (!is_segment_data_processed) {
+	if (!is_segment_data_processed)
+	{
 		struct stat st;
 		char *filename = cstate->filename;
 		cstate->copy_file = AllocateFile(filename, PG_BINARY_R);
@@ -5129,8 +5131,9 @@ PROCESS_SEGMENT_DATA:
 	 * rows to the client (QD COPY).
 	 * If COPY ... FROM ... ON SEGMENT, then need to send the number of completed
 	 */
-	if ((cstate->on_segment || (cstate->errMode != ALL_OR_NOTHING)) && Gp_role == GP_ROLE_EXECUTE)
-		SendNumRowsRejected((cstate->errMode != ALL_OR_NOTHING) ? cstate->cdbsreh->rejectcount : 0,
+	if ((cstate->errMode != ALL_OR_NOTHING && Gp_role == GP_ROLE_EXECUTE)
+		|| cstate->on_segment)
+		SendNumRows((cstate->errMode != ALL_OR_NOTHING) ? cstate->cdbsreh->rejectcount : 0,
 				cstate->on_segment ? cstate->processed : 0);
 
 	if (estate->es_result_partitions && Gp_role == GP_ROLE_EXECUTE)
