@@ -203,7 +203,7 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars, Relids where_needed)
 			}
 
 			/* System-defined attribute, whole row, or user-defined attribute */
-			Assert(attno >= rel->min_attr && attno <= rel->max_attr);
+			//Assert(attno >= rel->min_attr && attno <= rel->max_attr);
 			attno -= rel->min_attr;
 			if (rel->attr_needed[attno] == NULL)
 			{
