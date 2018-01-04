@@ -912,7 +912,7 @@ addRangeTableEntry_internal(ParseState *pstate,
 		Alias *alias,
 		bool inh,
 		bool inFromCl,
-		RangeVar *castRelv)
+		RangeVar *castRelRV)
 {
 	RangeTblEntry *rte = makeNode(RangeTblEntry);
 	char	   *refname = alias ? alias->aliasname : relation->relname;
@@ -952,15 +952,16 @@ addRangeTableEntry_internal(ParseState *pstate,
 	if (RelationIsExternal(rel))
 	{
 		inh = false;
-		if(castRelv)
+		if(castRelRV)
 		{
 			if(!CheckDynamicOptionForExtTab(rel))
 				elog(ERROR, "Only external table with OPTIONS (%s 'true') works for %s().", DYNAMIC_EXT_TAB_OPTION, GP_DYNAMIC_EXTTAB_AS_TAB);
 
-			castRel = parserOpenTable(pstate, castRelv, NoLock, nowait, NULL);
+			castRel = parserOpenTable(pstate, castRelRV, NoLock, nowait, NULL);
 			rte->castRelid = castRel->rd_id;
 		}
-	}else if(castRelv)
+	}
+	else if(castRelRV)
 	{
 		elog(ERROR, "The first arg for %s() should be external table.", GP_DYNAMIC_EXTTAB_AS_TAB);
 	}
@@ -970,7 +971,7 @@ addRangeTableEntry_internal(ParseState *pstate,
 	 * and/or actual column names.
 	 */
 	rte->eref = makeAlias(refname, NIL);
-	buildRelationAliases(castRelv?castRel->rd_att:rel->rd_att, alias, rte->eref);
+	buildRelationAliases(castRelRV?castRel->rd_att:rel->rd_att, alias, rte->eref);
 
 	/*
 	 * Drop the rel refcount, but keep the access lock till end of transaction
