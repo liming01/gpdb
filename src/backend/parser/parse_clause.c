@@ -751,7 +751,7 @@ transformRangeSubselect(ParseState *pstate, RangeSubselect *r)
 }
 
 static void
-getTableNameFromArg(ListCell *arg, char** pschemaname, char** ptablename)
+getTableNameFromArg(ListCell *arg, char** pschemaname, char** ptablename, const char* funcname)
 {
 
 	if (IsA(arg, A_Const))
@@ -761,7 +761,7 @@ getTableNameFromArg(ListCell *arg, char** pschemaname, char** ptablename)
 		arg_val = arg;
 		if (!IsA(&arg_val->val, String))
 		{
-			elog(ERROR, "%s: invalid argument type, non-string in value", GP_DYNAMIC_EXTTAB_AS_TAB);
+			elog(ERROR, "%s: invalid argument type, non-string in value", funcname);
 		}
 
 		*pschemaname = strVal(&arg_val->val);
@@ -769,7 +769,7 @@ getTableNameFromArg(ListCell *arg, char** pschemaname, char** ptablename)
 		if (*ptablename)
 		{
 			**ptablename = 0;
-			*ptablename++;
+			(*ptablename)++;
 		}
 		else
 		{
@@ -780,7 +780,7 @@ getTableNameFromArg(ListCell *arg, char** pschemaname, char** ptablename)
 	}
 	else
 	{
-		elog(ERROR, "%s: invalid argument type", GP_DYNAMIC_EXTTAB_AS_TAB);
+		elog(ERROR, "%s: invalid argument type", funcname);
 	}
 }
 /*
@@ -820,7 +820,7 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 			/* Only 2 args:
 			 * arg1: external table name */
 			arg_val = arg = linitial(fc->args);
-			getTableNameFromArg(arg, &schemaname1, &tablename1);
+			getTableNameFromArg(arg, &schemaname1, &tablename1, GP_DYNAMIC_EXTTAB_AS_TAB);
 
 			/* Got the name of the table, now we need to build the RTE for the table. */
 			rel = makeRangeVar(schemaname1, tablename1, arg_val->location);
@@ -828,7 +828,7 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 			/* arg2: The target table that dynamic external table will use it's attribute list */
 
 			arg = lsecond(fc->args);
-			getTableNameFromArg(arg, &schemaname2, &tablename2);
+			getTableNameFromArg(arg, &schemaname2, &tablename2, GP_DYNAMIC_EXTTAB_AS_TAB);
 			castRel = makeRangeVar(schemaname2, tablename2, arg_val->location);
 
 			rte = addRangeTableEntryForDynamicExtTab(pstate, rel, r->alias, false, true, castRel);
@@ -854,24 +854,7 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 				char *tablename;
 
 				arg_val = linitial(fc->args);
-				if (!IsA(&arg_val->val, String))
-				{
-					elog(ERROR, "%s: invalid argument type, non-string in value", GP_DIST_RANDOM_NAME);
-				}
-
-				schemaname = strVal(&arg_val->val);
-				tablename = strchr(schemaname, '.');
-				if (tablename)
-				{
-					*tablename = 0;
-					tablename++;
-				}
-				else
-				{
-					/* no schema */
-					tablename = schemaname;
-					schemaname = NULL;
-				}
+				getTableNameFromArg(arg_val, &schemaname, &tablename, GP_DIST_RANDOM_NAME);
 
 				/* Got the name of the table, now we need to build the RTE for the table. */
 				rel = makeRangeVar(schemaname, tablename, arg_val->location);

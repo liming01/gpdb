@@ -516,7 +516,7 @@ COPY dyn_schema_t1 to '@abs_srcdir@/data/dynamic_schema.csv' CSV;
 create external table dyn_schema_ext1(a int, b int)
 location ('file://@hostname@@abs_srcdir@/data/dynamic_schema.csv')
 format 'csv';
--- normal external table, not the same scheml with dyn_schema_t1 heap table 
+-- normal external table, not the same schema with dyn_schema_t1 heap table 
 create external table dyn_schema_ext2(a int)
 location ('file://@hostname@@abs_srcdir@/data/dynamic_schema.csv')
 format 'csv';
@@ -540,6 +540,12 @@ SELECT count(*) FROM dyn_schema_ext1;
 SELECT count(*) FROM GP_DYNAMIC_EXTTAB_AS_TAB('dyn_schema_ext2', 'dyn_schema_t1'); -- ERROR:  Only external table with OPTIONS (dynamic_schema 'true') works for GP_DYNAMIC_EXTTAB_AS_TAB() 
 ERROR:  Only external table with OPTIONS (dynamic_schema 'true') works for GP_DYNAMIC_EXTTAB_AS_TAB().
 SELECT count(*) FROM GP_DYNAMIC_EXTTAB_AS_TAB('dyn_schema_ext3', 'dyn_schema_t1'); -- ok
+ count 
+-------
+    10
+(1 row)
+
+SELECT count(*) FROM GP_DYNAMIC_EXTTAB_AS_TAB('public.dyn_schema_ext3', 'public.dyn_schema_t1'); -- ok, check table name with schema
  count 
 -------
     10
