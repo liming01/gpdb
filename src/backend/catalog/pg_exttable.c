@@ -506,7 +506,7 @@ CheckDynamicOptionForExtTab(Relation ext_rel)
 	{
 		DefElem *def = (DefElem *) lfirst(cell);
 
-		if (def->defname != NULL && pg_strcasecmp(def->defname, DYNAMIC_EXT_TAB_OPTION) == 0
+		if (def->defname != NULL && pg_strcasecmp(def->defname, DYNAMIC_EXT_TBL_OPTION) == 0
 				&& pg_strcasecmp(defGetString(def), "true") == 0)
 		{
 			return TRUE;
@@ -515,7 +515,7 @@ CheckDynamicOptionForExtTab(Relation ext_rel)
 }
 /**
  *  Dynamic External table can be used in the pseudo table function:
- *         GP_DYNAMIC_EXTTAB_AS_TAB('external_tab', 'cast_tab');
+ *         GP_DYNAMIC_EXTTBL_AS_TBL(('external_tbl', 'cast_tbl'));
  *  In this scenario, this function is called to auto replace external_tab's attribute list by the case_tab's.
  */
 void

@@ -551,7 +551,7 @@ extern bool gp_enable_direct_dispatch;
 #define GP_DIST_RANDOM_NAME "GP_DIST_RANDOM"
 
 /* Name of psedo-funciton to cast dynamic schema external table to specific table's schema */
-#define GP_DYNAMIC_EXTTAB_AS_TAB "GP_DYNAMIC_EXTTAB_AS_TAB"
+#define GP_DYNAMIC_EXTTBL_AS_TBL "GP_DYNAMIC_EXTTBL_AS_TBL"
 
 /*
  * gp_log_gang (string)

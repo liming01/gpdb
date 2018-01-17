@@ -54,7 +54,7 @@
 #include <limits.h>
 
 #include "catalog/index.h"
-#include "catalog/pg_exttable.h"  /*for macro DYNAMIC_EXT_TAB_OPTION*/
+#include "catalog/pg_exttable.h"  /*for macro DYNAMIC_EXT_TBL_OPTION*/
 #include "catalog/namespace.h"
 #include "catalog/pg_trigger.h"
 #include "commands/defrem.h"
@@ -4580,11 +4580,11 @@ CreateExternalStmt:	CREATE OptWritable EXTERNAL OptWeb OptTemp TABLE qualified_n
 
 								foreach(opt, n->extOptions)
 								{
-									if (pg_strcasecmp(((DefElem *) opt->data.ptr_value)->defname, DYNAMIC_EXT_TAB_OPTION) == 0
+									if (pg_strcasecmp(((DefElem *) opt->data.ptr_value)->defname, DYNAMIC_EXT_TBL_OPTION) == 0
 											&& pg_strcasecmp(((Value *)((DefElem *) opt->data.ptr_value)->arg)->val.str, "true")== 0)
 										ereport(ERROR,
 												(errcode(ERRCODE_SYNTAX_ERROR),
-												errmsg("External table with OPTIONS (%s 'true') can't include any column definition.", DYNAMIC_EXT_TAB_OPTION),
+												errmsg("External table with OPTIONS (%s 'true') can't include any column definition.", DYNAMIC_EXT_TBL_OPTION),
 												errhint("Please use empty column definition.")));
 								}
 							}

@@ -129,6 +129,6 @@ extern void CopyDynExtTableAttListFromCastRel(Relation, TupleDesc);
 #define fmttype_is_text(c)   (c == 't')
 #define fmttype_is_csv(c)    (c == 'c')
 
-#define DYNAMIC_EXT_TAB_OPTION "dynamic_schema"
+#define DYNAMIC_EXT_TBL_OPTION "dynamic_schema"
 
 #endif /* PG_EXTTABLE_H */

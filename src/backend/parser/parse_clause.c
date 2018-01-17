@@ -803,7 +803,7 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 
 	if (funcname)
 	{
-		if (pg_strncasecmp(funcname, GP_DYNAMIC_EXTTAB_AS_TAB, sizeof(GP_DYNAMIC_EXTTAB_AS_TAB)) == 0)
+		if (pg_strncasecmp(funcname, GP_DYNAMIC_EXTTBL_AS_TBL, sizeof(GP_DYNAMIC_EXTTBL_AS_TBL)) == 0)
 		{	/* OK, now we need to check the arguments and generate a RTE */
 			FuncCall *fc;
 			RangeVar *rel, *castRel;
@@ -815,12 +815,12 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 			fc = (FuncCall *)r->funccallnode;
 
 			if (list_length(fc->args) != 2)
-				elog(ERROR, "Invalid %s syntax.", GP_DYNAMIC_EXTTAB_AS_TAB);
+				elog(ERROR, "Invalid %s syntax.", GP_DYNAMIC_EXTTBL_AS_TBL);
 
 			/* Only 2 args:
 			 * arg1: external table name */
 			arg_val = arg = linitial(fc->args);
-			getTableNameFromArg(arg, &schemaname1, &tablename1, GP_DYNAMIC_EXTTAB_AS_TAB);
+			getTableNameFromArg(arg, &schemaname1, &tablename1, GP_DYNAMIC_EXTTBL_AS_TBL);
 
 			/* Got the name of the table, now we need to build the RTE for the table. */
 			rel = makeRangeVar(schemaname1, tablename1, arg_val->location);
@@ -828,7 +828,7 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 			/* arg2: The target table that dynamic external table will use it's attribute list */
 
 			arg = lsecond(fc->args);
-			getTableNameFromArg(arg, &schemaname2, &tablename2, GP_DYNAMIC_EXTTAB_AS_TAB);
+			getTableNameFromArg(arg, &schemaname2, &tablename2, GP_DYNAMIC_EXTTBL_AS_TBL);
 			castRel = makeRangeVar(schemaname2, tablename2, arg_val->location);
 
 			rte = addRangeTableEntryForDynamicExtTab(pstate, rel, r->alias, false, true, castRel);

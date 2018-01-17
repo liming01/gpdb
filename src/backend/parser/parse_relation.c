@@ -347,7 +347,7 @@ checkNameSpaceConflicts(ParseState *pstate, List *namespace1,
 			if (rte1->rtekind == RTE_RELATION && rte1->alias == NULL &&
 					rte2->rtekind == RTE_RELATION && rte2->alias == NULL &&
 					rte1->castRelid != rte2->castRelid)
-				continue;        /* no conflict if use different param2 for GP_DYNAMIC_EXTTAB_AS_TAB('exttab', 'param2'); */
+				continue;        /* no conflict if use different param2 for GP_DYNAMIC_EXTTBL_AS_TBL('exttab', 'param2'); */
 			ereport(ERROR,
 					(errcode(ERRCODE_DUPLICATE_ALIAS),
 					 errmsg("table name \"%s\" specified more than once",
@@ -955,7 +955,7 @@ addRangeTableEntry_internal(ParseState *pstate,
 		if(castRelRV)
 		{
 			if(!CheckDynamicOptionForExtTab(rel))
-				elog(ERROR, "Only external table with OPTIONS (%s 'true') works for %s().", DYNAMIC_EXT_TAB_OPTION, GP_DYNAMIC_EXTTAB_AS_TAB);
+				elog(ERROR, "Only external table with OPTIONS (%s 'true') works for %s().", DYNAMIC_EXT_TBL_OPTION, GP_DYNAMIC_EXTTBL_AS_TBL);
 
 			castRel = parserOpenTable(pstate, castRelRV, NoLock, nowait, NULL);
 			rte->castRelid = castRel->rd_id;
@@ -963,7 +963,7 @@ addRangeTableEntry_internal(ParseState *pstate,
 	}
 	else if(castRelRV)
 	{
-		elog(ERROR, "The first arg for %s() should be external table.", GP_DYNAMIC_EXTTAB_AS_TAB);
+		elog(ERROR, "The first arg for %s() should be external table.", GP_DYNAMIC_EXTTBL_AS_TBL);
 	}
 
 	/*
