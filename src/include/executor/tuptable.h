@@ -20,6 +20,7 @@
 #include "access/memtup.h"
 #include "access/tupdesc.h"
 #include "storage/buf.h"
+#include "executor/tuptable.h"
 
 /*----------
  * The executor stores tuples in a "tuple table" which is a List of

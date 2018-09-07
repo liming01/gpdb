@@ -599,7 +599,7 @@ apply_motion(PlannerInfo *root, Plan *plan, Query *query)
 		}
 
 		/* Use UNION RECEIVE.  Does not preserve ordering. */
-		else
+		else if (!gp_multi_process_fetch)
 			Insist(focusPlan(plan, false, false));
 	}
 

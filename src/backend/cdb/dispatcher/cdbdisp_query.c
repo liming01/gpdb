@@ -45,6 +45,7 @@
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbcopy.h"
 #include "executor/execUtils.h"
+#include "cdb/cdbfifo.h"
 
 #define QUERY_STRING_TRUNCATE_SIZE (1024)
 
@@ -894,7 +895,8 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		sddesc_len +
 		sizeof(numsegments) +
 		sizeof(resgroupInfo.len) +
-		resgroupInfo.len;
+		resgroupInfo.len +
+		sizeof(int32);
 
 	shared_query = palloc0(total_query_len);
 
@@ -1016,6 +1018,10 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		memcpy(pos, resgroupInfo.data, resgroupInfo.len);
 		pos += resgroupInfo.len;
 	}
+
+	n32 = htonl(GpToken());
+	memcpy(pos, &n32, sizeof(n32));
+	pos += sizeof(n32);
 
 	len = pos - shared_query - 1;
 

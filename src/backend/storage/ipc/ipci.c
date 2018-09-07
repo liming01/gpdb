@@ -64,6 +64,7 @@
 #include "executor/spi.h"
 #include "utils/workfile_mgr.h"
 #include "utils/session_state.h"
+#include "cdb/cdbfifo.h"
 
 shmem_startup_hook_type shmem_startup_hook = NULL;
 
@@ -205,6 +206,9 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		size = add_size(size, GpExpandVersionShmemSize());
 
 		elog(DEBUG3, "invoking IpcMemoryCreate(size=%zu)", size);
+
+		/* size of greenplum to greemplum end point shared memory */
+		size = add_size(size, EndPoint_ShmemSize());
 
 		/*
 		 * Create the shmem segment
@@ -361,9 +365,13 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	if (gp_enable_resqueue_priority)
 		BackoffStateInit();
 
+<<<<<<< HEAD
 	/* Initialize dynamic shared memory facilities. */
 	if (!IsUnderPostmaster)
 		dsm_postmaster_startup(shim);
+=======
+	EndPoint_ShmemInit();
+>>>>>>> A rough poc for System B work as we discussed in design doc
 
 	/*
 	 * Now give loadable modules a chance to set up their shmem allocations

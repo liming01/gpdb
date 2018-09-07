@@ -15,6 +15,12 @@
  */
 #include "postgres.h"
 
+#include <unistd.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <poll.h>
+
 #include "access/printtup.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
@@ -23,6 +29,8 @@
 #include "utils/memdebug.h"
 #include "utils/memutils.h"
 
+#include "mb/pg_wchar.h"
+#include "cdb/cdbfifo.h"
 
 static void printtup_startup(DestReceiver *self, int operation,
 				 TupleDesc typeinfo);
@@ -31,6 +39,14 @@ static void printtup_20(TupleTableSlot *slot, DestReceiver *self);
 static void printtup_internal_20(TupleTableSlot *slot, DestReceiver *self);
 static void printtup_shutdown(DestReceiver *self);
 static void printtup_destroy(DestReceiver *self);
+
+static void printtup_startup_fifo(DestReceiver *self, int operation,
+				 TupleDesc typeinfo);
+static void printtup_fifo(TupleTableSlot *slot, DestReceiver *self);
+static void printtup_shutdown_fifo(DestReceiver *self);
+static void printtup_destroy_fifo(DestReceiver *self);
+
+const char *FIFO_NAME = "/tmp/gp2gp_fifo";
 
 
 /* ----------------------------------------------------------------
@@ -65,6 +81,89 @@ typedef struct
 	MemoryContext tmpcontext;	/* Memory context for per-row workspace */
 } DR_printtup;
 
+typedef struct
+{
+	DestReceiver pub;			/* publicly-known function pointers */
+} DR_fifo_printtup;
+
+static void
+read_fifo_binary(int fifo_fd, char *data, int len)
+{
+	int				ret;
+	int				curr = 0;
+	struct pollfd	fds;
+
+	elog(WARNING, "Reading data(%d)\n", len);
+
+	const int POLL_FIFO_TIMEOUT = 500;
+
+	fds.fd = fifo_fd;
+	fds.events = POLLIN;
+
+	while (len > 0)
+	{
+		int 			pollRet;
+
+		do
+		{
+			CHECK_FOR_INTERRUPTS();
+			pollRet = poll(&fds, 1, POLL_FIFO_TIMEOUT);
+		}
+		while (pollRet == 0 || (pollRet < 0 && (errno == EINTR || errno == EAGAIN)));
+
+		if (pollRet < 0)
+			elog(ERROR, "Poll failed during write pipe.\n");
+
+		ret = read(fifo_fd, &data[curr], len);
+		if (ret >= 0)
+		{
+			curr += ret;
+			len -= ret;
+		}
+		if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+			continue;
+		else if (ret == -1)
+			elog(ERROR, "write error on fifo(%d):%s\n", fifo_fd, strerror(errno));
+	}
+}
+
+static void
+write_fifo_binary(int fifo_fd, void *data, int len)
+{
+	int				ret;
+	struct pollfd	fds;
+
+	elog(WARNING, "Writing data(%d)\n", len);
+
+	const int POLL_FIFO_TIMEOUT = 500;
+
+	fds.fd = fifo_fd;
+	fds.events = POLLOUT;
+
+	while (len > 0)
+	{
+		int 			pollRet;
+
+		do
+		{
+			CHECK_FOR_INTERRUPTS();
+			pollRet = poll(&fds, 1, POLL_FIFO_TIMEOUT);
+		}
+		while (pollRet == 0 || (pollRet < 0 && (errno == EINTR || errno == EAGAIN)));
+
+		if (pollRet < 0)
+			elog(ERROR, "Poll failed during write pipe.\n");
+
+		ret = write(fifo_fd, data, len);
+		if (ret >= 0)
+			len -= ret;
+		if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+			continue;
+		else if (ret == -1)
+			elog(ERROR, "write error on fifo(%d):%s\n", fifo_fd, strerror(errno));
+	}
+}
+
 /* ----------------
  *		Initialize: create a DestReceiver for printtup
  * ----------------
@@ -90,6 +189,27 @@ printtup_create_DR(CommandDest dest)
 	self->nattrs = 0;
 	self->myinfo = NULL;
 	self->tmpcontext = NULL;
+
+	return (DestReceiver *) self;
+}
+
+static void
+printtup_startup_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
+{
+	AllocEndPoint(typeinfo);
+	InitConn();
+}
+
+DestReceiver *
+printtup_create_fifo_DR(CommandDest dest)
+{
+	DR_fifo_printtup *self = (DR_fifo_printtup *) palloc0(sizeof(DR_fifo_printtup));
+
+	self->pub.receiveSlot = printtup_fifo;	/* might get changed later */
+	self->pub.rStartup = printtup_startup_fifo;
+	self->pub.rShutdown = printtup_shutdown_fifo;
+	self->pub.rDestroy = printtup_destroy_fifo;
+	self->pub.mydest = dest;
 
 	return (DestReceiver *) self;
 }
@@ -176,6 +296,55 @@ printtup_startup(DestReceiver *self, int operation __attribute__((unused)), Tupl
 }
 
 /*
+ * Get the lookup info that printtup() needs
+ */
+static void
+printtup_prepare_info(DR_printtup *myState, TupleDesc typeinfo, int numAttrs)
+{
+	int16	   *formats = myState->portal->formats;
+	int			i;
+
+	/* get rid of any old data */
+	if (myState->myinfo)
+		pfree(myState->myinfo);
+	myState->myinfo = NULL;
+
+	myState->attrinfo = typeinfo;
+	myState->nattrs = numAttrs;
+	if (numAttrs <= 0)
+		return;
+
+	myState->myinfo = (PrinttupAttrInfo *)
+		palloc0(numAttrs * sizeof(PrinttupAttrInfo));
+
+	for (i = 0; i < numAttrs; i++)
+	{
+		PrinttupAttrInfo *thisState = myState->myinfo + i;
+		int16		format = (formats ? formats[i] : 0);
+
+		thisState->format = format;
+		if (format == 0)
+		{
+			getTypeOutputInfo(typeinfo->attrs[i]->atttypid,
+							  &thisState->typoutput,
+							  &thisState->typisvarlena);
+			fmgr_info(thisState->typoutput, &thisState->finfo);
+		}
+		else if (format == 1)
+		{
+			getTypeBinaryOutputInfo(typeinfo->attrs[i]->atttypid,
+									&thisState->typsend,
+									&thisState->typisvarlena);
+			fmgr_info(thisState->typsend, &thisState->finfo);
+		}
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("unsupported format code: %d", format)));
+	}
+}
+
+/*
  * SendRowDescriptionMessage --- send a RowDescription message to the frontend
  *
  * Notes: the TupleDesc has typically been manufactured by ExecTypeFromTL()
@@ -244,55 +413,6 @@ SendRowDescriptionMessage(TupleDesc typeinfo, List *targetlist, int16 *formats)
 		}
 	}
 	pq_endmessage(&buf);
-}
-
-/*
- * Get the lookup info that printtup() needs
- */
-static void
-printtup_prepare_info(DR_printtup *myState, TupleDesc typeinfo, int numAttrs)
-{
-	int16	   *formats = myState->portal->formats;
-	int			i;
-
-	/* get rid of any old data */
-	if (myState->myinfo)
-		pfree(myState->myinfo);
-	myState->myinfo = NULL;
-
-	myState->attrinfo = typeinfo;
-	myState->nattrs = numAttrs;
-	if (numAttrs <= 0)
-		return;
-
-	myState->myinfo = (PrinttupAttrInfo *)
-		palloc0(numAttrs * sizeof(PrinttupAttrInfo));
-
-	for (i = 0; i < numAttrs; i++)
-	{
-		PrinttupAttrInfo *thisState = myState->myinfo + i;
-		int16		format = (formats ? formats[i] : 0);
-
-		thisState->format = format;
-		if (format == 0)
-		{
-			getTypeOutputInfo(typeinfo->attrs[i]->atttypid,
-							  &thisState->typoutput,
-							  &thisState->typisvarlena);
-			fmgr_info(thisState->typoutput, &thisState->finfo);
-		}
-		else if (format == 1)
-		{
-			getTypeBinaryOutputInfo(typeinfo->attrs[i]->atttypid,
-									&thisState->typsend,
-									&thisState->typisvarlena);
-			fmgr_info(thisState->typsend, &thisState->finfo);
-		}
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("unsupported format code: %d", format)));
-	}
 }
 
 /* ----------------
@@ -594,6 +714,16 @@ printtup(TupleTableSlot *slot, DestReceiver *self)
 }
 
 /* ----------------
+ *		printtup_fifo --- print a tuple in protocol 3.0
+ * ----------------
+ */
+static void
+printtup_fifo(TupleTableSlot *slot, DestReceiver *self)
+{
+	SendTupleSlot(slot);
+}
+
+/* ----------------
  *		printtup_20 --- print a tuple in protocol 2.0
  * ----------------
  */
@@ -693,12 +823,26 @@ printtup_shutdown(DestReceiver *self)
 	myState->tmpcontext = NULL;
 }
 
+static void
+printtup_shutdown_fifo(DestReceiver *self)
+{
+	FinishConn();
+	CloseConn();
+	FreeEndPoint();
+}
+
 /* ----------------
  *		printtup_destroy
  * ----------------
  */
 static void
 printtup_destroy(DestReceiver *self)
+{
+	pfree(self);
+}
+
+static void
+printtup_destroy_fifo(DestReceiver *self)
 {
 	pfree(self);
 }

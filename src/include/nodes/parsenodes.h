@@ -3389,4 +3389,10 @@ typedef struct AlterTSConfigurationStmt
 	bool		missing_ok;		/* for DROP - skip error if missing? */
 } AlterTSConfigurationStmt;
 
+typedef struct RetrieveStmt
+{
+	NodeTag		type;
+	int32		token;
+} RetrieveStmt;
+
 #endif   /* PARSENODES_H */
