@@ -41,6 +41,7 @@
 #include "cdb/cdbfts.h"
 #include "cdb/cdbdisp.h"		/* me */
 #include "cdb/cdbdisp_query.h"
+#include "cdb/cdbfifo.h"
 #include "cdb/cdbgang.h"		/* me */
 #include "cdb/cdbgang_thread.h"
 #include "cdb/cdbgang_async.h"

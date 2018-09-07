@@ -73,6 +73,7 @@
 #include "cdb/cdbvars.h" /* Gp_role, Gp_is_writer, interconnect_setup_timeout */
 #include "utils/vmem_tracker.h"
 #include "cdb/cdbdisp.h"
+#include "cdb/cdbfifo.h"
 
 /*
  *	User-tweakable parameters
@@ -3236,6 +3237,8 @@ AbortTransaction(void)
 	/* Release resource group slot at the end of a transaction */
 	if (ShouldUnassignResGroup())
 		UnassignResGroup();
+
+	AbortEndPoint();
 }
 
 /*

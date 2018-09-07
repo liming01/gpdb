@@ -70,6 +70,7 @@
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbpartition.h"
 #include "cdb/cdbvars.h"
+#include "cdb/cdbfifo.h"
 
 
 /* Hook for plugins to get control in ProcessUtility() */
@@ -1641,6 +1642,10 @@ standard_ProcessUtility(Node *parsetree,
 			AlterTSConfiguration((AlterTSConfigurationStmt *) parsetree);
 			break;
 
+		case T_RetrieveStmt:
+			RetrieveResults((RetrieveStmt *) parsetree, dest);
+			break;
+
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(parsetree));
@@ -1693,6 +1698,9 @@ UtilityReturnsTuples(Node *parsetree)
 		case T_VariableShowStmt:
 			return true;
 
+		case T_RetrieveStmt:
+			return true;
+
 		default:
 			return false;
 	}
@@ -1743,6 +1751,23 @@ UtilityTupleDescriptor(Node *parsetree)
 				VariableShowStmt *n = (VariableShowStmt *) parsetree;
 
 				return GetPGVariableResultDesc(n->name);
+			}
+
+		case T_RetrieveStmt:
+			{
+				RetrieveStmt *n = (RetrieveStmt *) parsetree;
+
+				if (n->token <= 0)
+					elog(ERROR, "Invalid token %d", n->token);
+
+				if (Gp_role != GP_ROLE_RETRIEVE)
+					elog(ERROR, "RETRIEVE command can only run in retrieve mode");
+
+				SetGpToken(n->token);
+				SetEndPointRole(EPR_RECEIVER);
+				AttachEndPoint();
+
+				return CreateTupleDescCopy(ResultTupleDesc());
 			}
 
 		default:
@@ -2672,6 +2697,10 @@ CreateCommandTag(Node *parsetree)
 
 		case T_AlterTypeStmt:
 			tag = "ALTER TYPE";
+			break;
+
+		case T_RetrieveStmt:
+			tag = "RETRIEVE";
 			break;
 
 		default:
