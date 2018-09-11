@@ -49,7 +49,7 @@ typedef EndPointDesc *EndPoint;
 extern Size EndPoint_ShmemSize(void);
 extern void EndPoint_ShmemInit(void);
 
-
+extern void SendRetrieveInfo(void);
 extern void SetGpToken(int32 token);
 extern void ClearGpToken(void);
 extern int32 GpToken(void);

@@ -596,9 +596,9 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			// FIXME: Generate unique token here.
 			int32		token = 12345;
 
-			elog(WARNING, "Retrive token #%d", token);
-
 			SetGpToken(token);
+
+			SendRetrieveInfo();
 
 			if (exec_identity == GP_ROOT_SLICE &&
 				LocallyExecutingSliceIndex(estate) == 0)

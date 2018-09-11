@@ -28,6 +28,7 @@ extern void pq_sendint64(StringInfo buf, int64 i);
 extern void pq_sendfloat4(StringInfo buf, float4 f);
 extern void pq_sendfloat8(StringInfo buf, float8 f);
 extern void pq_endmessage(StringInfo buf);
+extern int pq_flush(void);
 
 extern void pq_begintypsend(StringInfo buf);
 extern bytea *pq_endtypsend(StringInfo buf);
