@@ -365,13 +365,12 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	if (gp_enable_resqueue_priority)
 		BackoffStateInit();
 
-<<<<<<< HEAD
 	/* Initialize dynamic shared memory facilities. */
 	if (!IsUnderPostmaster)
 		dsm_postmaster_startup(shim);
-=======
+
+	Token_ShmemInit();
 	EndPoint_ShmemInit();
->>>>>>> A rough poc for System B work as we discussed in design doc
 
 	/*
 	 * Now give loadable modules a chance to set up their shmem allocations
