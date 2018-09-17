@@ -21,6 +21,8 @@
 #define InvalidToken		(-1)
 #define InvalidPid			0
 #define FIFO_NAME_PATTERN "/tmp/gp2gp_fifo_%d_%d"
+#define SHMEM_TOKEN "SharedMemoryToken"
+#define SHMEM_TOKEN_SLOCK "SharedMemoryTokenSlock"
 #define SHMEM_END_POINT "SharedMemoryEndPoint"
 #define SHMEM_END_POINT_SLOCK "SharedMemoryEndPointSlock"
 
@@ -44,6 +46,9 @@ typedef FifoConnStateData 	*FifoConnState;
 
 static FifoConnState 		s_fifoConnState = NULL;
 static TupleTableSlot		*s_resultTupleSlot;
+
+static int32 				*SharedTokens;
+static slock_t 				*shared_tokens_lock;
 
 static EndPointDesc 		*SharedEndPoints;
 volatile EndPointDesc 		*mySharedEndPoint = NULL;
@@ -74,6 +79,52 @@ void SendRetrieveInfo()
 	}
 	pq_endmessage(&buf);
 	pq_flush();
+}
+
+int32 GetUniqueGpToken()
+{
+	SpinLockAcquire(shared_tokens_lock);
+
+REGENERATE:
+	srand(time(NULL));
+	int32 token = rand();
+
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (token == SharedTokens[i])
+		{
+			goto REGENERATE;
+		}
+	}
+
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedTokens[i] == InvalidToken)
+		{
+			SharedTokens[i] = token;
+			break;
+		}
+	}
+
+	SpinLockRelease(shared_tokens_lock);
+
+	return token;
+}
+
+void DismissGpToken()
+{
+	SpinLockAcquire(shared_tokens_lock);
+
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedTokens[i] == Gp_token)
+		{
+			SharedTokens[i] = InvalidToken;
+			break;
+		}
+	}
+
+	SpinLockRelease(shared_tokens_lock);
 }
 
 void SetGpToken(int32 token)
@@ -159,6 +210,41 @@ Size EndPoint_ShmemSize()
 	return size;
 }
 
+void Token_ShmemInit()
+{
+	bool	is_shmem_ready;
+	Size	size;
+
+	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(int32));
+
+    SharedTokens = (int32 *)
+						ShmemInitStruct(SHMEM_TOKEN,
+							size,
+							&is_shmem_ready);
+
+	Assert(is_shmem_ready || !IsUnderPostmaster);
+
+	if (!is_shmem_ready)
+	{
+		int		i;
+
+		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+		{
+			SharedTokens[i] = InvalidToken;
+		}
+	}
+
+    shared_tokens_lock = (slock_t *)
+						ShmemInitStruct(SHMEM_TOKEN_SLOCK,
+							sizeof(slock_t),
+							&is_shmem_ready);
+
+	Assert(is_shmem_ready || !IsUnderPostmaster);
+
+	if (!is_shmem_ready)
+		SpinLockInit(shared_tokens_lock);
+}
+
 void EndPoint_ShmemInit()
 {
 	bool	is_shmem_ready;
@@ -182,7 +268,7 @@ void EndPoint_ShmemInit()
 			SharedEndPoints[i].database_id = InvalidOid;
 			SharedEndPoints[i].sender_pid = InvalidPid;
 			SharedEndPoints[i].receiver_pid = InvalidPid;
-			SharedEndPoints[i].token = 0;
+			SharedEndPoints[i].token = InvalidToken;
 			SharedEndPoints[i].attached = false;
 			SharedEndPoints[i].empty = true;
 			SharedEndPoints[i].num_attributes = 0;
@@ -206,8 +292,6 @@ void AllocEndPoint(TupleDesc tupdesc)
 {
 	int			i;
 	AttrDesc	attdesc[ENDPOINT_MAX_ATT_NUM];
-
-	check_gp_token_valid();
 
 	if (Gp_endpoint_role != EPR_SENDER)
 		ep_log(ERROR, "%s could not allocate end point slot",
@@ -829,6 +913,7 @@ void AbortEndPoint(void)
 	}
 
 	s_inAbort = false;
+	DismissGpToken();
 	Gp_token = InvalidToken;
 	Gp_endpoint_role = EPR_NONE;
 }

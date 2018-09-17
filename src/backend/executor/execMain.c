@@ -593,8 +593,7 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			queryDesc->operation == CMD_SELECT &&
 			!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
 		{
-			// FIXME: Generate unique token here.
-			int32		token = 12345;
+			int32 token = GetUniqueGpToken();
 
 			SetGpToken(token);
 

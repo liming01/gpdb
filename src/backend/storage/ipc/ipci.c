@@ -348,6 +348,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	if (gp_enable_resqueue_priority)
 		BackoffStateInit();
 
+	Token_ShmemInit();
 	EndPoint_ShmemInit();
 
 	/*

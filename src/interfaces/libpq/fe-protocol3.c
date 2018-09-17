@@ -462,7 +462,7 @@ pqParseInput3(PGconn *conn)
 							break;
 					}
 
-					int tempfile = open("/tmp/token_dump", O_CREAT | O_WRONLY, 0666);
+					int tempfile = open("/tmp/token_dump", O_CREAT | O_TRUNC | O_WRONLY, 0666);
 					char *token = malloc(128);
 					memset(token, 0, 128);
 					snprintf(token, 128, "%d\n", conn->result->token);
