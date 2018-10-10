@@ -134,7 +134,7 @@ static char *ExecBuildSlotValueDescription(TupleTableSlot *slot,
 static void EvalPlanQualStart(EPQState *epqstate, EState *parentestate,
 				  Plan *planTree);
 
-static void FillSliceTable(EState *estate, PlannedStmt *stmt);
+static void FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor);
 
 static PartitionNode *BuildPartitionNodeFromRoot(Oid relid);
 static void InitializeQueryPartsMetadata(PlannedStmt *plannedstmt, EState *estate);
@@ -589,7 +589,7 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			exec_identity = GP_IGNORE;
 
 		if (Gp_role == GP_ROLE_DISPATCH &&
-			gp_multi_process_fetch &&
+			queryDesc->parallel_cursor &&
 			queryDesc->operation == CMD_SELECT &&
 			!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
 		{
@@ -934,7 +934,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	exec_identity = getGpExecIdentity(queryDesc, direction, estate);
 
 	/*
-	 * When run a root slice, and gp_multi_process_fetch is enabled, it means
+	 * When run a root slice, and it is a parallel cursor, it means
 	 * QD become the end point for connection. It is true, for
 	 * instance, SELECT * FROM foo LIMIT 10, and the result should
 	 * go out from QD.
@@ -1957,7 +1957,7 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	 * Initialize the slice table.
 	 */
 	if (Gp_role == GP_ROLE_DISPATCH)
-		FillSliceTable(estate, plannedstmt);
+		FillSliceTable(estate, plannedstmt, queryDesc->parallel_cursor);
 
 	/*
 	 * Initialize private state information for each SubPlan.  We must do this
@@ -4478,7 +4478,7 @@ FillSliceTable_walker(Node *node, void *context)
  * into SubPlan nodes, to do the same.
  */
 static void
-FillSliceTable(EState *estate, PlannedStmt *stmt)
+FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 {
 	FillSliceTable_cxt cxt;
 	SliceTable *sliceTable = estate->es_sliceTable;
@@ -4490,14 +4490,18 @@ FillSliceTable(EState *estate, PlannedStmt *stmt)
 	cxt.estate = estate;
 	cxt.currentSliceId = 0;
 
-	if (stmt->intoClause != NULL || gp_multi_process_fetch)
+	if (stmt->intoClause != NULL)
 	{
 		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
 
 		currentSlice->gangType = GANGTYPE_PRIMARY_WRITER;
 		currentSlice->gangSize = getgpsegmentCount();
-	}
+	}else if (parallel_cursor){
+		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
 
+		currentSlice->gangType = GANGTYPE_PRIMARY_READER;
+		currentSlice->gangSize = getgpsegmentCount();
+	}
 	/*
 	 * NOTE: We depend on plan_tree_walker() to recurse into subplans of
 	 * SubPlan nodes.

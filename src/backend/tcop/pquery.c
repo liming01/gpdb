@@ -109,6 +109,7 @@ CreateQueryDesc(PlannedStmt *plannedstmt,
 	qd->totaltime = NULL;
 
 	qd->extended_query = false; /* default value */
+	qd->parallel_cursor= false; /* default value */
 	qd->portal_name = NULL;
 
 	qd->ddesc = NULL;
@@ -155,6 +156,7 @@ CreateUtilityQueryDesc(Node *utilitystmt,
 	qd->totaltime = NULL;
 
 	qd->extended_query = false; /* default value */
+	qd->parallel_cursor= false; /* default value */
 	qd->portal_name = NULL;
 
 	return qd;
@@ -360,7 +362,7 @@ ProcessQuery(Portal portal,
  * See the comments in portal.h.
  */
 PortalStrategy
-ChoosePortalStrategy(List *stmts)
+ChoosePortalStrategy(List *stmts, bool parallelcursor)
 {
 	int			nSetTag;
 	ListCell   *lc;
@@ -416,7 +418,7 @@ ChoosePortalStrategy(List *stmts)
 				{
 					if (pstmt->hasModifyingCTE)
 						return PORTAL_ONE_MOD_WITH;
-					else if (gp_multi_process_fetch)
+					else if (parallelcursor)
 						return PORTAL_MULTI_QUERY;
 					else
 						return PORTAL_ONE_SELECT;
@@ -629,7 +631,7 @@ PortalStart(Portal portal, ParamListInfo params,
 		/*
 		 * Determine the portal execution strategy
 		 */
-		portal->strategy = ChoosePortalStrategy(portal->stmts);
+		portal->strategy = ChoosePortalStrategy(portal->stmts, portal->cursorOptions & CURSOR_OPT_PARALLEL);
 
 		/* Initialize the backoff weight for this backend */
 		PortalSetBackoffWeight(portal);
@@ -684,6 +686,11 @@ PortalStart(Portal portal, ParamListInfo params,
 				{
 					queryDesc->extended_query = true;
 					queryDesc->portal_name = (portal->name ? pstrdup(portal->name) : (char *) NULL);
+				}
+				
+				if(portal->cursorOptions & CURSOR_OPT_PARALLEL) 
+				{
+					queryDesc->parallel_cursor = true;
 				}
 
 				queryDesc->plannedstmt->query_mem = ResourceManagerGetQueryMemoryLimit(queryDesc->plannedstmt);

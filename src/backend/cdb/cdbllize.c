@@ -131,7 +131,7 @@ Plan *
 cdbparallelize(PlannerInfo *root,
 			   Plan *plan,
 			   Query *query,
-			   int cursorOptions __attribute__((unused)),
+			   int cursorOptions,
 			   ParamListInfo boundParams __attribute__((unused))
 )
 {
@@ -215,7 +215,7 @@ cdbparallelize(PlannerInfo *root,
 		 * to the root plan node of each root slice of the plan.
 		 */
 		Assert(root->parse == query);
-		plan = apply_motion(root, plan, query);
+		plan = apply_motion(root, plan, query, cursorOptions);
 
 		/*
 		 * Mark the root plan to DISPATCH_PARALLEL if prescan() says

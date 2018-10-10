@@ -207,7 +207,6 @@ extern PGDLLIMPORT pg_time_t MyStartTime;
 extern PGDLLIMPORT struct Port *MyProcPort;
 extern long MyCancelKey;
 extern int	MyPMChildSlot;
-extern bool gp_multi_process_fetch;
 
 extern char OutputFileName[];
 extern PGDLLIMPORT char my_exec_path[];
