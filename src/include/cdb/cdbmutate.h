@@ -21,7 +21,7 @@
 #include "nodes/relation.h"
 #include "optimizer/walkers.h"
 
-extern Plan *apply_motion(struct PlannerInfo *root, Plan *plan, Query *query);
+extern Plan *apply_motion(struct PlannerInfo *root, Plan *plan, Query *query, int cursorOptions);
 
 extern Motion *make_union_motion(Plan *lefttree, bool useExecutorVarFormat, int numsegments);
 extern Motion *make_sorted_union_motion(PlannerInfo *root, Plan *lefttree, int numSortCols, AttrNumber *sortColIdx, Oid *sortOperators,

@@ -352,7 +352,7 @@ get_partitioned_policy_from_flow(Plan *plan)
  * -------------------------------------------------------------------------
  */
 Plan *
-apply_motion(PlannerInfo *root, Plan *plan, Query *query)
+apply_motion(PlannerInfo *root, Plan *plan, Query *query, int cursorOptions)
 {
 	Plan	   *result;
 	ListCell   *cell;
@@ -599,7 +599,7 @@ apply_motion(PlannerInfo *root, Plan *plan, Query *query)
 		}
 
 		/* Use UNION RECEIVE.  Does not preserve ordering. */
-		else if (!gp_multi_process_fetch)
+		else if (!(cursorOptions & CURSOR_OPT_PARALLEL))
 			Insist(focusPlan(plan, false, false));
 	}
 

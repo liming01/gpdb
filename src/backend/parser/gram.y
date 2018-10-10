@@ -662,7 +662,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 	OBJECT_P OF OFF OFFSET OIDS ON ONLY OPERATOR OPTION OPTIONS OR
 	ORDER ORDINALITY OUT_P OUTER_P OVER OVERLAPS OVERLAY OWNED OWNER
 
-	PARSER PARTIAL PARTITION PASSING PASSWORD PLACING PLANS POSITION
+	PARALLEL PARSER PARTIAL PARTITION PASSING PASSWORD PLACING PLANS POSITION
 	PRECEDING PRECISION PRESERVE PREPARE PREPARED PRIMARY
 	PRIOR PRIVILEGES PROCEDURAL PROCEDURE PROGRAM
 
@@ -950,6 +950,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 			%nonassoc OVERCOMMIT
 			%nonassoc OWNED
 			%nonassoc OWNER
+			%nonassoc PARALLEL
 			%nonassoc PARTIAL
 			%nonassoc PARTITIONS
 			%nonassoc PASSWORD
@@ -11806,6 +11807,7 @@ cursor_options: /*EMPTY*/					{ $$ = 0; }
 			| cursor_options SCROLL			{ $$ = $1 | CURSOR_OPT_SCROLL; }
 			| cursor_options BINARY			{ $$ = $1 | CURSOR_OPT_BINARY; }
 			| cursor_options INSENSITIVE	{ $$ = $1 | CURSOR_OPT_INSENSITIVE; }
+			| cursor_options PARALLEL		{ $$ = $1 | CURSOR_OPT_PARALLEL; }
 		;
 
 opt_hold: /* EMPTY */						{ $$ = 0; }
@@ -15703,6 +15705,7 @@ unreserved_keyword:
 			| OVERCOMMIT
 			| OWNED
 			| OWNER
+			| PARALLEL
 			| PARSER
 			| PARTIAL
 			| PARTITIONS
@@ -15998,6 +16001,7 @@ PartitionIdentKeyword: ABORT_P
 			| OVERCOMMIT
 			| OWNED
 			| OWNER
+			| PARALLEL
 			| PARTIAL
 			| PARTITIONS
 			| PASSWORD
