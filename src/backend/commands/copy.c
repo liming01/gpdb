@@ -7355,6 +7355,7 @@ open_program_pipes(char *command, bool forwrite)
 	/* Restore the SIGPIPE handler */
 	pqsignal(SIGPIPE, save_SIGPIPE);
 
+	elog(DEBUG5, "COPY ... PROGRAM command: %s", program_pipes->shexec);
 	if (program_pipes->pid == -1)
 	{
 		errno = save_errno;
