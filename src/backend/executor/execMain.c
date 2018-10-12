@@ -600,13 +600,15 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		if (Gp_role == GP_ROLE_DISPATCH &&
 			queryDesc->parallel_cursor &&
 			queryDesc->operation == CMD_SELECT &&
+			// queryDesc->plannedstmt->utilityStmt != NULL &&
 			!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
 		{
-			int32 token = GetUniqueGpToken();
+			// int32 token = GetUniqueGpToken();
+			int32 token = 12345;
 
 			SetGpToken(token);
 
-			SendRetrieveInfo();
+			// SendRetrieveInfo();
 
 			if (exec_identity == GP_ROOT_SLICE &&
 				LocallyExecutingSliceIndex(estate) == 0)
