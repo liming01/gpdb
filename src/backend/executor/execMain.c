@@ -591,6 +591,7 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		if (Gp_role == GP_ROLE_DISPATCH &&
 			queryDesc->parallel_cursor &&
 			queryDesc->operation == CMD_SELECT &&
+			queryDesc->plannedstmt->utilityStmt != NULL &&
 			!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
 		{
 			int32 token = GetUniqueGpToken();
