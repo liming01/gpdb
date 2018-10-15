@@ -795,6 +795,9 @@ static void sender_finish()
 
 		CHECK_FOR_INTERRUPTS();
 
+		if (QueryFinishPending)
+			break;
+
 		wr = WaitLatch(&mySharedEndPoint->ack_done,
 					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
 					   POLL_FIFO_TIMEOUT);
