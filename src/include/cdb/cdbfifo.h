@@ -30,6 +30,7 @@ typedef struct attrdesc
 } AttrDesc;
 
 #define ENDPOINT_MAX_ATT_NUM 1000
+#define InvalidToken		(-1)
 
 typedef struct sendpointdesc
 {
