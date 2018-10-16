@@ -19,7 +19,6 @@
 
 #define MAX_ENDPOINT_SIZE 	100
 #define MAX_FIFO_NAME_SIZE	100
-#define InvalidToken		(-1)
 #define InvalidPid			0
 #define FIFO_NAME_PATTERN "/tmp/gp2gp_fifo_%d_%d"
 #define SHMEM_TOKEN "SharedMemoryToken"

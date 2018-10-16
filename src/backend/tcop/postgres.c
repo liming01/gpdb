@@ -5260,9 +5260,8 @@ PostgresMain(int argc, char *argv[],
 					int serializedParamslen = 0;
 					int serializedQueryDispatchDesclen = 0;
 					int resgroupInfoLen = 0;
-
-					int	multi_process_fetch_token = 0;
-					int localSlice = -1, i;
+					int multi_process_fetch_token = InvalidToken;
+					int localSlice = -1;
 
 					int rootIdx;
 					TimestampTz statementStart;
@@ -5338,8 +5337,6 @@ PostgresMain(int argc, char *argv[],
 
 					multi_process_fetch_token = pq_getmsgint(&input_message, sizeof(int32));
 
-					SetGpToken(multi_process_fetch_token);
-
 					pq_getmsgend(&input_message);
 
 					elog((Debug_print_full_dtm ? LOG : DEBUG5), "MPP dispatched stmt from QD: %s.",query_string);
@@ -5392,11 +5389,17 @@ PostgresMain(int argc, char *argv[],
 						}
 					}
 					else
+					{
+						if(multi_process_fetch_token!=InvalidToken)
+							SetGpToken(multi_process_fetch_token);
+
 						exec_mpp_query(query_string,
 									   serializedQuerytree, serializedQuerytreelen,
 									   serializedPlantree, serializedPlantreelen,
 									   serializedParams, serializedParamslen,
-									   serializedQueryDispatchDesc, serializedQueryDispatchDesclen);
+									   serializedQueryDispatchDesc, serializedQueryDispatchDesclen,
+									   localSlice);
+					}
 
 					SetUserIdAndContext(GetOuterUserId(), false);
 
