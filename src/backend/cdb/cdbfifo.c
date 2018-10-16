@@ -15,6 +15,7 @@
 #include "cdb/cdbutil.h"
 #include "cdb/cdbvars.h"
 #include "utils/gp_alloc.h"
+#include "funcapi.h"
 
 #define MAX_ENDPOINT_SIZE 	100
 #define MAX_FIFO_NAME_SIZE	100
@@ -919,4 +920,26 @@ void AbortEndPoint(void)
 	DismissGpToken();
 	Gp_token = InvalidToken;
 	Gp_endpoint_role = EPR_NONE;
+}
+
+Datum
+gp_endpoints_info_view(PG_FUNCTION_ARGS)
+{
+#if 0
+	FuncCallContext *funcctx;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		TupleDesc	tupdesc;
+		MemoryContext oldcontext;
+
+		/* create a function context for cross-call persistence */
+		funcctx = SRF_FIRSTCALL_INIT();
+		tupdesc = CreateTemplateTupleDesc(5, false);
+		/* read token from share memory */
+		TupleDescInitEntry(tupdesc, (AttrNumber) 1);
+	}
+
+	SRF_RETURN_DONE(funcctx);
+#endif
 }
