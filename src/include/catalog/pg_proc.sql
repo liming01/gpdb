@@ -152,7 +152,7 @@
 
  CREATE FUNCTION gp_update_ao_master_stats(regclass) RETURNS int8 LANGUAGE internal VOLATILE MODIFIES SQL DATA AS 'gp_update_ao_master_stats' WITH (OID=7173, DESCRIPTION="append only tables utility function");
 
- CREATE FUNCTION gp_endpoints_info_view() RETURNS SETOF record LANGUAGE internal VOLATILE AS 'gp_endpoints_info_view' WITH (OID=7178, DESCRIPTION="mpp endpoints information view"); 
+ CREATE FUNCTION gp_endpoints_info(OUT placeholder int4, OUT token int4) RETURNS SETOF record LANGUAGE internal VOLATILE EXECUTE ON ANY AS 'gp_endpoints_info' WITH (OID=7178, DESCRIPTION="mpp endpoints information");
 
 -- the bitmap index access method routines
  CREATE FUNCTION bmgettuple(internal, internal) RETURNS bool LANGUAGE internal VOLATILE STRICT AS 'bmgettuple' WITH (OID=7050, DESCRIPTION="bitmap(internal)");
