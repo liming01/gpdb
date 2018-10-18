@@ -1367,4 +1367,7 @@ extern Datum gp_opt_version(PG_FUNCTION_ARGS);
 /* query_metrics.c */
 extern Datum gp_instrument_shmem_summary(PG_FUNCTION_ARGS);
 
+/* cdbfifo.c */
+extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
+
 #endif   /* BUILTINS_H */

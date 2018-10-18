@@ -15,7 +15,11 @@
 #include "cdb/cdbutil.h"
 #include "cdb/cdbvars.h"
 #include "utils/gp_alloc.h"
+#include "utils/builtins.h"
 #include "funcapi.h"
+#include "cdb/cdbdisp_query.h"
+#include "cdb/cdbdispatchresult.h"
+#include "libpq-fe.h"
 
 #define MAX_ENDPOINT_SIZE 	100
 #define MAX_FIFO_NAME_SIZE	100
@@ -921,24 +925,127 @@ void AbortEndPoint(void)
 	Gp_endpoint_role = EPR_NONE;
 }
 
-Datum
-gp_endpoints_info_view(PG_FUNCTION_ARGS)
+typedef struct
 {
-#if 0
+	int tokens[MAX_ENDPOINT_SIZE];
+	int cur;
+	int count;
+} GP_Endpoints_Info;
+
+Datum
+gp_endpoints_info(PG_FUNCTION_ARGS)
+{
 	FuncCallContext *funcctx;
+	GP_Endpoints_Info *mystatus;
+	Datum            result;
+	MemoryContext    oldcontext;
+	Datum            values[2];
+	bool             nulls[2] = { true };
+	HeapTuple        tuple;
 
 	if (SRF_IS_FIRSTCALL())
 	{
-		TupleDesc	tupdesc;
-		MemoryContext oldcontext;
-
 		/* create a function context for cross-call persistence */
 		funcctx = SRF_FIRSTCALL_INIT();
-		tupdesc = CreateTemplateTupleDesc(5, false);
-		/* read token from share memory */
-		TupleDescInitEntry(tupdesc, (AttrNumber) 1);
+
+		/* switch to memory context appropriate for multiple function calls */
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		/* build tuple descriptor */
+		TupleDesc tupdesc = CreateTemplateTupleDesc(2, false);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "placeholder",
+						   INT4OID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "token",
+						   INT4OID, -1, 0);
+		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+		funcctx->user_fctx = (GP_Endpoints_Info *) palloc0(sizeof(GP_Endpoints_Info));
+		mystatus = funcctx->user_fctx;
+
+		if (Gp_role == GP_ROLE_DISPATCH)
+		{
+			CdbPgResults cdb_pgresults = {NULL, 0};
+			StringInfoData buffer;
+			int i;
+			int j;
+			int k;
+			bool matched;
+			initStringInfo(&buffer);
+
+			CdbDispatchCommand("SELECT * FROM pg_catalog.gp_endpoints_info()", DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
+
+			if (cdb_pgresults.numResults == 0)
+				elog(ERROR, "gp_endpoints_info didn't get back any data from the segDBs");
+
+			for (i = 0; i < cdb_pgresults.numResults; i++)
+			{
+				for (j = 0; j < PQntuples(cdb_pgresults.pg_results[i]); j++)
+				{
+					matched = false;
+					for (k = 0; k < mystatus->count; k++)
+					{
+						if (mystatus->tokens[k] == atoi(PQgetvalue(cdb_pgresults.pg_results[i], j, 1)))
+						{
+							matched = true;
+						}
+					}
+
+					if (matched)
+						break;
+
+					mystatus->tokens[mystatus->count] = atoi(PQgetvalue(cdb_pgresults.pg_results[i], j, 1));
+					mystatus->count++;
+				}
+			}
+
+		}
+
+		/* return to original context when allocating transient memory */
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	mystatus = funcctx->user_fctx;
+
+	int k;
+	bool matched;
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (!SharedEndPoints[i].empty && SharedEndPoints[i].token != InvalidToken)
+		{
+			matched = false;
+			for (k = 0; k < mystatus->count; k++)
+			{
+				if (mystatus->tokens[k] == SharedEndPoints[i].token)
+				{
+					matched = true;
+				}
+			}
+
+			if (matched)
+				break;
+
+			mystatus->tokens[mystatus->count] = SharedEndPoints[i].token;
+			mystatus->count++;
+		}
+	}
+
+	while (mystatus->cur < mystatus->count)
+	{
+		memset(values, 0, sizeof(values));
+		memset(nulls, 0, sizeof(nulls));
+
+		values[0] = Int32GetDatum(8655);
+		nulls[0] = false;
+		values[1] = Int32GetDatum(mystatus->tokens[mystatus->cur]);
+		nulls[1] = false;
+
+		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+		result = HeapTupleGetDatum(tuple);
+
+		++mystatus->cur;
+		SRF_RETURN_NEXT(funcctx, result);
 	}
 
 	SRF_RETURN_DONE(funcctx);
-#endif
 }
