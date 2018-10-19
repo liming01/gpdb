@@ -4498,7 +4498,11 @@ FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 
 		currentSlice->gangType = GANGTYPE_PRIMARY_WRITER;
 		currentSlice->gangSize = getgpsegmentCount();
-	}else if (parallel_cursor){
+	}
+	else if (parallel_cursor &&
+		!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
+		stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
+	{
 		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
 
 		currentSlice->gangType = GANGTYPE_PRIMARY_READER;
