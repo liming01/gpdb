@@ -4748,8 +4748,8 @@ FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 		FillSliceGangInfo(currentSlice, numsegments);
 	}
 	else if (parallel_cursor &&
-			 !(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
-			   stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
+		!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
+		stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
 	{
 		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
 		int			numsegments;
