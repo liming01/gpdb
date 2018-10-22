@@ -984,6 +984,10 @@ PortalRun(Portal portal, int64 count, bool isTopLevel,
 			case PORTAL_ONE_MOD_WITH:
 			case PORTAL_UTIL_SELECT:
 
+				if (portal->is_parallel)
+				{
+					break;
+				}
 				/*
 				 * If we have not yet run the command, do so, storing its
 				 * results in the portal's tuplestore.  But we don't do that
