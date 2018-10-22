@@ -1777,6 +1777,9 @@ exec_simple_query(const char *query_string)
 				if (PortalIsValid(fportal) &&
 					(fportal->cursorOptions & CURSOR_OPT_BINARY))
 					format = 1; /* BINARY */
+					
+				if (PortalIsValid(fportal))	
+					portal->is_parallel = !(fportal->strategy == PORTAL_ONE_SELECT);
 			}
 		}
 		PortalSetResultFormat(portal, 1, &format);

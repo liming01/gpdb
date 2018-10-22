@@ -189,6 +189,7 @@ typedef struct PortalData
 
 	/* MPP: is this portal a CURSOR, or protocol level portal? */
 	bool		is_extended_query; /* simple or extended query protocol? */
+	bool		is_parallel;
 }	PortalData;
 
 /*
