@@ -166,7 +166,8 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	PortalStart(portal, params, 0, GetActiveSnapshot(), NULL);
 
-	Assert(portal->strategy == PORTAL_ONE_SELECT);
+	Assert((!(portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_ONE_SELECT) ||
+		   ((portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_MULTI_QUERY));
 
 	/*
 	 * We're done; the query won't actually be run until PerformPortalFetch is
