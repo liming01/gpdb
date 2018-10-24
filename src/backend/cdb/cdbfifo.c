@@ -678,7 +678,7 @@ retry_write(int fifo, char *data, int len)
 		}
 
 		wr = WaitLatchOrSocket(&mySharedEndPoint->ack_done,
-							   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_WRITEABLE | WL_TIMEOUT,
+							   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_WRITEABLE | WL_SOCKET_READABLE | WL_TIMEOUT,
 							   fifo,
 							   POLL_FIFO_TIMEOUT);
 

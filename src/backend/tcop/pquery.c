@@ -231,6 +231,9 @@ ProcessQuery(Portal portal,
 									dest, params,
 									GP_INSTRUMENT_OPTS);
 	queryDesc->ddesc = portal->ddesc;
+	
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
+		queryDesc->parallel_cursor = true;
 
 	if (gp_enable_gpperfmon && Gp_role == GP_ROLE_DISPATCH)
 	{
@@ -631,7 +634,7 @@ PortalStart(Portal portal, ParamListInfo params,
 		/*
 		 * Determine the portal execution strategy
 		 */
-		portal->strategy = ChoosePortalStrategy(portal->stmts, portal->cursorOptions & CURSOR_OPT_PARALLEL);
+		portal->strategy = ChoosePortalStrategy(portal->stmts, (portal->cursorOptions & CURSOR_OPT_PARALLEL) > 0);
 
 		/* Initialize the backoff weight for this backend */
 		PortalSetBackoffWeight(portal);
@@ -1627,9 +1630,10 @@ PortalRunFetch(Portal portal,
 		switch (portal->strategy)
 		{
 			case PORTAL_ONE_SELECT:
+			case PORTAL_MULTI_QUERY:
 				result = DoPortalRunFetch(portal, fdirection, count, dest);
 				break;
-
+			
 			case PORTAL_ONE_RETURNING:
 			case PORTAL_ONE_MOD_WITH:
 			case PORTAL_UTIL_SELECT:
@@ -1703,7 +1707,8 @@ DoPortalRunFetch(Portal portal,
 	Assert(portal->strategy == PORTAL_ONE_SELECT ||
 		   portal->strategy == PORTAL_ONE_RETURNING ||
 		   portal->strategy == PORTAL_ONE_MOD_WITH ||
-		   portal->strategy == PORTAL_UTIL_SELECT);
+		   portal->strategy == PORTAL_UTIL_SELECT ||
+		   portal->strategy == PORTAL_MULTI_QUERY);
 
 	switch (fdirection)
 	{
@@ -1912,7 +1917,18 @@ DoPortalRunFetch(Portal portal,
 		return result;
 	}
 
-	return PortalRunSelect(portal, forward, count, dest);
+	/*
+	 * If we fetch for parallel cursor, we use PORTAL_MULTI_QUERY strategy, because result is retrieved from
+	 * QE instead of QD. For this case, we run multi simply, and returns 0 rows.
+	 */
+	if (portal->strategy == PORTAL_MULTI_QUERY)
+	{
+		PortalRunMulti(portal, false, dest, dest, NULL);
+		MarkPortalDone(portal);
+		return 0;
+	}
+	else
+		return PortalRunSelect(portal, forward, count, dest);
 }
 
 /*
