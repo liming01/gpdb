@@ -599,7 +599,19 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	if (cursorOptions & CURSOR_OPT_PARALLEL)
 	{
 		ExplainOpenGroup("Cursor", "Cursor", true, es);
-		ExplainProperty("Endpoint", "on segment: 3", false, es);
+
+		if (!(queryDesc->plannedstmt->planTree->flow->flotype == FLOW_SINGLETON &&
+			queryDesc->plannedstmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
+		{
+			char endpoint_info[24];
+			snprintf(endpoint_info, 24, "on segments: %d", getgpsegmentCount());
+			ExplainProperty("Endpoint", endpoint_info, false, es);
+		}
+		else
+		{
+			ExplainProperty("Endpoint", "on master", false, es);
+		}
+
 		ExplainOpenGroup("Cursor", "Cursor", true, es);
 	}
 
