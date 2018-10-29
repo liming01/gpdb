@@ -481,6 +481,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	double		totaltime = 0;
 	int			eflags;
 	int			instrument_option = 0;
+	int			cursorOptions = 0;
 
 	if (es->analyze && es->timing)
 		instrument_option |= INSTRUMENT_TIMER;
@@ -589,6 +590,19 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	/* Create textual dump of plan tree */
 	ExplainPrintPlan(es, queryDesc);
 
+	if (queryDesc->utilitystmt &&
+		IsA(queryDesc->utilitystmt, DeclareCursorStmt))
+	{
+		cursorOptions |= ((DeclareCursorStmt *) queryDesc->utilitystmt)->options;
+	}
+
+	if (cursorOptions & CURSOR_OPT_PARALLEL)
+	{
+		ExplainOpenGroup("Cursor", "Cursor", true, es);
+		ExplainProperty("Endpoint", "on segment: 3", false, es);
+		ExplainOpenGroup("Cursor", "Cursor", true, es);
+	}
+
 	/* Print info about runtime of triggers */
 	if (es->analyze)
 	{
@@ -635,7 +649,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	 * as optimizer settings etc.
      */
 	ExplainOpenGroup("Settings", "Settings", true, es);
-	
+
 	if (queryDesc->plannedstmt->planGen == PLANGEN_PLANNER)
 		ExplainProperty("Optimizer", "legacy query optimizer", false, es);
 #ifdef USE_ORCA
