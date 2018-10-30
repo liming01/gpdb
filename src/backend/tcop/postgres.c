@@ -1779,7 +1779,25 @@ exec_simple_query(const char *query_string)
 					format = 1; /* BINARY */
 					
 				if (PortalIsValid(fportal))	
-					portal->is_parallel = !(fportal->strategy == PORTAL_ONE_SELECT);
+					portal->is_parallel = (fportal->cursorOptions & CURSOR_OPT_PARALLEL) > 0 ;
+
+				if (portal->is_parallel != stmt->isParallelCursor)
+				{
+					if (stmt->isParallelCursor)
+					{
+						ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							errmsg("Cannot specify 'EXECUTE PARALLEL CURSOR' for non-parallel cursor."),
+							errhint("Using 'FETCH' statement instead.")));
+					}
+					else
+					{
+						ereport(ERROR,
+						        (errcode(ERRCODE_SYNTAX_ERROR),
+							        errmsg("Cannot specify 'FETCH' for parallel cursor."),
+							        errhint("Using 'EXECUTE PARALLEL CURSOR' statement instead.")));
+					}
+				}
 			}
 		}
 		PortalSetResultFormat(portal, 1, &format);

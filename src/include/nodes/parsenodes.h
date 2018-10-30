@@ -2506,6 +2506,8 @@ typedef struct FetchStmt
 	int64		howMany;		/* number of rows, or position argument */
 	char	   *portalname;		/* name of portal (cursor) */
 	bool		ismove;			/* TRUE if MOVE */
+	bool        isParallelCursor;  /* If it is parallel cursor, FETCH statement is
+                                    * in fact EXECUTE PARALLEL CURSOR*/
 } FetchStmt;
 
 /* ----------------------
