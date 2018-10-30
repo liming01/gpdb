@@ -3865,6 +3865,7 @@ _copyFetchStmt(const FetchStmt *from)
 	COPY_SCALAR_FIELD(howMany);
 	COPY_STRING_FIELD(portalname);
 	COPY_SCALAR_FIELD(ismove);
+	COPY_SCALAR_FIELD(isParallelCursor);
 
 	return newnode;
 }

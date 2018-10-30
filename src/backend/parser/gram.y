@@ -7897,12 +7897,25 @@ FetchStmt:	FETCH fetch_args
 				{
 					FetchStmt *n = (FetchStmt *) $2;
 					n->ismove = FALSE;
+					n->isParallelCursor = FALSE;
 					$$ = (Node *)n;
 				}
 			| MOVE fetch_args
 				{
 					FetchStmt *n = (FetchStmt *) $2;
 					n->ismove = TRUE;
+					n->isParallelCursor = FALSE;
+					$$ = (Node *)n;
+				}
+			| EXECUTE PARALLEL CURSOR cursor_name
+				{
+					/* Execute parallel cursor is same as FETCH ALL FROM cursor_name */
+					FetchStmt *n = makeNode(FetchStmt);
+					n->ismove = FALSE;
+					n->isParallelCursor = TRUE;
+					n->portalname = $4;
+					n->direction = FETCH_FORWARD;
+					n->howMany = FETCH_ALL;
 					$$ = (Node *)n;
 				}
 		;
