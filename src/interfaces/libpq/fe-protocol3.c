@@ -442,37 +442,6 @@ pqParseInput3(PGconn *conn)
 					 * the COPY command.
 					 */
 					break;
-				case 'm':		/* Greenplum multi process fetch */
-					if (conn->result == NULL)
-					{
-						conn->result = PQmakeEmptyPGresult(conn, PGRES_TUPLES_OK);
-						if (!conn->result)
-							return;
-					}
-
-					if (pqGetInt(&conn->result->token, 4, conn))
-						return;
-
-#ifdef FRONTEND // TODO example of getting the info, remove this part before submiting the PR
-#include <lib/stringinfo.h>
-					PQExpBuffer msgbuf = malloc(sizeof(PQExpBufferData));
-					initPQExpBuffer(msgbuf);
-					while (1) {
-						if (pqGets_append(msgbuf, conn))
-							break;
-					}
-
-					int tempfile = open("/tmp/token_dump", O_CREAT | O_TRUNC | O_WRONLY, 0666);
-					char *token = malloc(128);
-					memset(token, 0, 128);
-					snprintf(token, 128, "%d\n", conn->result->token);
-					write(tempfile, token, strlen(token));
-					write(tempfile, msgbuf->data, msgbuf->len);
-					close(tempfile);
-					free(msgbuf);
-					free(token);
-					break;
-#endif
 #ifndef FRONTEND
 				case 'j':
 					/*

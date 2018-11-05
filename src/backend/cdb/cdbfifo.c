@@ -5,14 +5,12 @@
 #include <poll.h>
 #include <unistd.h>
 
-#include "libpq/pqformat.h"
 #include "nodes/value.h"
 #include "storage/ipc.h"
 #include "storage/procsignal.h"
 #include "storage/s_lock.h"
 #include "utils/elog.h"
 #include "cdb/cdbfifo.h"
-#include "cdb/cdbutil.h"
 #include "cdb/cdbvars.h"
 #include "utils/gp_alloc.h"
 #include "utils/builtins.h"
@@ -63,27 +61,6 @@ static int32 				Gp_token = InvalidToken;
 static enum EndPointRole 	Gp_endpoint_role = EPR_NONE;
 static bool					s_inAbort = false;
 static bool					s_needAck = false;
-
-void SendRetrieveInfo()
-{
-	StringInfoData buf;
-	StringInfoData msgbuf;
-	CdbComponentDatabaseInfo *dbinfo;
-
-	initStringInfo(&buf);
-	initStringInfo(&msgbuf);
-
-	pq_beginmessage(&buf, 'm');
-	pq_sendint(&buf, Gp_token, 4);
-	for (int i = 1; i <= GpIdentity.numsegments + 1; i++) {
-		dbinfo = dbid_get_dbinfo(i);
-		truncateStringInfo(&msgbuf, 0);
-		appendStringInfo(&msgbuf, "%s:%d\n", dbinfo->hostname, dbinfo->port);
-		pq_sendstring(&buf, msgbuf.data);
-	}
-	pq_endmessage(&buf);
-	pq_flush();
-}
 
 int32 GetUniqueGpToken()
 {

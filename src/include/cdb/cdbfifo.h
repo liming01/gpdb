@@ -52,7 +52,6 @@ extern void EndPoint_ShmemInit(void);
 
 extern void Token_ShmemInit(void);
 
-extern void SendRetrieveInfo(void);
 extern int32 GetUniqueGpToken(void);
 extern void SetGpToken(int32 token);
 extern void ClearGpToken(void);
