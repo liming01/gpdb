@@ -224,10 +224,19 @@ PerformPortalFetch(FetchStmt *stmt,
 								dest);
 
 	/* Return command status if wanted */
-	if (completionTag)
-		snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
-				 stmt->ismove ? "MOVE" : "FETCH",
-				 nprocessed);
+	if (stmt->isParallelCursor)
+	{
+		if (completionTag)
+			snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
+			         "EXECUTE PARALLEL CURSOR");
+	}
+	else
+	{
+		if (completionTag)
+			snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
+			         stmt->ismove ? "MOVE" : "FETCH",
+			         nprocessed);
+	}
 }
 
 /*
