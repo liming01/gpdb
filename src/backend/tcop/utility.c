@@ -2074,7 +2074,14 @@ CreateCommandTag(Node *parsetree)
 			{
 				FetchStmt  *stmt = (FetchStmt *) parsetree;
 
-				tag = (stmt->ismove) ? "MOVE" : "FETCH";
+				if (stmt->isParallelCursor)
+				{
+					tag = "EXECUTE PARALLEL CURSOR";
+				}
+				else
+				{
+					tag = (stmt->ismove) ? "MOVE" : "FETCH";
+				}
 			}
 			break;
 
