@@ -913,7 +913,8 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 
 	sendTuples = (queryDesc->tupDesc != NULL &&
 				  (operation == CMD_SELECT ||
-				   queryDesc->plannedstmt->hasReturning));
+				   queryDesc->plannedstmt->hasReturning)) &&
+					!(queryDesc->parallel_cursor && dest->mydest == DestRemote);    /* Do not return result set for EXECUTE PARALLEL CURSOR */
 
 	if (sendTuples)
 		(*dest->rStartup) (dest, operation, queryDesc->tupDesc);
@@ -997,7 +998,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			ExecutePlan(estate,
 						queryDesc->planstate,
 						operation,
-						sendTuples,
+						(EndPointRole () == EPR_SENDER ? true : sendTuples),
 						count,
 						direction,
 						(EndPointRole () == EPR_SENDER ? fifoDest : dest));
