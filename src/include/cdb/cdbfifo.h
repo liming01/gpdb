@@ -45,7 +45,16 @@ typedef struct sendpointdesc
 	bool		empty;
 } EndPointDesc;
 
+/* token and segid */
+typedef struct sharedtokendesc
+{
+	int32	token;
+	int16	dbid;
+} SharedTokenDesc;
+
 typedef EndPointDesc *EndPoint;
+
+typedef SharedTokenDesc *SharedToken;
 
 extern Size EndPoint_ShmemSize(void);
 extern void EndPoint_ShmemInit(void);
@@ -56,6 +65,8 @@ extern int32 GetUniqueGpToken(void);
 extern void SetGpToken(int32 token);
 extern void ClearGpToken(void);
 extern void DismissGpToken(void);
+extern void AddParallelCursorToken(int32, int16);
+extern void ClearParallelCursorToken(int32);
 extern int32 GpToken(void);
 
 extern void SetEndPointRole(enum EndPointRole role);

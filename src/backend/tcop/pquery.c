@@ -808,6 +808,21 @@ PortalStart(Portal portal, ParamListInfo params,
 				break;
 
 			case PORTAL_MULTI_QUERY:
+				/*
+				 * Create portal for parallel cursor's SELECT statement.
+				 */
+				if (portal->sourceTag == T_DeclareCursorStmt &&
+						strncmp(portal->commandTag, "SELECT", strlen("SELECT"))==0)
+				{
+					// TODO: for each dbid for this token, add it into
+					// shared memory
+					portal->parallel_cursor_token = GetUniqueGpToken();
+				}
+				else if (portal->sourceTag == T_ClosePortalStmt)
+				{
+					/* clear this token from SharedToken */
+					ClearParallelCursorToken(portal->parallel_cursor_token);
+				}
 				/* Need do nothing now */
 				portal->tupDesc = NULL;
 				break;

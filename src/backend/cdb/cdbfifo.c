@@ -19,7 +19,7 @@
 #include "cdb/cdbdispatchresult.h"
 #include "libpq-fe.h"
 
-#define MAX_ENDPOINT_SIZE 	100
+#define MAX_ENDPOINT_SIZE 	1000
 #define MAX_FIFO_NAME_SIZE	100
 #define InvalidPid			0
 #define FIFO_NAME_PATTERN "/tmp/gp2gp_fifo_%d_%d"
@@ -49,7 +49,7 @@ typedef FifoConnStateData 	*FifoConnState;
 static FifoConnState 		s_fifoConnState = NULL;
 static TupleTableSlot		*s_resultTupleSlot;
 
-static int32 				*SharedTokens;
+static SharedTokenDesc		*SharedTokens;
 static slock_t 				*shared_tokens_lock;
 
 static EndPointDesc 		*SharedEndPoints;
@@ -72,7 +72,7 @@ REGENERATE:
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (token == SharedTokens[i])
+		if (token == SharedTokens[i].token)
 		{
 			goto REGENERATE;
 		}
@@ -80,9 +80,9 @@ REGENERATE:
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedTokens[i] == InvalidToken)
+		if (SharedTokens[i].token == InvalidToken)
 		{
-			SharedTokens[i] = token;
+			SharedTokens[i].token = token;
 			break;
 		}
 	}
@@ -98,10 +98,50 @@ void DismissGpToken()
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedTokens[i] == Gp_token)
+		if (SharedTokens[i].token == Gp_token)
 		{
-			SharedTokens[i] = InvalidToken;
+			SharedTokens[i].token = InvalidToken;
 			break;
+		}
+	}
+
+	SpinLockRelease(shared_tokens_lock);
+}
+
+void AddParallelCursorToken(int32 token, int16 dbid)
+{
+	int i;
+	SpinLockAcquire(shared_tokens_lock);
+
+	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedTokens[i].token == InvalidToken)
+		{
+			SharedTokens[i].token = token;
+			SharedTokens[i].dbid = dbid;
+			break;
+		}
+	}
+
+	/* no empty entry to save this token */
+	if (i == MAX_ENDPOINT_SIZE)
+	{
+		ep_log(ERROR, "can't add a new token %d into shared memory", Gp_token);
+	}
+
+	SpinLockRelease(shared_tokens_lock);
+}
+
+void ClearParallelCursorToken(int32 token)
+{
+	SpinLockAcquire(shared_tokens_lock);
+
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedTokens[i].token == token)
+		{
+			SharedTokens[i].token = InvalidToken;
+			SharedTokens[i].dbid = InvalidDbid;
 		}
 	}
 
@@ -196,9 +236,9 @@ void Token_ShmemInit()
 	bool	is_shmem_ready;
 	Size	size;
 
-	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(int32));
+	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(SharedTokenDesc));
 
-    SharedTokens = (int32 *)
+	SharedTokens = (SharedTokenDesc *)
 						ShmemInitStruct(SHMEM_TOKEN,
 							size,
 							&is_shmem_ready);
@@ -211,7 +251,8 @@ void Token_ShmemInit()
 
 		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 		{
-			SharedTokens[i] = InvalidToken;
+			SharedTokens[i].token = InvalidToken;
+			SharedTokens[i].dbid = InvalidDbid;
 		}
 	}
 
