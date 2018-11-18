@@ -95,6 +95,9 @@ typedef struct DispatchCommandQueryParms
 	int			serializedDtxContextInfolen;
 
 	int			rootIdx;
+
+	/* the token for parallel cursor */
+	int32		token;
 } DispatchCommandQueryParms;
 
 static int fillSliceVector(SliceTable *sliceTable,
@@ -836,6 +839,7 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	int			dtxContextInfo_len = pQueryParms->serializedDtxContextInfolen;
 	int			flags = 0;		/* unused flags */
 	int			rootIdx = pQueryParms->rootIdx;
+	int32		token = pQueryParms->token;
 	int64		currentStatementStartTimestamp = GetCurrentStatementStartTimestamp();
 	Oid			sessionUserId = GetSessionUserId();
 	Oid			outerUserId = GetOuterUserId();
@@ -1021,6 +1025,8 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	}
 
 	n32 = htonl(GpToken());
+	// TODO: token should be fetched from Portal
+	// n32 = htonl(token);
 	memcpy(pos, &n32, sizeof(n32));
 	pos += sizeof(n32);
 
@@ -1107,6 +1113,7 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 	nSlices = fillSliceVector(sliceTbl, rootIdx, sliceVector, nTotalSlices);
 
 	pQueryParms = cdbdisp_buildPlanQueryParms(queryDesc, planRequiresTxn);
+	pQueryParms->token = portal->parallel_cursor_token;
 	queryText = buildGpQueryString(pQueryParms, &queryTextLength);
 
 	/*

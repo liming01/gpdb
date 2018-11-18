@@ -603,6 +603,7 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			// queryDesc->plannedstmt->utilityStmt != NULL &&
 			!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
 		{
+			// TODO: don't need to generate token here.
 			int32 token = GetUniqueGpToken();
 
 			SetGpToken(token);
