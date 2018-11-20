@@ -166,6 +166,42 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	PortalStart(portal, params, 0, GetActiveSnapshot(), NULL);
 
+	/*
+	 * Generate a token for parallel cursor, and add it into
+	 * shared memory
+	 */
+	if (portal->strategy == PORTAL_MULTI_QUERY)
+	{
+		portal->parallel_cursor_token = GetUniqueGpToken();
+		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
+		if (!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
+				stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
+		{
+			/* Add all segments into token shared memory */
+			CdbComponentDatabaseInfo* seg_db_list = getCdbComponentDatabases()->segment_db_info;
+			int seg_db_num = getCdbComponentDatabases()->total_segment_dbs;
+			for (int i = 0; i < seg_db_num; i++)
+			{
+				if (seg_db_list[i].role == 'p')
+				{
+					AddParallelCursorToken(portal->parallel_cursor_token, seg_db_list[i].dbid);
+				}
+			}
+		}
+		else
+		{
+			CdbComponentDatabaseInfo* entry_db_list = getCdbComponentDatabases()->entry_db_info;
+			int entry_db_num = getCdbComponentDatabases()->total_entry_dbs;
+			for (int i = 0; i < entry_db_num; i++)
+			{
+				if (entry_db_list[i].role == 'p')
+				{
+					AddParallelCursorToken(portal->parallel_cursor_token, entry_db_list[i].dbid);
+				}
+			}
+		}
+	}
+
 	Assert((!(portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_ONE_SELECT) ||
 		   ((portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_MULTI_QUERY));
 
@@ -280,6 +316,16 @@ PerformPortalClose(const char *name)
 	 * Note: PortalCleanup is called as a side-effect, if not already done.
 	 */
 	PortalDrop(portal, false);
+
+	/*
+	 * Clear related token in shared memory,
+	 * if it is a parallel cursor
+	 */
+	if (portal->strategy == PORTAL_MULTI_QUERY)
+	{
+		Assert(portal->parallel_cursor_token != InvalidToken);
+		ClearParallelCursorToken(portal->parallel_cursor_token);
+	}
 }
 
 /*
