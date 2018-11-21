@@ -603,11 +603,6 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			// queryDesc->plannedstmt->utilityStmt != NULL &&
 			!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
 		{
-			// TODO: don't need to generate token here.
-			int32 token = GetUniqueGpToken();
-
-			SetGpToken(token);
-
 			if (exec_identity == GP_ROOT_SLICE &&
 				LocallyExecutingSliceIndex(estate) == 0)
 				SetEndPointRole(EPR_SENDER);

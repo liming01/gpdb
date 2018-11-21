@@ -317,8 +317,8 @@ DESCR("show append only table compression ratio");
 DATA(insert OID = 7173 ( gp_update_ao_master_stats  PGNSP PGUID 12 1 0 0 0 f f f f f f v 1 0 20 "2205" _null_ _null_ _null_ _null_ gp_update_ao_master_stats _null_ _null_ _null_ m a ));
 DESCR("append only tables utility function");
 
-/* gp_endpoints_info(OUT placeholder int4, OUT token int4) => SETOF record */
-DATA(insert OID = 7178 ( gp_endpoints_info  PGNSP PGUID 12 1 1000 0 0 f f f f f t v 0 0 2249 "" "{23,23}" "{o,o}" "{placeholder,token}" _null_ gp_endpoints_info _null_ _null_ _null_ n a ));
+/* gp_endpoints_info(OUT token int4, OUT hostname text, OUT port int4, OUT status text) => SETOF record */
+DATA(insert OID = 7178 ( gp_endpoints_info  PGNSP PGUID 12 1 1000 0 0 f f f f f t v 0 0 2249 "" "{23,25,23,25}" "{o,o,o,o}" "{token,hostname,port,status}" _null_ gp_endpoints_info _null_ _null_ _null_ n a ));
 DESCR("mpp endpoints information");
 
 

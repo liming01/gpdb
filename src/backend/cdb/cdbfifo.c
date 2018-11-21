@@ -12,6 +12,7 @@
 #include "utils/elog.h"
 #include "cdb/cdbfifo.h"
 #include "cdb/cdbvars.h"
+#include "cdb/cdbutil.h"
 #include "utils/gp_alloc.h"
 #include "utils/builtins.h"
 #include "funcapi.h"
@@ -78,15 +79,6 @@ REGENERATE:
 		}
 	}
 
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (SharedTokens[i].token == InvalidToken)
-		{
-			SharedTokens[i].token = token;
-			break;
-		}
-	}
-
 	SpinLockRelease(shared_tokens_lock);
 
 	return token;
@@ -111,14 +103,18 @@ void DismissGpToken()
 void AddParallelCursorToken(int32 token, int16 dbid)
 {
 	int i;
+	Assert(token!=InvalidToken && dbid != InvalidDbid);
+
 	SpinLockAcquire(shared_tokens_lock);
 
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedTokens[i].token == InvalidToken)
 		{
+			Assert(SharedTokens[i].dbid == InvalidDbid);
 			SharedTokens[i].token = token;
 			SharedTokens[i].dbid = dbid;
+			elog(LOG, "===>Add a new token:%d, dbid:%d into shared memory", token, dbid);
 			break;
 		}
 	}
@@ -126,7 +122,7 @@ void AddParallelCursorToken(int32 token, int16 dbid)
 	/* no empty entry to save this token */
 	if (i == MAX_ENDPOINT_SIZE)
 	{
-		ep_log(ERROR, "can't add a new token %d into shared memory", Gp_token);
+		ep_log(ERROR, "can't add a new token %d into shared memory", token);
 	}
 
 	SpinLockRelease(shared_tokens_lock);
@@ -134,12 +130,15 @@ void AddParallelCursorToken(int32 token, int16 dbid)
 
 void ClearParallelCursorToken(int32 token)
 {
+	Assert(toekn!=InvalidToken);
 	SpinLockAcquire(shared_tokens_lock);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedTokens[i].token == token)
 		{
+			Assert(SharedTokens[i].dbid != InvalidDbid);
+			elog(LOG, "===>Remove token:%d, dbid:%d from shared memory", token, SharedTokens[i].dbid);
 			SharedTokens[i].token = InvalidToken;
 			SharedTokens[i].dbid = InvalidDbid;
 		}
@@ -217,7 +216,7 @@ enum EndPointRole EndPointRole(void)
 
 static void check_gp_token_valid()
 {
-	if (Gp_token == InvalidToken)
+	if (Gp_role == GP_ROLE_EXECUTE && Gp_token == InvalidToken)
 		ep_log(ERROR, "invalid gp token");
 }
 
@@ -938,15 +937,15 @@ void AbortEndPoint(void)
 	}
 
 	s_inAbort = false;
-	DismissGpToken();
+	//DismissGpToken();
 	Gp_token = InvalidToken;
 	Gp_endpoint_role = EPR_NONE;
 }
 
 typedef struct
 {
-	int tokens[MAX_ENDPOINT_SIZE];
-	int cur;
+	SharedTokenDesc* tokens;
+	int curIdx;
 	int count;
 } GP_Endpoints_Info;
 
@@ -955,10 +954,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	GP_Endpoints_Info *mystatus;
-	Datum            result;
 	MemoryContext    oldcontext;
-	Datum            values[2];
-	bool             nulls[2] = { true };
+	Datum            values[4];
+	bool             nulls[4] = { true };
 	HeapTuple        tuple;
 
 	if (SRF_IS_FIRSTCALL())
@@ -970,16 +968,28 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tuple descriptor */
-		TupleDesc tupdesc = CreateTemplateTupleDesc(2, false);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "placeholder",
-						   INT4OID, -1, 0);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "token",
-						   INT4OID, -1, 0);
+		TupleDesc tupdesc = CreateTemplateTupleDesc(4, false);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
+												INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "hostname",
+												TEXTOID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "port",
+												INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 4, "status",
+												TEXTOID, -1, 0);
+
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
-		funcctx->user_fctx = (GP_Endpoints_Info *) palloc0(sizeof(GP_Endpoints_Info));
-		mystatus = funcctx->user_fctx;
+		mystatus = (GP_Endpoints_Info *) palloc0(sizeof(GP_Endpoints_Info));
+		funcctx->user_fctx = (void *) mystatus;
+		mystatus->count = MAX_ENDPOINT_SIZE;
+		mystatus->curIdx = 0;
+		mystatus->tokens = SharedTokens;
 
+#if 0
 		if (Gp_role == GP_ROLE_DISPATCH)
 		{
 			CdbPgResults cdb_pgresults = {NULL, 0};
@@ -1015,9 +1025,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					mystatus->count++;
 				}
 			}
-
 		}
-
+#endif
 		/* return to original context when allocating transient memory */
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -1025,6 +1034,41 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	funcctx = SRF_PERCALL_SETUP();
 	mystatus = funcctx->user_fctx;
 
+	/*
+	 * build detailed token information
+	 */
+	//SpinLockAcquire(shared_tokens_lock);
+	while (mystatus->curIdx < mystatus->count)
+	{
+		memset(values, 0, sizeof(values));
+		memset(nulls, 0, sizeof(nulls));
+		Datum	result;
+		CdbComponentDatabaseInfo *dbinfo;
+
+		SharedToken entry = &mystatus->tokens[mystatus->curIdx];
+		int32 token = entry->token;
+		int16 dbid = entry->dbid;
+		++mystatus->curIdx;
+		if (token != InvalidToken)
+		{
+			dbinfo = dbid_get_dbinfo(dbid);
+			values[0] = Int32GetDatum(entry->token);
+			nulls[0]  = false;
+			values[1] = CStringGetTextDatum(dbinfo->hostname);
+			nulls[1]  = false;
+			values[2] = Int32GetDatum(dbinfo->port);
+			nulls[2]  = false;
+			values[3] = CStringGetTextDatum(" ");
+			nulls[3]  = false;
+
+			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+			result = HeapTupleGetDatum(tuple);
+			SRF_RETURN_NEXT(funcctx, result);
+		}
+	}
+	//SpinLockRelease(shared_tokens_lock);
+
+#if 0
 	int k;
 	bool matched;
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -1064,6 +1108,6 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		++mystatus->cur;
 		SRF_RETURN_NEXT(funcctx, result);
 	}
-
+#endif
 	SRF_RETURN_DONE(funcctx);
 }

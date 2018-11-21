@@ -1024,9 +1024,7 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		pos += resgroupInfo.len;
 	}
 
-	n32 = htonl(GpToken());
-	// TODO: token should be fetched from Portal
-	// n32 = htonl(token);
+	n32 = htonl(token);
 	memcpy(pos, &n32, sizeof(n32));
 	pos += sizeof(n32);
 
