@@ -130,7 +130,7 @@ void AddParallelCursorToken(int32 token, int16 dbid)
 
 void ClearParallelCursorToken(int32 token)
 {
-	Assert(toekn!=InvalidToken);
+	Assert(token!=InvalidToken);
 	SpinLockAcquire(shared_tokens_lock);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
