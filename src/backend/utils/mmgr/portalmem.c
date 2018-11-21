@@ -29,6 +29,7 @@
 #include "utils/resscheduler.h"
 
 #include "cdb/ml_ipc.h"
+#include "cdb/cdbfifo.h"
 #include "utils/timestamp.h"
 
 /*
@@ -243,6 +244,7 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	portal->atEnd = true;		/* disallow fetches until query is set */
 	portal->visible = true;
 	portal->creation_time = GetCurrentStatementStartTimestamp();
+	portal->parallel_cursor_token = InvalidToken;
 
 	/* set portal id and queue id if have enabled resource scheduling */
 	if (Gp_role == GP_ROLE_DISPATCH && IsResQueueEnabled())
@@ -585,6 +587,12 @@ PortalDrop(Portal portal, bool isTopCommit)
 		tuplestore_end(portal->holdStore);
 		MemoryContextSwitchTo(oldcontext);
 		portal->holdStore = NULL;
+	}
+
+	/* Clear token if it is a parallel cursor */
+	if (portal->parallel_cursor_token != InvalidToken)
+	{
+		ClearParallelCursorToken(portal->parallel_cursor_token);
 	}
 
 	/* delete tuplestore storage, if any */
