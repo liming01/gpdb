@@ -100,10 +100,10 @@ void DismissGpToken()
 	SpinLockRelease(shared_tokens_lock);
 }
 
-void AddParallelCursorToken(int32 token, int16 dbid)
+void AddParallelCursorToken(int32 token, const char* name, session_id, int16 dbid)
 {
 	int i;
-	Assert(token!=InvalidToken && dbid != InvalidDbid);
+	Assert(token!=InvalidToken && dbid != InvalidDbid && name!= NULL && session_id != INVALID_SESSION_ID);
 
 	SpinLockAcquire(shared_tokens_lock);
 
@@ -112,9 +112,12 @@ void AddParallelCursorToken(int32 token, int16 dbid)
 		if (SharedTokens[i].token == InvalidToken)
 		{
 			Assert(SharedTokens[i].dbid == InvalidDbid);
+			strncpy(SharedTokens[i].cursor_name, name, strlen(name));
+			SharedTokens[i].session_id = session_id;
 			SharedTokens[i].token = token;
 			SharedTokens[i].dbid = dbid;
-			elog(LOG, "===>Add a new token:%d, dbid:%d into shared memory", token, dbid);
+			elog(LOG, "===>Add a new token:%d, dbid:%d, session id:%d, cursor name:%s into shared memory",
+					token, dbid, session_id, name);
 			break;
 		}
 	}
@@ -138,8 +141,11 @@ void ClearParallelCursorToken(int32 token)
 		if (SharedTokens[i].token == token)
 		{
 			Assert(SharedTokens[i].dbid != InvalidDbid);
-			elog(LOG, "===>Remove token:%d, dbid:%d from shared memory", token, SharedTokens[i].dbid);
+			elog(LOG, "===>Remove token:%d, dbid:%d, session id:%d, cursor name:%s from shared memory",
+						token, SharedTokens[i].dbid, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
 			SharedTokens[i].token = InvalidToken;
+			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
+			SharedTokens[i].session_id = INVALID_SESSION_ID;
 			SharedTokens[i].dbid = InvalidDbid;
 		}
 	}
@@ -251,7 +257,9 @@ void Token_ShmemInit()
 		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 		{
 			SharedTokens[i].token = InvalidToken;
+			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
 			SharedTokens[i].dbid = InvalidDbid;
+			SharedTokens[i].session_id = INVALID_SESSION_ID;
 		}
 	}
 
@@ -955,8 +963,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	FuncCallContext *funcctx;
 	GP_Endpoints_Info *mystatus;
 	MemoryContext    oldcontext;
-	Datum            values[4];
-	bool             nulls[4] = { true };
+	Datum            values[6];
+	bool             nulls[6] = { true };
 	HeapTuple        tuple;
 
 	if (SRF_IS_FIRSTCALL())
@@ -968,17 +976,23 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tuple descriptor */
-		TupleDesc tupdesc = CreateTemplateTupleDesc(4, false);
+		TupleDesc tupdesc = CreateTemplateTupleDesc(6, false);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
 												INT4OID, -1, 0);
 
-		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "hostname",
+		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "cursorname",
 												TEXTOID, -1, 0);
 
-		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "port",
+		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "sessionid",
 												INT4OID, -1, 0);
 
-		TupleDescInitEntry(tupdesc, (AttrNumber) 4, "status",
+		TupleDescInitEntry(tupdesc, (AttrNumber) 4, "hostname",
+												TEXTOID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "port",
+												INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "status",
 												TEXTOID, -1, 0);
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
@@ -1051,15 +1065,19 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		++mystatus->curIdx;
 		if (token != InvalidToken)
 		{
-			dbinfo = dbid_get_dbinfo(dbid);
+			dbinfo = dbid_get_dbinfo(entry->dbid);
 			values[0] = Int32GetDatum(entry->token);
 			nulls[0]  = false;
-			values[1] = CStringGetTextDatum(dbinfo->hostname);
+			values[1] = CStringGetTextDatum(entry->cursor_name);
 			nulls[1]  = false;
-			values[2] = Int32GetDatum(dbinfo->port);
+			values[2] = Int32GetDatum(entry->session_id);
 			nulls[2]  = false;
-			values[3] = CStringGetTextDatum(" ");
+			values[3] = CStringGetTextDatum(dbinfo->hostname);
 			nulls[3]  = false;
+			values[4] = Int32GetDatum(dbinfo->port);
+			nulls[4]  = false;
+			values[5] = CStringGetTextDatum(" ");
+			nulls[5]  = false;
 
 			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 			result = HeapTupleGetDatum(tuple);
