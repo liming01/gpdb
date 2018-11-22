@@ -184,7 +184,10 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 			{
 				if (seg_db_list[i].role == 'p')
 				{
-					AddParallelCursorToken(portal->parallel_cursor_token, seg_db_list[i].dbid);
+					AddParallelCursorToken(portal->parallel_cursor_token,
+										   portal->name,
+										   gp_session_id,
+										   seg_db_list[i].dbid);
 				}
 			}
 		}
@@ -196,7 +199,10 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 			{
 				if (entry_db_list[i].role == 'p')
 				{
-					AddParallelCursorToken(portal->parallel_cursor_token, entry_db_list[i].dbid);
+					AddParallelCursorToken(portal->parallel_cursor_token,
+										   portal->name,
+										   gp_session_id,
+										   entry_db_list[i].dbid);
 				}
 			}
 		}
