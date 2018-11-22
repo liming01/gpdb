@@ -333,6 +333,48 @@ auth_failed(Port *port, int status)
 }
 
 /*
+ * In retrieve mode, directly using the token of parallel cursor as password to authenticate.
+ */
+static int
+retrieve_mode_authentication(Port *port)
+{
+	char	   *passwd;
+	char       *username;
+	char       *parallel_cursor_token;
+
+	sendAuthRequest(port, AUTH_REQ_PASSWORD);
+	passwd = recv_password_packet(port);
+	if (passwd == NULL)
+	{
+		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of"
+		          "null password.");
+		return false;
+	}
+
+	/* verify that the username is same as the owner of parallel cursor */
+	/* TODO: Fetch the owner of the parallel cursor */
+	username="gpadmin";
+	if (strcmp(username, port->user_name)!=0)
+	{
+		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of"
+		          "user name is not same as the owner of the parallel cursor.");
+		return false;
+	}
+
+	/* TODO: Fetch the token of the parallel cursor */
+	parallel_cursor_token="123456";
+	if (strcmp(parallel_cursor_token, passwd)!=0)
+	{
+		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of"
+		             "the password is not same as the token of the parallel cursor.");
+		return false;
+	}
+
+	FakeClientAuthentication(port);
+	return true;
+}
+
+/*
  * Special client authentication for QD to QE connections. This is run at the
  * QE. This is non-trivial because a QE some times runs at the master (i.e., an
  * entry-DB for things like master only tables).
@@ -441,6 +483,16 @@ void
 ClientAuthentication(Port *port)
 {
 	int			status = STATUS_ERROR;
+
+	elog(LOG, "libpq connection authenticate in Gp_role mode: %s, Gp_session_role mode: %s.", role_to_string(Gp_role), role_to_string(Gp_session_role));
+
+	if (GP_ROLE_RETRIEVE == Gp_role)
+	{
+		if (retrieve_mode_authentication(port))
+			return;
+
+		/* Else, try the normal authentication */
+	}
 
 	/*
 	 * If this is a QD to QE connection, we might be able to short circuit

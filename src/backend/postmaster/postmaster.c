@@ -1986,7 +1986,51 @@ retry1:
 			else if (strcmp(nameptr, "user") == 0)
 				port->user_name = pstrdup(valptr);
 			else if (strcmp(nameptr, "options") == 0)
+			{
 				port->cmdline_options = pstrdup(valptr);
+
+				/* Parse cmdline_options to fetch gp_session_role setting */
+				if (port->cmdline_options != NULL && strstr(port->cmdline_options,"gp_session_role") != 0)
+				{
+					char	  **av;
+					int			maxac;
+					int			ac;
+
+					maxac = 2 + (strlen(port->cmdline_options) + 1) / 2;
+
+					av = (char **) palloc(maxac * sizeof(char *));
+					ac = 0;
+
+					/* Note this mangles port->cmdline_options */
+					pg_split_opts(av, &ac, port->cmdline_options);
+
+					av[ac] = NULL;
+
+					Assert(ac < maxac);
+
+					for(int i=0; i< ac; i++)
+					{
+						char *item = strstr(av[i], "gp_session_role");
+
+						if ( item!= 0)
+						{
+							char	   *name,
+							           *value;
+
+							ParseLongOption(item, &name, &value);
+
+							if (strcmp(name, "gp_session_role") == 0) /* process it before libpq connection authentication */
+							{
+								assign_gp_session_role(value, NULL);
+								break;
+							}
+						}
+					}
+				}
+
+			}
+
+
 			else if (strcmp(nameptr, "gpqeid") == 0)
 				gpqeid = valptr;
 			else if (strcmp(nameptr, "replication") == 0)
