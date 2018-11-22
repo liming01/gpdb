@@ -399,6 +399,8 @@ role_to_string(GpRoleValue role)
 			return "execute";
 		case GP_ROLE_UTILITY:
 			return "utility";
+		case GP_ROLE_RETRIEVE:
+			return "retrieve";
 		case GP_ROLE_UNDEFINED:
 		default:
 			return "*undefined*";
