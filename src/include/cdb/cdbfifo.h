@@ -53,7 +53,7 @@ typedef struct sharedtokendesc
 	int32	token;
 	char	cursor_name[NAMEDATALEN];
 	int		session_id;
-	int16	dbid;
+	bool	on_master;
 } SharedTokenDesc;
 
 typedef EndPointDesc *EndPoint;
@@ -69,7 +69,7 @@ extern int32 GetUniqueGpToken(void);
 extern void SetGpToken(int32 token);
 extern void ClearGpToken(void);
 extern void DismissGpToken(void);
-extern void AddParallelCursorToken(int32, const char*, int, int16);
+extern void AddParallelCursorToken(int32, const char*, int, bool);
 extern void ClearParallelCursorToken(int32);
 extern int32 GpToken(void);
 
