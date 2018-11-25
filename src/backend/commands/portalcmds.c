@@ -174,37 +174,21 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	{
 		portal->parallel_cursor_token = GetUniqueGpToken();
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
+
 		if (!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
 				stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
 		{
-			/* Add all segments into token shared memory */
-			CdbComponentDatabaseInfo* seg_db_list = getCdbComponentDatabases()->segment_db_info;
-			int seg_db_num = getCdbComponentDatabases()->total_segment_dbs;
-			for (int i = 0; i < seg_db_num; i++)
-			{
-				if (seg_db_list[i].role == 'p')
-				{
-					AddParallelCursorToken(portal->parallel_cursor_token,
-										   portal->name,
-										   gp_session_id,
-										   seg_db_list[i].dbid);
-				}
-			}
+				AddParallelCursorToken(portal->parallel_cursor_token,
+									   portal->name,
+									   gp_session_id,
+									   false);
 		}
 		else
 		{
-			CdbComponentDatabaseInfo* entry_db_list = getCdbComponentDatabases()->entry_db_info;
-			int entry_db_num = getCdbComponentDatabases()->total_entry_dbs;
-			for (int i = 0; i < entry_db_num; i++)
-			{
-				if (entry_db_list[i].role == 'p')
-				{
-					AddParallelCursorToken(portal->parallel_cursor_token,
-										   portal->name,
-										   gp_session_id,
-										   entry_db_list[i].dbid);
-				}
-			}
+				AddParallelCursorToken(portal->parallel_cursor_token,
+									   portal->name,
+									   gp_session_id,
+									   true);
 		}
 	}
 

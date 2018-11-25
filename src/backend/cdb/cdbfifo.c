@@ -100,10 +100,10 @@ void DismissGpToken()
 	SpinLockRelease(shared_tokens_lock);
 }
 
-void AddParallelCursorToken(int32 token, const char* name, session_id, int16 dbid)
+void AddParallelCursorToken(int32 token, const char* name, int session_id, bool on_master)
 {
 	int i;
-	Assert(token!=InvalidToken && dbid != InvalidDbid && name!= NULL && session_id != INVALID_SESSION_ID);
+	Assert(token!=InvalidToken && name!= NULL && session_id != INVALID_SESSION_ID);
 
 	SpinLockAcquire(shared_tokens_lock);
 
@@ -111,13 +111,12 @@ void AddParallelCursorToken(int32 token, const char* name, session_id, int16 dbi
 	{
 		if (SharedTokens[i].token == InvalidToken)
 		{
-			Assert(SharedTokens[i].dbid == InvalidDbid);
 			strncpy(SharedTokens[i].cursor_name, name, strlen(name));
 			SharedTokens[i].session_id = session_id;
 			SharedTokens[i].token = token;
-			SharedTokens[i].dbid = dbid;
-			elog(LOG, "===>Add a new token:%d, dbid:%d, session id:%d, cursor name:%s into shared memory",
-					token, dbid, session_id, name);
+			SharedTokens[i].on_master = on_master;
+			elog(LOG, "===>Add a new token:%d, session id:%d, cursor name:%s, on master:%s into shared memory",
+					token, session_id, SharedTokens[i].cursor_name, on_master?"true":"false");
 			break;
 		}
 	}
@@ -140,13 +139,13 @@ void ClearParallelCursorToken(int32 token)
 	{
 		if (SharedTokens[i].token == token)
 		{
-			Assert(SharedTokens[i].dbid != InvalidDbid);
-			elog(LOG, "===>Remove token:%d, dbid:%d, session id:%d, cursor name:%s from shared memory",
-						token, SharedTokens[i].dbid, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
+			elog(LOG, "===>Remove token:%d, session id:%d, cursor name:%s, on master:%s from shared memory",
+						token, SharedTokens[i].session_id, SharedTokens[i].cursor_name,
+						SharedTokens[i].on_master?"true":"false");
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
 			SharedTokens[i].session_id = INVALID_SESSION_ID;
-			SharedTokens[i].dbid = InvalidDbid;
+			SharedTokens[i].on_master = false;
 		}
 	}
 
@@ -258,7 +257,7 @@ void Token_ShmemInit()
 		{
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
-			SharedTokens[i].dbid = InvalidDbid;
+			SharedTokens[i].on_master = false;
 			SharedTokens[i].session_id = INVALID_SESSION_ID;
 		}
 	}
@@ -952,9 +951,10 @@ void AbortEndPoint(void)
 
 typedef struct
 {
-	SharedTokenDesc* tokens;
-	int curIdx;
-	int count;
+	int curTokenIdx;			// current index in shared token list.
+	CdbComponentDatabaseInfo* seg_db_list;
+	int segment_num;			// number of primary segments
+	int curSegIdx;			// current index of segment id
 } GP_Endpoints_Info;
 
 Datum
@@ -999,9 +999,10 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		mystatus = (GP_Endpoints_Info *) palloc0(sizeof(GP_Endpoints_Info));
 		funcctx->user_fctx = (void *) mystatus;
-		mystatus->count = MAX_ENDPOINT_SIZE;
-		mystatus->curIdx = 0;
-		mystatus->tokens = SharedTokens;
+		mystatus->curTokenIdx = 0;
+		mystatus->seg_db_list = getCdbComponentDatabases()->segment_db_info;
+		mystatus->segment_num = getCdbComponentDatabases()->total_segment_dbs;
+		mystatus->curSegIdx = 0;
 
 #if 0
 		if (Gp_role == GP_ROLE_DISPATCH)
@@ -1052,36 +1053,73 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	 * build detailed token information
 	 */
 	//SpinLockAcquire(shared_tokens_lock);
-	while (mystatus->curIdx < mystatus->count)
+	while (mystatus->curTokenIdx < MAX_ENDPOINT_SIZE)
 	{
 		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
 		Datum	result;
 		CdbComponentDatabaseInfo *dbinfo;
 
-		SharedToken entry = &mystatus->tokens[mystatus->curIdx];
-		int32 token = entry->token;
-		int16 dbid = entry->dbid;
-		++mystatus->curIdx;
-		if (token != InvalidToken)
+		SharedToken entry = &SharedTokens[mystatus->curTokenIdx];
+		if (entry->token != InvalidToken)
 		{
-			dbinfo = dbid_get_dbinfo(entry->dbid);
-			values[0] = Int32GetDatum(entry->token);
-			nulls[0]  = false;
-			values[1] = CStringGetTextDatum(entry->cursor_name);
-			nulls[1]  = false;
-			values[2] = Int32GetDatum(entry->session_id);
-			nulls[2]  = false;
-			values[3] = CStringGetTextDatum(dbinfo->hostname);
-			nulls[3]  = false;
-			values[4] = Int32GetDatum(dbinfo->port);
-			nulls[4]  = false;
-			values[5] = CStringGetTextDatum(" ");
-			nulls[5]  = false;
+			if(entry->on_master)
+			{
+				dbinfo = dbid_get_dbinfo(MASTER_DBID);
+				values[0] = Int32GetDatum(entry->token);
+				nulls[0]  = false;
+				values[1] = CStringGetTextDatum(entry->cursor_name);
+				nulls[1]  = false;
+				values[2] = Int32GetDatum(entry->session_id);
+				nulls[2]  = false;
+				values[3] = CStringGetTextDatum(dbinfo->hostname);
+				nulls[3]  = false;
+				values[4] = Int32GetDatum(dbinfo->port);
+				nulls[4]  = false;
+				values[5] = CStringGetTextDatum(" ");
+				nulls[5]  = false;
+				tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+				result = HeapTupleGetDatum(tuple);
+				mystatus->curTokenIdx++;
+				SRF_RETURN_NEXT(funcctx, result);
+			}
+			else
+			{
+				while (mystatus->seg_db_list[mystatus->curSegIdx].role != 'p'
+						&& mystatus->curSegIdx < mystatus->segment_num)
+				{
+					mystatus->curSegIdx++;
+				}
 
-			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-			result = HeapTupleGetDatum(tuple);
-			SRF_RETURN_NEXT(funcctx, result);
+				if (mystatus->seg_db_list[mystatus->curSegIdx].role == 'p'
+						&& mystatus->curSegIdx < mystatus->segment_num)
+				{
+					values[0] = Int32GetDatum(entry->token);
+					nulls[0]  = false;
+					values[1] = CStringGetTextDatum(entry->cursor_name);
+					nulls[1]  = false;
+					values[2] = Int32GetDatum(entry->session_id);
+					nulls[2]  = false;
+					values[3] = CStringGetTextDatum(mystatus->seg_db_list[mystatus->curSegIdx].hostname);
+					nulls[3]  = false;
+					values[4] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].port);
+					nulls[4]  = false;
+					values[5] = CStringGetTextDatum(" ");
+					nulls[5]  = false;
+					mystatus->curSegIdx++;
+					tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+					if (mystatus->curSegIdx == mystatus->segment_num)
+					{
+						mystatus->curTokenIdx++;
+					}
+					result = HeapTupleGetDatum(tuple);
+					SRF_RETURN_NEXT(funcctx, result);
+				}
+			}
+		}
+		else
+		{
+			mystatus->curTokenIdx++;
 		}
 	}
 	//SpinLockRelease(shared_tokens_lock);
@@ -1127,5 +1165,10 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		SRF_RETURN_NEXT(funcctx, result);
 	}
 #endif
+/*
+	if (mystatus->seg_db_list != NULL)
+	{
+		free(mystatus->seg_db_list);
+	}*/
 	SRF_RETURN_DONE(funcctx);
 }
