@@ -1087,12 +1087,20 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				while (mystatus->seg_db_list[mystatus->curSegIdx].role != 'p'
 						&& mystatus->curSegIdx < mystatus->segment_num)
 				{
+					/* try to find a primary segment in the list */
 					mystatus->curSegIdx++;
 				}
 
-				if (mystatus->seg_db_list[mystatus->curSegIdx].role == 'p'
+				if (mystatus->curSegIdx == mystatus->segment_num)
+				{
+					/* go to the next token */
+					mystatus->curTokenIdx++;
+					mystatus->curSegIdx = 0;
+				}
+				else if (mystatus->seg_db_list[mystatus->curSegIdx].role == 'p'
 						&& mystatus->curSegIdx < mystatus->segment_num)
 				{
+					/* get a primary segment and return this token and segment */
 					values[0] = Int32GetDatum(entry->token);
 					nulls[0]  = false;
 					values[1] = CStringGetTextDatum(entry->cursor_name);
@@ -1110,6 +1118,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					if (mystatus->curSegIdx == mystatus->segment_num)
 					{
 						mystatus->curTokenIdx++;
+						mystatus->curSegIdx = 0;
 					}
 					result = HeapTupleGetDatum(tuple);
 					SRF_RETURN_NEXT(funcctx, result);
