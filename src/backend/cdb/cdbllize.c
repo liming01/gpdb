@@ -148,6 +148,7 @@ cdbparallelize(PlannerInfo *root,
 			return plan;
 		case GP_ROLE_EXECUTE:
 		case GP_ROLE_UNDEFINED:
+		case GP_ROLE_RETRIEVE:
 			Insist(0);
 	}
 	Assert(is_plan_node((Node *) plan));
