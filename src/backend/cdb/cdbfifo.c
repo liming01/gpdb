@@ -655,6 +655,8 @@ static void init_conn_for_receiver()
 		CloseConn();
 		ep_log(ERROR, "set nonblock fifo %s failed:%m", fifo_name);
 	}
+
+	s_fifoConnState->created = true;
 }
 
 void InitConn()
@@ -895,6 +897,7 @@ receiver_close()
 		ep_log(ERROR, "failed to close fifo:%m");
 
 	s_fifoConnState->fifo = -1;
+	s_fifoConnState->created = false;
 }
 
 void CloseConn(void)
