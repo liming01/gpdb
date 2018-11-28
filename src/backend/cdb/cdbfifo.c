@@ -114,7 +114,7 @@ void AddParallelCursorToken(int32 token, const char* name, int session_id, bool 
 			SharedTokens[i].session_id = session_id;
 			SharedTokens[i].token = token;
 			SharedTokens[i].on_master = on_master;
-			elog(LOG, "===>Add a new token:%d, session id:%d, cursor name:%s, on master:%s into shared memory",
+			elog(LOG, "Add a new token:%d, session id:%d, cursor name:%s, on master:%s into shared memory",
 					token, session_id, SharedTokens[i].cursor_name, on_master?"true":"false");
 			break;
 		}
@@ -138,7 +138,7 @@ void ClearParallelCursorToken(int32 token)
 	{
 		if (SharedTokens[i].token == token)
 		{
-			elog(LOG, "===>Remove token:%d, session id:%d, cursor name:%s, on master:%s from shared memory",
+			elog(LOG, "Remove token:%d, session id:%d, cursor name:%s, on master:%s from shared memory",
 						token, SharedTokens[i].session_id, SharedTokens[i].cursor_name,
 						SharedTokens[i].on_master?"true":"false");
 			SharedTokens[i].token = InvalidToken;
@@ -955,8 +955,8 @@ typedef struct
 {
 	int curTokenIdx;			// current index in shared token list.
 	CdbComponentDatabaseInfo* seg_db_list;
-	int segment_num;			// number of primary segments
-	int curSegIdx;			// current index of segment id
+	int segment_num;			// number of segments
+	int curSegIdx;				// current index of segment id
 } GP_Endpoints_Info;
 
 Datum
@@ -1181,5 +1181,92 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	{
 		free(mystatus->seg_db_list);
 	}*/
+	SRF_RETURN_DONE(funcctx);
+}
+
+typedef struct
+{
+	int endpoints_num;				// number of endpointdesc in the list
+	int current_idx;				// current index of endpointdesc in the list
+} GP_Endpoints_Status_Info;
+
+/*
+ * Display the status of all valid EndPointDesc in shared memory
+ */
+Datum
+gp_endpoints_status_info(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	GP_Endpoints_Status_Info *mystatus;
+	MemoryContext    oldcontext;
+	Datum            values[5];
+	bool             nulls[5] = { true };
+	HeapTuple        tuple;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		/* create a function context for cross-call persistence */
+		funcctx = SRF_FIRSTCALL_INIT();
+
+		/* switch to memory context appropriate for multiple function calls */
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		/* build tuple descriptor */
+		TupleDesc tupdesc = CreateTemplateTupleDesc(5, false);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
+												INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "databaseid",
+												INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "senderpid",
+												INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 4, "receiverpid",
+												INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "attached",
+												BOOLOID, -1, 0);
+
+		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+		mystatus = (GP_Endpoints_Status_Info *) palloc0(sizeof(GP_Endpoints_Status_Info));
+		funcctx->user_fctx = (void *) mystatus;
+		mystatus->endpoints_num = MAX_ENDPOINT_SIZE;
+		mystatus->current_idx = 0;
+
+		/* return to original context when allocating transient memory */
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	mystatus = funcctx->user_fctx;
+
+	while (mystatus->current_idx < mystatus->endpoints_num)
+	{
+		memset(values, 0, sizeof(values));
+		memset(nulls, 0, sizeof(nulls));
+		Datum	result;
+
+		EndPoint entry = &SharedEndPoints[mystatus->current_idx];
+		if (!entry->empty)
+		{
+			values[0] = Int32GetDatum(entry->token);
+			nulls[0]  = false;
+			values[1] = Int32GetDatum(entry->database_id);
+			nulls[1]  = false;
+			values[2] = Int32GetDatum(entry->sender_pid);
+			nulls[2]  = false;
+			values[3] = Int32GetDatum(entry->receiver_pid);
+			nulls[3]  = false;
+			values[4] = BoolGetDatum(entry->attached);
+			nulls[4]  = false;
+			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+			result = HeapTupleGetDatum(tuple);
+			mystatus->current_idx++;
+			SRF_RETURN_NEXT(funcctx, result);
+		}
+		mystatus->current_idx++;
+	}
 	SRF_RETURN_DONE(funcctx);
 }
