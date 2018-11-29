@@ -953,11 +953,41 @@ void AbortEndPoint(void)
 
 typedef struct
 {
+	int token;
+	int dbid;
+	bool attached;
+} EndPoint_Status;
+
+typedef struct
+{
 	int curTokenIdx;			// current index in shared token list.
 	CdbComponentDatabaseInfo* seg_db_list;
 	int segment_num;			// number of segments
 	int curSegIdx;				// current index of segment id
+	EndPoint_Status* status;
+	int status_num;
 } GP_Endpoints_Info;
+
+#define GP_ENDPOINT_STATUS_INIT       "INIT"
+#define GP_ENDPOINT_STATUS_READY      "READY"
+#define GP_ENDPOINT_STATUS_RETRIEVING "RETRIEVING"
+
+static bool findStatusByTokenAndDbid(EndPoint_Status* status, int number,
+		int token, int dbid, bool* attached)
+{
+	bool found = false;
+	for (int i = 0; i < number; i++)
+	{
+		if (status[i].token == token
+				&& status[i].dbid == dbid)
+		{
+			found = true;
+			*attached = status[i].attached;
+			break;
+		}
+	}
+	return found;
+}
 
 Datum
 gp_endpoints_info(PG_FUNCTION_ARGS)
@@ -968,6 +998,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	Datum            values[6];
 	bool             nulls[6] = { true };
 	HeapTuple        tuple;
+	int              res_number = 0;
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -1005,45 +1036,49 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		mystatus->seg_db_list = cdbcomponent_getComponentInfo(MASTER_CONTENT_ID)->cdbs->segment_db_info;
 		mystatus->segment_num = cdbcomponent_getComponentInfo(MASTER_CONTENT_ID)->cdbs->total_segment_dbs;
 		mystatus->curSegIdx = 0;
+		mystatus->status = NULL;
+		mystatus->status_num = 0;
 
-#if 0
 		if (Gp_role == GP_ROLE_DISPATCH)
 		{
 			CdbPgResults cdb_pgresults = {NULL, 0};
-			StringInfoData buffer;
-			int i;
-			int j;
-			int k;
-			bool matched;
-			initStringInfo(&buffer);
 
-			CdbDispatchCommand("SELECT * FROM pg_catalog.gp_endpoints_info()", DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
+			CdbDispatchCommand("SELECT token,dbid,attached FROM pg_catalog.gp_endpoints_status_info()",
+					DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
 
 			if (cdb_pgresults.numResults == 0)
-				elog(ERROR, "gp_endpoints_info didn't get back any data from the segDBs");
-
-			for (i = 0; i < cdb_pgresults.numResults; i++)
 			{
-				for (j = 0; j < PQntuples(cdb_pgresults.pg_results[i]); j++)
+				elog(ERROR, "gp_endpoints_info didn't get back any data from the segDBs");
+			}
+			for (int i = 0; i < cdb_pgresults.numResults; i++)
+			{
+				if (PQresultStatus(cdb_pgresults.pg_results[i]) != PGRES_TUPLES_OK)
 				{
-					matched = false;
-					for (k = 0; k < mystatus->count; k++)
+					cdbdisp_clearCdbPgResults(&cdb_pgresults);
+					elog(ERROR,"gp_endpoints_info(): resultStatus not tuples_Ok");
+				}
+				res_number += PQntuples(cdb_pgresults.pg_results[i]);
+			}
+
+			if (res_number > 0)
+			{
+				mystatus->status = (EndPoint_Status*)palloc0(sizeof(EndPoint_Status) * res_number);
+				mystatus->status_num = res_number;
+				int idx = 0;
+				for (int i = 0; i < cdb_pgresults.numResults; i++)
+				{
+					struct pg_result* result = cdb_pgresults.pg_results[i];
+					for (int j = 0; j < PQntuples(result); j++)
 					{
-						if (mystatus->tokens[k] == atoi(PQgetvalue(cdb_pgresults.pg_results[i], j, 1)))
-						{
-							matched = true;
-						}
+						mystatus->status[idx].token = atoi(PQgetvalue(result, j, 0));
+						mystatus->status[idx].dbid  = atoi(PQgetvalue(result, j, 1));
+						char* attached = PQgetvalue(result, j, 2);
+						mystatus->status[idx].attached = (strncmp(attached, "f", 1)==0)?false:true;
+						idx++;
 					}
-
-					if (matched)
-						break;
-
-					mystatus->tokens[mystatus->count] = atoi(PQgetvalue(cdb_pgresults.pg_results[i], j, 1));
-					mystatus->count++;
 				}
 			}
 		}
-#endif
 		/* return to original context when allocating transient memory */
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -1078,8 +1113,22 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				nulls[3]  = false;
 				values[4] = Int32GetDatum(dbinfo->port);
 				nulls[4]  = false;
-				values[5] = CStringGetTextDatum(" ");
-				nulls[5]  = false;
+				/*
+				 * find out the status of endpoint
+				 */
+				bool attached = false;
+				if (!findStatusByTokenAndDbid(mystatus->status,
+						mystatus->status_num, entry->token, MASTER_DBID,
+						&attached))
+				{
+					values[5] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
+					nulls[5]  = false;
+				}
+				else
+				{
+					values[5] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
+					nulls[5]  = false;
+				}
 				tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 				result = HeapTupleGetDatum(tuple);
 				mystatus->curTokenIdx++;
@@ -1114,8 +1163,23 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					nulls[3]  = false;
 					values[4] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].port);
 					nulls[4]  = false;
-					values[5] = CStringGetTextDatum(" ");
-					nulls[5]  = false;
+					/*
+					 * find out the status of endpoint
+					 */
+					bool attached = false;
+					if (!findStatusByTokenAndDbid(mystatus->status,
+							mystatus->status_num, entry->token,
+							mystatus->seg_db_list[mystatus->curSegIdx].dbid,
+							&attached))
+					{
+						values[5] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
+						nulls[5]  = false;
+					}
+					else
+					{
+						values[5] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
+						nulls[5]  = false;
+					}
 					mystatus->curSegIdx++;
 					tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 					if (mystatus->curSegIdx == mystatus->segment_num)
@@ -1135,47 +1199,6 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	}
 	//SpinLockRelease(shared_tokens_lock);
 
-#if 0
-	int k;
-	bool matched;
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (!SharedEndPoints[i].empty && SharedEndPoints[i].token != InvalidToken)
-		{
-			matched = false;
-			for (k = 0; k < mystatus->count; k++)
-			{
-				if (mystatus->tokens[k] == SharedEndPoints[i].token)
-				{
-					matched = true;
-				}
-			}
-
-			if (matched)
-				break;
-
-			mystatus->tokens[mystatus->count] = SharedEndPoints[i].token;
-			mystatus->count++;
-		}
-	}
-
-	while (mystatus->cur < mystatus->count)
-	{
-		memset(values, 0, sizeof(values));
-		memset(nulls, 0, sizeof(nulls));
-
-		values[0] = Int32GetDatum(8655);
-		nulls[0] = false;
-		values[1] = Int32GetDatum(mystatus->tokens[mystatus->cur]);
-		nulls[1] = false;
-
-		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-		result = HeapTupleGetDatum(tuple);
-
-		++mystatus->cur;
-		SRF_RETURN_NEXT(funcctx, result);
-	}
-#endif
 /*
 	if (mystatus->seg_db_list != NULL)
 	{
@@ -1199,8 +1222,8 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	FuncCallContext *funcctx;
 	GP_Endpoints_Status_Info *mystatus;
 	MemoryContext    oldcontext;
-	Datum            values[5];
-	bool             nulls[5] = { true };
+	Datum            values[6];
+	bool             nulls[6] = { true };
 	HeapTuple        tuple;
 
 	if (SRF_IS_FIRSTCALL())
@@ -1212,7 +1235,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tuple descriptor */
-		TupleDesc tupdesc = CreateTemplateTupleDesc(5, false);
+		TupleDesc tupdesc = CreateTemplateTupleDesc(6, false);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
 												INT4OID, -1, 0);
 
@@ -1227,6 +1250,9 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "attached",
 												BOOLOID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "dbid",
+												INT4OID, -1, 0);
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
@@ -1261,6 +1287,8 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			nulls[3]  = false;
 			values[4] = BoolGetDatum(entry->attached);
 			nulls[4]  = false;
+			values[5] = Int32GetDatum(GpIdentity.dbid);
+			nulls[5]  = false;
 			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 			result = HeapTupleGetDatum(tuple);
 			mystatus->current_idx++;

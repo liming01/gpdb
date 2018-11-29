@@ -154,7 +154,7 @@
 
  CREATE FUNCTION gp_endpoints_info(OUT token int4, OUT cursorname text, OUT sessionid int4, OUT hostname text, OUT port int4, OUT status text) RETURNS SETOF record LANGUAGE internal VOLATILE EXECUTE ON MASTER AS 'gp_endpoints_info' WITH (OID=7178, DESCRIPTION="mpp endpoints information");
 
- CREATE FUNCTION gp_endpoints_status_info(OUT token int4, OUT databaseid int4, OUT senderpid int4, OUT receiverpid int4, OUT attached bool) RETURNS SETOF record LANGUAGE internal VOLATILE EXECUTE ON ANY AS 'gp_endpoints_status_info' WITH (OID=7179, DESCRIPTION="endpoints status information");
+ CREATE FUNCTION gp_endpoints_status_info(OUT token int4, OUT databaseid int4, OUT senderpid int4, OUT receiverpid int4, OUT attached bool, OUT dbid int4) RETURNS SETOF record LANGUAGE internal VOLATILE EXECUTE ON ANY AS 'gp_endpoints_status_info' WITH (OID=7179, DESCRIPTION="endpoints status information");
 
 -- the bitmap index access method routines
  CREATE FUNCTION bmgettuple(internal, internal) RETURNS bool LANGUAGE internal VOLATILE STRICT AS 'bmgettuple' WITH (OID=7050, DESCRIPTION="bitmap(internal)");
