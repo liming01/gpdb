@@ -1920,6 +1920,13 @@ UtilityReturnsTuples(Node *parsetree)
 TupleDesc
 UtilityTupleDescriptor(Node *parsetree)
 {
+
+	/* Only allow RETRIEVE statement in retrieve mode */
+	if (Gp_role == GP_ROLE_RETRIEVE && nodeTag(parsetree)!= T_RetrieveStmt)
+	{
+		elog(ERROR, "Only allow RETRIEVE and SELECT statement in retrieve mode.");
+	}
+
 	switch (nodeTag(parsetree))
 	{
 		case T_FetchStmt:

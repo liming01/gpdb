@@ -1443,6 +1443,15 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 
 	relOid = rte->relid;
 
+	/* Only gp_endpoints view can be allowed in retrieve mode */
+	if (Gp_role == GP_ROLE_RETRIEVE)
+	{
+		if(rte->relid!=11468||rte->relkind!='v')
+		{
+			elog(ERROR, "Only gp_endpoints view can be accessed in retrieve mode.");
+		}
+	}
+
 	/*
 	 * userid to check as: current user unless we have a setuid indication.
 	 *
