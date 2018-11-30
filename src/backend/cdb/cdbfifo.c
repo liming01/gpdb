@@ -1089,7 +1089,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	/*
 	 * build detailed token information
 	 */
-	//SpinLockAcquire(shared_tokens_lock);
+	SpinLockAcquire(shared_tokens_lock);
 	while (mystatus->curTokenIdx < MAX_ENDPOINT_SIZE)
 	{
 		memset(values, 0, sizeof(values));
@@ -1132,6 +1132,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 				result = HeapTupleGetDatum(tuple);
 				mystatus->curTokenIdx++;
+				SpinLockRelease(shared_tokens_lock);
 				SRF_RETURN_NEXT(funcctx, result);
 			}
 			else
@@ -1188,6 +1189,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						mystatus->curSegIdx = 0;
 					}
 					result = HeapTupleGetDatum(tuple);
+					SpinLockRelease(shared_tokens_lock);
 					SRF_RETURN_NEXT(funcctx, result);
 				}
 			}
@@ -1197,13 +1199,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 			mystatus->curTokenIdx++;
 		}
 	}
-	//SpinLockRelease(shared_tokens_lock);
+	SpinLockRelease(shared_tokens_lock);
 
-/*
-	if (mystatus->seg_db_list != NULL)
-	{
-		free(mystatus->seg_db_list);
-	}*/
 	SRF_RETURN_DONE(funcctx);
 }
 
@@ -1268,6 +1265,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	funcctx = SRF_PERCALL_SETUP();
 	mystatus = funcctx->user_fctx;
 
+	SpinLockAcquire(shared_end_points_lock);
 	while (mystatus->current_idx < mystatus->endpoints_num)
 	{
 		memset(values, 0, sizeof(values));
@@ -1292,9 +1290,12 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 			result = HeapTupleGetDatum(tuple);
 			mystatus->current_idx++;
+			SpinLockRelease(shared_end_points_lock);
 			SRF_RETURN_NEXT(funcctx, result);
 		}
 		mystatus->current_idx++;
 	}
+	SpinLockRelease(shared_end_points_lock);
+
 	SRF_RETURN_DONE(funcctx);
 }
