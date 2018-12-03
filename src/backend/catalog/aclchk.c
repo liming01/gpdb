@@ -5051,9 +5051,9 @@ pg_proc_aclcheck(Oid proc_oid, Oid roleid, AclMode mode)
 	/* Only gp_endpoints_info function can be called in retrieve mode */
 	if (Gp_role == GP_ROLE_RETRIEVE)
 	{
-		if(proc_oid!=F_GP_ENDPOINTS_INFO)
+		if(proc_oid!=F_GP_ENDPOINTS_STATUS_INFO)
 		{
-			elog(ERROR, "Only gp_endpoints_info function can be called in retrieve mode.");
+			elog(ERROR, "Only gp_endpoints_status_info function can be called in retrieve mode.");
 		}
 	}
 

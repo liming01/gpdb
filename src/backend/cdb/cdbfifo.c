@@ -1000,6 +1000,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	HeapTuple        tuple;
 	int              res_number = 0;
 
+	if (Gp_role != GP_ROLE_DISPATCH)
+		elog(ERROR, "gp_endpoints_info only can be called on query dispatcher.");
+
 	if (SRF_IS_FIRSTCALL())
 	{
 		/* create a function context for cross-call persistence */
@@ -1039,46 +1042,44 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		mystatus->status = NULL;
 		mystatus->status_num = 0;
 
-		if (Gp_role == GP_ROLE_DISPATCH)
+		CdbPgResults cdb_pgresults = {NULL, 0};
+
+		CdbDispatchCommand("SELECT token,dbid,attached FROM pg_catalog.gp_endpoints_status_info()",
+				DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
+
+		if (cdb_pgresults.numResults == 0)
 		{
-			CdbPgResults cdb_pgresults = {NULL, 0};
-
-			CdbDispatchCommand("SELECT token,dbid,attached FROM pg_catalog.gp_endpoints_status_info()",
-					DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
-
-			if (cdb_pgresults.numResults == 0)
+			elog(ERROR, "gp_endpoints_info didn't get back any data from the segDBs");
+		}
+		for (int i = 0; i < cdb_pgresults.numResults; i++)
+		{
+			if (PQresultStatus(cdb_pgresults.pg_results[i]) != PGRES_TUPLES_OK)
 			{
-				elog(ERROR, "gp_endpoints_info didn't get back any data from the segDBs");
+				cdbdisp_clearCdbPgResults(&cdb_pgresults);
+				elog(ERROR,"gp_endpoints_info(): resultStatus not tuples_Ok");
 			}
+			res_number += PQntuples(cdb_pgresults.pg_results[i]);
+		}
+
+		if (res_number > 0)
+		{
+			mystatus->status = (EndPoint_Status*)palloc0(sizeof(EndPoint_Status) * res_number);
+			mystatus->status_num = res_number;
+			int idx = 0;
 			for (int i = 0; i < cdb_pgresults.numResults; i++)
 			{
-				if (PQresultStatus(cdb_pgresults.pg_results[i]) != PGRES_TUPLES_OK)
+				struct pg_result* result = cdb_pgresults.pg_results[i];
+				for (int j = 0; j < PQntuples(result); j++)
 				{
-					cdbdisp_clearCdbPgResults(&cdb_pgresults);
-					elog(ERROR,"gp_endpoints_info(): resultStatus not tuples_Ok");
-				}
-				res_number += PQntuples(cdb_pgresults.pg_results[i]);
-			}
-
-			if (res_number > 0)
-			{
-				mystatus->status = (EndPoint_Status*)palloc0(sizeof(EndPoint_Status) * res_number);
-				mystatus->status_num = res_number;
-				int idx = 0;
-				for (int i = 0; i < cdb_pgresults.numResults; i++)
-				{
-					struct pg_result* result = cdb_pgresults.pg_results[i];
-					for (int j = 0; j < PQntuples(result); j++)
-					{
-						mystatus->status[idx].token = atoi(PQgetvalue(result, j, 0));
-						mystatus->status[idx].dbid  = atoi(PQgetvalue(result, j, 1));
-						char* attached = PQgetvalue(result, j, 2);
-						mystatus->status[idx].attached = (strncmp(attached, "f", 1)==0)?false:true;
-						idx++;
-					}
+					mystatus->status[idx].token = atoi(PQgetvalue(result, j, 0));
+					mystatus->status[idx].dbid  = atoi(PQgetvalue(result, j, 1));
+					char* attached = PQgetvalue(result, j, 2);
+					mystatus->status[idx].attached = (strncmp(attached, "f", 1)==0)?false:true;
+					idx++;
 				}
 			}
 		}
+
 		/* return to original context when allocating transient memory */
 		MemoryContextSwitchTo(oldcontext);
 	}
