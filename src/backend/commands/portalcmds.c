@@ -170,7 +170,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 * Generate a token for parallel cursor, and add it into
 	 * shared memory
 	 */
-	if (portal->strategy == PORTAL_MULTI_QUERY)
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
 	{
 		portal->parallel_cursor_token = GetUniqueGpToken();
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
@@ -311,7 +311,7 @@ PerformPortalClose(const char *name)
 	 * Clear related token in shared memory,
 	 * if it is a parallel cursor
 	 */
-	if (portal->strategy == PORTAL_MULTI_QUERY)
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
 	{
 		Assert(portal->parallel_cursor_token != InvalidToken);
 		ClearParallelCursorToken(portal->parallel_cursor_token);
