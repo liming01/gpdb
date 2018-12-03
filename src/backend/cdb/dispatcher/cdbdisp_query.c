@@ -468,6 +468,7 @@ cdbdisp_buildCommandQueryParms(const char *strCommand, int flags)
 	pQueryParms->serializedQuerytreelen = 0;
 	pQueryParms->serializedQueryDispatchDesc = NULL;
 	pQueryParms->serializedQueryDispatchDesclen = 0;
+	pQueryParms->token = InvalidToken;
 
 	/*
 	 * Serialize a version of our DTX Context Info
@@ -539,6 +540,7 @@ cdbdisp_buildUtilityQueryParms(struct Node *stmt,
 	pQueryParms->serializedQuerytreelen = serializedQuerytree_len;
 	pQueryParms->serializedQueryDispatchDesc = serializedQueryDispatchDesc;
 	pQueryParms->serializedQueryDispatchDesclen = serializedQueryDispatchDesc_len;
+	pQueryParms->token = InvalidToken;
 
 	/*
 	 * Serialize a version of our DTX Context Info
