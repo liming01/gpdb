@@ -1042,8 +1042,7 @@ exec_mpp_query(const char *query_string,
 			   const char * serializedQuerytree, int serializedQuerytreelen,
 			   const char * serializedPlantree, int serializedPlantreelen,
 			   const char * serializedParams, int serializedParamslen,
-			   const char * serializedQueryDispatchDesc, int serializedQueryDispatchDesclen,
-			   int localSlice)
+			   const char * serializedQueryDispatchDesc, int serializedQueryDispatchDesclen)
 {
 	CommandDest dest = whereToSendOutput;
 	MemoryContext oldcontext;
@@ -1342,7 +1341,7 @@ exec_mpp_query(const char *query_string,
 						  list_make1(plan ? (Node*)plan : (Node*)utilityStmt),
 						  NULL);
 
-		if (commandType == CMD_SELECT && localSlice == 0)
+		if (commandType == CMD_SELECT && currentSliceId == 0)
 			SetEndPointRole(EPR_SENDER);
 
 		/*
@@ -5282,7 +5281,6 @@ PostgresMain(int argc, char *argv[],
 					int serializedQueryDispatchDesclen = 0;
 					int resgroupInfoLen = 0;
 					int multi_process_fetch_token = InvalidToken;
-					int localSlice = -1;
 
 					int rootIdx;
 					TimestampTz statementStart;
@@ -5418,8 +5416,7 @@ PostgresMain(int argc, char *argv[],
 									   serializedQuerytree, serializedQuerytreelen,
 									   serializedPlantree, serializedPlantreelen,
 									   serializedParams, serializedParamslen,
-									   serializedQueryDispatchDesc, serializedQueryDispatchDesclen,
-									   localSlice);
+									   serializedQueryDispatchDesc, serializedQueryDispatchDesclen);
 					}
 
 					SetUserIdAndContext(GetOuterUserId(), false);
