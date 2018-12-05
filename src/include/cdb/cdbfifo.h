@@ -37,7 +37,7 @@ typedef struct sendpointdesc
 	Oid			database_id;
 	pid_t		sender_pid;
 	pid_t		receiver_pid;
-	int32      	token;
+	int32		token;
 	Latch		ack_done;
 	Size		num_attributes;
 	AttrDesc	attdesc[ENDPOINT_MAX_ATT_NUM];

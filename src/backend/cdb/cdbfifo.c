@@ -156,14 +156,13 @@ void SetGpToken(int32 token)
 	if (Gp_token != InvalidToken)
 		ep_log(ERROR, "end point token %d already set", Gp_token);
 
+	ep_log(LOG, "end point token is set from %d to %d", Gp_token, token);
 	Gp_token = token;
-	ep_log(LOG, "end point token %d set", Gp_token);
 }
 
 void ClearGpToken(void)
 {
 	ep_log(LOG, "end point token %d unset", Gp_token);
-
 	Gp_token = InvalidToken;
 }
 
@@ -1079,6 +1078,43 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				}
 			}
 		}
+
+		/* get endpoint status on master */
+		SpinLockAcquire(shared_end_points_lock);
+		int cnt = 0;
+		for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
+		{
+			EndPoint entry = &SharedEndPoints[i];
+			if (!entry->empty)
+				cnt++;
+		}
+		if (cnt != 0)
+		{
+			mystatus->status_num += cnt;
+			if (mystatus->status)
+			{
+				mystatus->status = (EndPoint_Status*) repalloc(mystatus->status,
+						sizeof(EndPoint_Status) * mystatus->status_num);
+			}
+			else
+			{
+				mystatus->status = (EndPoint_Status*) palloc(
+						sizeof(EndPoint_Status) * mystatus->status_num);
+			}
+			int idx = 0;
+			for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
+			{
+				EndPoint entry = &SharedEndPoints[i];
+				if (!entry->empty)
+				{
+					mystatus->status[mystatus->status_num-cnt+idx].token = entry->token;
+					mystatus->status[mystatus->status_num-cnt+idx].dbid = MASTER_DBID;
+					mystatus->status[mystatus->status_num-cnt+idx].attached = entry->attached;
+					idx++;
+				}
+			}
+		}
+		SpinLockRelease(shared_end_points_lock);
 
 		/* return to original context when allocating transient memory */
 		MemoryContextSwitchTo(oldcontext);

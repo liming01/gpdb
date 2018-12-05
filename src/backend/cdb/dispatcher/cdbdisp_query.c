@@ -1027,6 +1027,7 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	}
 
 	n32 = htonl(token);
+	SetGpToken(token);
 	memcpy(pos, &n32, sizeof(n32));
 	pos += sizeof(n32);
 
