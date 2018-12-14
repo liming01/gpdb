@@ -46,6 +46,8 @@ PG_MODULE_MAGIC;
 /* Default CPU cost to process 1 row (above and beyond cpu_tuple_cost). */
 #define DEFAULT_FDW_TUPLE_COST		0.01
 
+bool IS_PARALLEL_CURSOR = true;
+
 /*
  * FDW-specific planner information kept in RelOptInfo.fdw_private for a
  * foreign table.  This information is collected by postgresGetForeignRelSize.
@@ -225,6 +227,15 @@ typedef struct
 	List	   *already_used;	/* expressions already dealt with */
 } ec_member_foreign_arg;
 
+typedef struct EndPoint 
+{
+	int32		token;
+	char*		cursor_name;
+	int32 		session_id;
+	char*		hostname;
+	int32 		port;
+	char*		status;
+} EndPoint;
 /*
  * SQL functions
  */
@@ -978,6 +989,16 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		fsstate->param_values = (const char **) palloc0(numParams * sizeof(char *));
 	else
 		fsstate->param_values = NULL;
+	
+	/* Create parallel cusor before query plan dispatch, so that we can send end points info to segment */
+	if(IS_PARALLEL_CURSOR){
+		/*
+		 * If this is the first call after Begin or ReScan, we need to create the
+		 * cursor on the remote side.
+		 */
+		if (!fsstate->cursor_exists)
+			create_cursor(node);
+	}
 }
 
 /*
@@ -1967,8 +1988,15 @@ create_cursor(ForeignScanState *node)
 
 	/* Construct the DECLARE CURSOR command */
 	initStringInfo(&buf);
-	appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",
-					 fsstate->cursor_number, fsstate->query);
+	if (IS_PARALLEL_CURSOR)
+	{
+		appendStringInfo(&buf, "DECLARE c%u PARALLEL CURSOR FOR\n%s",
+						 fsstate->cursor_number, fsstate->query);
+	}else
+	{
+		appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",
+						 fsstate->cursor_number, fsstate->query);
+	}
 
 	/*
 	 * Notice that we pass NULL for paramTypes, thus forcing the remote server
@@ -1986,6 +2014,47 @@ create_cursor(ForeignScanState *node)
 		pgfdw_report_error(ERROR, res, conn, true, fsstate->query);
 	PQclear(res);
 
+	if (IS_PARALLEL_CURSOR)
+	{
+		int session_id;
+
+		/* get session id for fetching endpoints info of parallel cursor*/	
+		initStringInfo(&buf);
+		appendStringInfo(&buf, "show gp_session_id");
+		
+		res = PQexec(conn, buf.data);
+		if (PQresultStatus(res) != PGRES_TUPLES_OK) 
+		{
+			pgfdw_report_error(ERROR, res, conn, true, buf.data);
+		}
+		
+		session_id = atoi(PQgetvalue(res, 0, 0));
+		PQclear(res);
+
+		/* get endpoints info for parallel cursor*/
+		initStringInfo(&buf);
+		appendStringInfo(&buf, 
+			"select token, cursorname, sessionid, hostname, port, status from gp_endpoints where sessionid=%u and cursorname='c%u'", session_id, fsstate->cursor_number);
+		res = PQexec(conn, buf.data);
+		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		{
+			pgfdw_report_error(ERROR, res, conn, true, buf.data);
+		}
+
+		for (int i = 0; i < PQntuples(res); ++i)
+		{
+			EndPoint *ep = (EndPoint *) palloc0(sizeof(EndPoint));
+			
+			ep->token = atoi(PQgetvalue(res, i, 0));
+			ep->cursor_name = PQgetvalue(res, i, 1);
+			ep->session_id = atoi(PQgetvalue(res, i, 2));
+			ep->hostname = PQgetvalue(res, i, 3);
+			ep->port = atoi(PQgetvalue(res, i, 4));
+			ep->status = PQgetvalue(res, i, 5);
+		}
+		
+		PQclear(res);
+	}
 	/* Mark the cursor as created, and show no tuples have been retrieved */
 	fsstate->cursor_exists = true;
 	fsstate->tuples = NULL;

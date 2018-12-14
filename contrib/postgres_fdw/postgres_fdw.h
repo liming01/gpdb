@@ -20,6 +20,9 @@
 
 #include "libpq-fe.h"
 
+/* TODO: Global Vars for postgres fdw*/
+extern bool IS_PARALLEL_CURSOR;
+
 /* in postgres_fdw.c */
 extern int	set_transmission_modes(void);
 extern void reset_transmission_modes(int nestlevel);
