@@ -949,6 +949,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		/* TODO: create connect in retrieve mode to remote cluster */
 		char *endpoints_str = strVal(list_nth(fsplan->fdw_private,
 											  FdwScanPrivateEndpoints));
+		pg_usleep(3 * 60 * 1000);
 	}
 
 	/* Assign a unique ID for my cursor */
@@ -1052,6 +1053,7 @@ postgresIterateForeignScan(ForeignScanState *node)
 		{
 			// TODO: wait for "EXECUTE PARALLEL CURSOR" finished
 			// return 0 row or report error
+			pg_usleep(5 * 60 * 1000);
 		}
 		else if(Gp_role == GP_ROLE_EXECUTE)
 		{
@@ -2142,11 +2144,11 @@ create_cursor(ForeignScanState *node)
 //		res = *param.ppRes;
 //		if (PQresultStatus(res) != PGRES_COMMAND_OK)
 //			pgfdw_report_error(ERROR, res, conn, true, buf.data);
+//		PQclear(res);
 		
 		/* TODO: Wait for the all endpoint are ready, CHANGE IT LATER.*/
 		pg_usleep(5 * 1000);
 		
-		PQclear(res);
 	}
 	/* Mark the cursor as created, and show no tuples have been retrieved */
 	fsstate->cursor_exists = true;
