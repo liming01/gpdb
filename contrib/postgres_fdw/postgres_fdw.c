@@ -940,7 +940,16 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(server, user, false);
+	if (!IS_PARALLEL_CURSOR || Gp_role == GP_ROLE_DISPATCH)
+	{
+		fsstate->conn = GetConnection(server, user, false);
+	}
+	else if (Gp_role == GP_ROLE_EXECUTE)
+	{
+		/* TODO: create connect in retrieve mode to remote cluster */
+		char *endpoints_str = strVal(list_nth(fsplan->fdw_private,
+											  FdwScanPrivateEndpoints));
+	}
 
 	/* Assign a unique ID for my cursor */
 	fsstate->cursor_number = GetCursorNumber(fsstate->conn);

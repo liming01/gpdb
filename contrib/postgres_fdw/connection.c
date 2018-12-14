@@ -385,7 +385,8 @@ begin_remote_xact(ConnCacheEntry *entry)
 		if (IsolationIsSerializable())
 			sql = "START TRANSACTION ISOLATION LEVEL SERIALIZABLE";
 		else
-			sql = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ";
+			// sql = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ";
+			sql = "START TRANSACTION ISOLATION LEVEL SERIALIZABLE";
 		do_sql_command(entry->conn, sql);
 		entry->xact_depth = 1;
 	}
