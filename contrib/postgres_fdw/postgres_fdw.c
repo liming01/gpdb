@@ -16,6 +16,7 @@
 
 #include "access/htup_details.h"
 #include "access/sysattr.h"
+#include "cdb/cdbvars.h"
 #include "commands/defrem.h"
 #include "commands/explain.h"
 #include "commands/vacuum.h"
@@ -100,7 +101,9 @@ enum FdwScanPrivateIndex
 	/* SQL statement to execute remotely (as a String node) */
 	FdwScanPrivateSelectSql,
 	/* Integer list of attribute numbers retrieved by the SELECT */
-	FdwScanPrivateRetrievedAttrs
+	FdwScanPrivateRetrievedAttrs,
+	/* endpoints info for parallel cursor */
+	FdwScanPrivateEndpoints
 };
 
 /*
@@ -219,6 +222,17 @@ typedef struct ConversionLocation
 	Relation	rel;			/* foreign table's relcache entry */
 	AttrNumber	cur_attno;		/* attribute number being processed, or 0 */
 } ConversionLocation;
+
+/* for pass param to thread calling func */
+typedef struct ForeignQueryThreadFuncParam
+{
+	PGconn	   *conn;
+	char	   *sql;
+	int			numParams;
+	Oid		   *types;
+	const char **values;
+	PGresult  **ppRes;
+}ForeignQueryThreadFuncParam;
 
 /* Callback argument for ec_member_matches_foreign */
 typedef struct
@@ -1022,23 +1036,41 @@ postgresIterateForeignScan(ForeignScanState *node)
 	/*
 	 * Get some more tuples, if we've run out.
 	 */
-	if (fsstate->next_tuple >= fsstate->num_tuples)
+	if (IS_PARALLEL_CURSOR)
 	{
-		/* No point in another fetch if we already detected EOF, though. */
-		if (!fsstate->eof_reached)
-			fetch_more_data(node);
-		/* If we didn't get any tuples, must be end of data. */
-		if (fsstate->next_tuple >= fsstate->num_tuples)
-			return ExecClearTuple(slot);
-	}
 
-	/*
-	 * Return the next tuple.
-	 */
-	ExecStoreHeapTuple(fsstate->tuples[fsstate->next_tuple++],
-				   slot,
-				   InvalidBuffer,
-				   false);
+		if (Gp_role == GP_ROLE_DISPATCH)
+		{
+			// TODO: wait for "EXECUTE PARALLEL CURSOR" finished
+			// return 0 row or report error
+		}
+		else if(Gp_role == GP_ROLE_EXECUTE)
+		{
+			// TODO: retrieve
+		}else {
+			// TODO: IGNORE!
+		}
+	}
+	else
+	{
+		if (fsstate->next_tuple >= fsstate->num_tuples)
+		{
+			/* No point in another fetch if we already detected EOF, though. */
+			if (!fsstate->eof_reached)
+				fetch_more_data(node);
+			/* If we didn't get any tuples, must be end of data. */
+			if (fsstate->next_tuple >= fsstate->num_tuples)
+				return ExecClearTuple(slot);
+		}
+
+		/*
+		 * Return the next tuple.
+		 */
+		ExecStoreHeapTuple(fsstate->tuples[fsstate->next_tuple++],
+						   slot,
+						   InvalidBuffer,
+						   false);
+	}
 
 	return slot;
 }
@@ -1929,6 +1961,13 @@ ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
 	return true;
 }
 
+static void *
+thread_DoRemoteQuery(void *arg){
+	ForeignQueryThreadFuncParam *param = (ForeignQueryThreadFuncParam *) arg;
+	*param->ppRes = PQexecParams(param->conn, param->sql , param->numParams, param->types, param->values,
+								 NULL, NULL, 0);
+}
+
 /*
  * Create cursor for node's query with current parameter values.
  */
@@ -2041,17 +2080,62 @@ create_cursor(ForeignScanState *node)
 			pgfdw_report_error(ERROR, res, conn, true, buf.data);
 		}
 
-		for (int i = 0; i < PQntuples(res); ++i)
+		StringInfoData endpoints_buf;
+		initStringInfo(&endpoints_buf);
+
+		for (int row = 0; row < PQntuples(res); ++row)
 		{
-			EndPoint *ep = (EndPoint *) palloc0(sizeof(EndPoint));
-			
-			ep->token = atoi(PQgetvalue(res, i, 0));
-			ep->cursor_name = PQgetvalue(res, i, 1);
-			ep->session_id = atoi(PQgetvalue(res, i, 2));
-			ep->hostname = PQgetvalue(res, i, 3);
-			ep->port = atoi(PQgetvalue(res, i, 4));
-			ep->status = PQgetvalue(res, i, 5);
+			for (int col = 0; col < PQnfields(res); ++col)
+			{
+				appendStringInfo(&endpoints_buf, "%s|", PQgetvalue(res, row, col));
+			}
+
+			appendStringInfo(&endpoints_buf, "\n");
 		}
+
+		List *fdw_private = ((ForeignScan *) node->ss.ps.plan)->fdw_private;
+		List *endpoints = list_make1(makeString(endpoints_buf.data));
+		
+		((ForeignScan *) node->ss.ps.plan)->fdw_private = list_concat(fdw_private, endpoints);
+		
+		PQclear(res);
+		
+		/* Create new thread to run : EXECUTE PARALLEL CURSOR*/
+		initStringInfo(&buf);
+		appendStringInfo(&buf, "EXECUTE PARALLEL CURSOR c%u", fsstate->cursor_number);
+		/*
+		* We don't use a PG_TRY block here, so be careful not to throw error
+		* without releasing the PGresult.
+		*/
+		pthread_t	thread;
+		int pthread_err;
+		
+		ForeignQueryThreadFuncParam param;
+		param.conn = conn;
+		param.sql = buf.data;
+		param.numParams = 0;
+		param.types = NULL;
+		param.values = NULL;
+		param.ppRes = &res;
+
+
+		pthread_err =  pthread_create(&thread, NULL, thread_DoRemoteQuery, &param);
+		
+		if (pthread_err != 0){
+			ereport(FATAL, (errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("failed to create thread for send fdw remote query: %s", buf.data),
+				errdetail("pthread_create() failed with err %d", pthread_err)));
+		}
+
+		/* TODO: Call the pthread_join and check result afterwards */
+//		pthread_join(thread, NULL);
+//
+//		res = *param.ppRes;
+//		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+//			pgfdw_report_error(ERROR, res, conn, true, buf.data);
+		
+		/* TODO: Wait for the all endpoint are ready, CHANGE IT LATER.*/
+		pg_usleep(5 * 1000);
 		
 		PQclear(res);
 	}
