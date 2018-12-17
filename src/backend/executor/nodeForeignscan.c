@@ -26,6 +26,7 @@
 #include "executor/nodeForeignscan.h"
 #include "foreign/fdwapi.h"
 #include "utils/rel.h"
+#include <cdb/cdbvars.h>
 
 static TupleTableSlot *ForeignNext(ForeignScanState *node);
 static bool ForeignRecheck(ForeignScanState *node, TupleTableSlot *slot);
@@ -168,7 +169,10 @@ ExecInitForeignScan(ForeignScan *node, EState *estate, int eflags)
 	/*
 	 * Tell the FDW to initiate the scan.
 	 */
-	fdwroutine->BeginForeignScan(scanstate, eflags);
+	if (Gp_role == GP_ROLE_DISPATCH)
+		fdwroutine->BeginMppForeignScan(scanstate, eflags);
+	else
+		fdwroutine->BeginForeignScan(scanstate, eflags);
 
 	return scanstate;
 }

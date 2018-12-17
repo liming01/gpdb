@@ -128,40 +128,7 @@ enum FdwModifyPrivateIndex
 	FdwModifyPrivateRetrievedAttrs
 };
 
-/*
- * Execution state of a foreign scan using postgres_fdw.
- */
-typedef struct PgFdwScanState
-{
-	Relation	rel;			/* relcache entry for the foreign table */
-	AttInMetadata *attinmeta;	/* attribute datatype conversion metadata */
 
-	/* extracted fdw_private data */
-	char	   *query;			/* text of SELECT command */
-	List	   *retrieved_attrs;	/* list of retrieved attribute numbers */
-
-	/* for remote query execution */
-	PGconn	   *conn;			/* connection for the scan */
-	unsigned int cursor_number; /* quasi-unique ID for my cursor */
-	bool		cursor_exists;	/* have we created the cursor? */
-	int			numParams;		/* number of parameters passed to query */
-	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
-	List	   *param_exprs;	/* executable expressions for param values */
-	const char **param_values;	/* textual values of query parameters */
-
-	/* for storing result tuples */
-	HeapTuple  *tuples;			/* array of currently-retrieved tuples */
-	int			num_tuples;		/* # of tuples in array */
-	int			next_tuple;		/* index of next one to return */
-
-	/* batch-level state, for optimizing rewinds and avoiding useless fetch */
-	int			fetch_ct_2;		/* Min(# of fetches done, 2) */
-	bool		eof_reached;	/* true if last fetch reached EOF */
-
-	/* working memory contexts */
-	MemoryContext batch_cxt;	/* context holding current batch of tuples */
-	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
-} PgFdwScanState;
 
 /*
  * Execution state of a foreign insert/update/delete operation.
@@ -223,17 +190,6 @@ typedef struct ConversionLocation
 	AttrNumber	cur_attno;		/* attribute number being processed, or 0 */
 } ConversionLocation;
 
-/* for pass param to thread calling func */
-typedef struct ForeignQueryThreadFuncParam
-{
-	PGconn	   *conn;
-	char	   *sql;
-	int			numParams;
-	Oid		   *types;
-	const char **values;
-	PGresult  **ppRes;
-}ForeignQueryThreadFuncParam;
-
 /* Callback argument for ec_member_matches_foreign */
 typedef struct
 {
@@ -271,6 +227,7 @@ static ForeignScan *postgresGetForeignPlan(PlannerInfo *root,
 					   List *tlist,
 					   List *scan_clauses);
 static void postgresBeginForeignScan(ForeignScanState *node, int eflags);
+static void greenplumBeginMppForeignScan(ForeignScanState *node, int eflags);
 static TupleTableSlot *postgresIterateForeignScan(ForeignScanState *node);
 static void postgresReScanForeignScan(ForeignScanState *node);
 static void postgresEndForeignScan(ForeignScanState *node);
@@ -387,6 +344,7 @@ postgres_fdw_handler(PG_FUNCTION_ARGS)
 
 	/* Support functions for ANALYZE */
 	routine->AnalyzeForeignTable = postgresAnalyzeForeignTable;
+	routine->BeginMppForeignScan = greenplumBeginMppForeignScan;
 
 	PG_RETURN_POINTER(routine);
 }
@@ -910,6 +868,150 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	int			numParams;
 	int			i;
 	ListCell   *lc;
+	List		*fdw_private;
+
+	/*
+	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
+	 */
+	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
+		return;
+
+	/*
+	 * We'll save private state in node->fdw_state.
+	 */
+	fsstate = (PgFdwScanState *) palloc0(sizeof(PgFdwScanState));
+	node->fdw_state = (void *) fsstate;
+
+	fdw_private = ((ForeignScan *) node->ss.ps.plan)->fdw_private;
+
+	if (list_length(fdw_private) == 4)
+		fsstate->is_parallel = true;
+	else
+		fsstate->is_parallel = false;
+
+	/*
+	 * Identify which user to do the remote access as.  This should match what
+	 * ExecCheckRTEPerms() does.
+	 */
+	rte = rt_fetch(fsplan->scan.scanrelid, estate->es_range_table);
+	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
+
+	/* Get info about foreign table. */
+	fsstate->rel = node->ss.ss_currentRelation;
+	table = GetForeignTable(RelationGetRelid(fsstate->rel));
+	server = GetForeignServer(table->serverid);
+	user = GetUserMapping(userid, server->serverid);
+
+	/*
+	 * Get connection to the foreign server.  Connection manager will
+	 * establish new connection if necessary.
+	 */
+	if (fsstate->is_parallel)
+	{
+		Value	*host;
+		Value	*port;
+		List	*endpoints_list = list_nth(fdw_private, 2);
+
+		// TODO: calculate segment : endpoint mapping here.
+		List 	*endpoint = list_nth(endpoints_list, GpIdentity.segindex);
+
+		host = list_nth(endpoint, 0);
+		port = list_nth(endpoint, 1);
+
+		server->options = lappend(server->options, makeDefElem(pstrdup("host"), (Node *) host));
+		server->options = lappend(server->options, makeDefElem(pstrdup("port"), (Node *) port));
+		server->options = lappend(server->options, makeDefElem(pstrdup("user"), (Node *)makeString("gpadmin")));
+		server->options = lappend(server->options, makeDefElem(pstrdup("password"), (Node *)makeString("123456")));
+		server->options = lappend(server->options, makeDefElem(pstrdup("options"), (Node *) makeString("-c gp_session_role=retrieve")));
+		fsstate->conn = GetConnection(server, user, false);
+	}
+	else
+		fsstate->conn = GetConnection(server, user, false);
+
+	/* Assign a unique ID for my cursor */
+	if (!fsstate->is_parallel)
+		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
+	else
+	{
+		fsstate->token = linitial_int(list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, 3));
+		fsstate->endpoints_list = list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, 2);
+	}
+
+	fsstate->cursor_exists = false;
+
+	/* Get private info created by planner functions. */
+	fsstate->query = strVal(list_nth(fsplan->fdw_private,
+									 FdwScanPrivateSelectSql));
+	fsstate->retrieved_attrs = (List *) list_nth(fsplan->fdw_private,
+											   FdwScanPrivateRetrievedAttrs);
+
+	/* Create contexts for batches of tuples and per-tuple temp workspace. */
+	fsstate->batch_cxt = AllocSetContextCreate(estate->es_query_cxt,
+											   "postgres_fdw tuple data",
+											   ALLOCSET_DEFAULT_MINSIZE,
+											   ALLOCSET_DEFAULT_INITSIZE,
+											   ALLOCSET_DEFAULT_MAXSIZE);
+	fsstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
+											  "postgres_fdw temporary data",
+											  ALLOCSET_SMALL_MINSIZE,
+											  ALLOCSET_SMALL_INITSIZE,
+											  ALLOCSET_SMALL_MAXSIZE);
+
+	/* Get info we'll need for input data conversion. */
+	fsstate->attinmeta = TupleDescGetAttInMetadata(RelationGetDescr(fsstate->rel));
+
+	/* Prepare for output conversion of parameters used in remote query. */
+	numParams = list_length(fsplan->fdw_exprs);
+	fsstate->numParams = numParams;
+	fsstate->param_flinfo = (FmgrInfo *) palloc0(sizeof(FmgrInfo) * numParams);
+
+	i = 0;
+	foreach(lc, fsplan->fdw_exprs)
+	{
+		Node	   *param_expr = (Node *) lfirst(lc);
+		Oid			typefnoid;
+		bool		isvarlena;
+
+		getTypeOutputInfo(exprType(param_expr), &typefnoid, &isvarlena);
+		fmgr_info(typefnoid, &fsstate->param_flinfo[i]);
+		i++;
+	}
+
+	/*
+	 * Prepare remote-parameter expressions for evaluation.  (Note: in
+	 * practice, we expect that all these expressions will be just Params, so
+	 * we could possibly do something more efficient than using the full
+	 * expression-eval machinery for this.  But probably there would be little
+	 * benefit, and it'd require postgres_fdw to know more than is desirable
+	 * about Param evaluation.)
+	 */
+	fsstate->param_exprs = (List *)
+		ExecInitExpr((Expr *) fsplan->fdw_exprs,
+					 (PlanState *) node);
+
+	/*
+	 * Allocate buffer for text form of query parameters, if any.
+	 */
+	if (numParams > 0)
+		fsstate->param_values = (const char **) palloc0(numParams * sizeof(char *));
+	else
+		fsstate->param_values = NULL;
+}
+
+static void
+greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
+{
+	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
+	EState	   *estate = node->ss.ps.state;
+	PgFdwScanState *fsstate;
+	RangeTblEntry *rte;
+	Oid			userid;
+	ForeignTable *table;
+	ForeignServer *server;
+	UserMapping *user;
+	int			numParams;
+	int			i;
+	ListCell   *lc;
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
@@ -940,17 +1042,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	if (!IS_PARALLEL_CURSOR || Gp_role == GP_ROLE_DISPATCH)
-	{
-		fsstate->conn = GetConnection(server, user, false);
-	}
-	else if (Gp_role == GP_ROLE_EXECUTE)
-	{
-		/* TODO: create connect in retrieve mode to remote cluster */
-		char *endpoints_str = strVal(list_nth(fsplan->fdw_private,
-											  FdwScanPrivateEndpoints));
-		pg_usleep(3 * 60 * 1000);
-	}
+	fsstate->conn = GetConnection(server, user, false);
 
 	/* Assign a unique ID for my cursor */
 	fsstate->cursor_number = GetCursorNumber(fsstate->conn);
@@ -1013,16 +1105,12 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		fsstate->param_values = (const char **) palloc0(numParams * sizeof(char *));
 	else
 		fsstate->param_values = NULL;
-	
-	/* Create parallel cusor before query plan dispatch, so that we can send end points info to segment */
-	if(IS_PARALLEL_CURSOR){
-		/*
-		 * If this is the first call after Begin or ReScan, we need to create the
-		 * cursor on the remote side.
-		 */
-		if (!fsstate->cursor_exists)
-			create_cursor(node);
-	}
+
+	if (!fsstate->cursor_exists)
+		create_and_execute_parallel_cursor(node);
+
+	// TODO: Add fsstate->conn to QD's listen set
+	wait_endpoints_ready(server, user, fsstate->token);
 }
 
 /*
@@ -1046,42 +1134,25 @@ postgresIterateForeignScan(ForeignScanState *node)
 	/*
 	 * Get some more tuples, if we've run out.
 	 */
-	if (IS_PARALLEL_CURSOR)
-	{
 
-		if (Gp_role == GP_ROLE_DISPATCH)
-		{
-			// TODO: wait for "EXECUTE PARALLEL CURSOR" finished
-			// return 0 row or report error
-			pg_usleep(5 * 60 * 1000);
-		}
-		else if(Gp_role == GP_ROLE_EXECUTE)
-		{
-			// TODO: retrieve
-		}else {
-			// TODO: IGNORE!
-		}
-	}
-	else
+	if (fsstate->next_tuple >= fsstate->num_tuples)
 	{
+		/* No point in another fetch if we already detected EOF, though. */
+		if (!fsstate->eof_reached)
+			fetch_more_data(node);
+		/* If we didn't get any tuples, must be end of data. */
 		if (fsstate->next_tuple >= fsstate->num_tuples)
-		{
-			/* No point in another fetch if we already detected EOF, though. */
-			if (!fsstate->eof_reached)
-				fetch_more_data(node);
-			/* If we didn't get any tuples, must be end of data. */
-			if (fsstate->next_tuple >= fsstate->num_tuples)
-				return ExecClearTuple(slot);
-		}
-
-		/*
-		 * Return the next tuple.
-		 */
-		ExecStoreHeapTuple(fsstate->tuples[fsstate->next_tuple++],
-						   slot,
-						   InvalidBuffer,
-						   false);
+			return ExecClearTuple(slot);
 	}
+
+	/*
+	 * Return the next tuple.
+	 */
+	ExecStoreHeapTuple(fsstate->tuples[fsstate->next_tuple++],
+					   slot,
+					   InvalidBuffer,
+					   false);
+
 
 	return slot;
 }
@@ -1972,25 +2043,17 @@ ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
 	return true;
 }
 
-static void *
-thread_DoRemoteQuery(void *arg){
-	ForeignQueryThreadFuncParam *param = (ForeignQueryThreadFuncParam *) arg;
-	*param->ppRes = PQexecParams(param->conn, param->sql , param->numParams, param->types, param->values,
-								 NULL, NULL, 0);
-}
-
 /*
  * Create cursor for node's query with current parameter values.
  */
-static void
-create_cursor(ForeignScanState *node)
+void
+create_cursor_helper(ForeignScanState *node, const char *cursor_sql)
 {
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
 	ExprContext *econtext = node->ss.ps.ps_ExprContext;
 	int			numParams = fsstate->numParams;
 	const char **values = fsstate->param_values;
 	PGconn	   *conn = fsstate->conn;
-	StringInfoData buf;
 	PGresult   *res;
 
 	/*
@@ -2037,17 +2100,6 @@ create_cursor(ForeignScanState *node)
 	}
 
 	/* Construct the DECLARE CURSOR command */
-	initStringInfo(&buf);
-	if (IS_PARALLEL_CURSOR)
-	{
-		appendStringInfo(&buf, "DECLARE c%u PARALLEL CURSOR FOR\n%s",
-						 fsstate->cursor_number, fsstate->query);
-	}else
-	{
-		appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",
-						 fsstate->cursor_number, fsstate->query);
-	}
-
 	/*
 	 * Notice that we pass NULL for paramTypes, thus forcing the remote server
 	 * to infer types for all parameters.  Since we explicitly cast every
@@ -2058,98 +2110,13 @@ create_cursor(ForeignScanState *node)
 	 * We don't use a PG_TRY block here, so be careful not to throw error
 	 * without releasing the PGresult.
 	 */
-	res = PQexecParams(conn, buf.data, numParams, NULL, values,
+	res = PQexecParams(conn, cursor_sql, numParams, NULL, values,
 					   NULL, NULL, 0);
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
 		pgfdw_report_error(ERROR, res, conn, true, fsstate->query);
 	PQclear(res);
 
-	if (IS_PARALLEL_CURSOR)
-	{
-		int session_id;
 
-		/* get session id for fetching endpoints info of parallel cursor*/	
-		initStringInfo(&buf);
-		appendStringInfo(&buf, "show gp_session_id");
-		
-		res = PQexec(conn, buf.data);
-		if (PQresultStatus(res) != PGRES_TUPLES_OK) 
-		{
-			pgfdw_report_error(ERROR, res, conn, true, buf.data);
-		}
-		
-		session_id = atoi(PQgetvalue(res, 0, 0));
-		PQclear(res);
-
-		/* get endpoints info for parallel cursor*/
-		initStringInfo(&buf);
-		appendStringInfo(&buf, 
-			"select token, cursorname, sessionid, hostname, port, status from gp_endpoints where sessionid=%u and cursorname='c%u'", session_id, fsstate->cursor_number);
-		res = PQexec(conn, buf.data);
-		if (PQresultStatus(res) != PGRES_TUPLES_OK)
-		{
-			pgfdw_report_error(ERROR, res, conn, true, buf.data);
-		}
-
-		StringInfoData endpoints_buf;
-		initStringInfo(&endpoints_buf);
-
-		for (int row = 0; row < PQntuples(res); ++row)
-		{
-			for (int col = 0; col < PQnfields(res); ++col)
-			{
-				appendStringInfo(&endpoints_buf, "%s|", PQgetvalue(res, row, col));
-			}
-
-			appendStringInfo(&endpoints_buf, "\n");
-		}
-
-		List *fdw_private = ((ForeignScan *) node->ss.ps.plan)->fdw_private;
-		List *endpoints = list_make1(makeString(endpoints_buf.data));
-		
-		((ForeignScan *) node->ss.ps.plan)->fdw_private = list_concat(fdw_private, endpoints);
-		
-		PQclear(res);
-		
-		/* Create new thread to run : EXECUTE PARALLEL CURSOR*/
-		initStringInfo(&buf);
-		appendStringInfo(&buf, "EXECUTE PARALLEL CURSOR c%u", fsstate->cursor_number);
-		/*
-		* We don't use a PG_TRY block here, so be careful not to throw error
-		* without releasing the PGresult.
-		*/
-		pthread_t	thread;
-		int pthread_err;
-		
-		ForeignQueryThreadFuncParam param;
-		param.conn = conn;
-		param.sql = buf.data;
-		param.numParams = 0;
-		param.types = NULL;
-		param.values = NULL;
-		param.ppRes = &res;
-
-
-		pthread_err =  pthread_create(&thread, NULL, thread_DoRemoteQuery, &param);
-		
-		if (pthread_err != 0){
-			ereport(FATAL, (errcode(ERRCODE_INTERNAL_ERROR),
-				errmsg("failed to create thread for send fdw remote query: %s", buf.data),
-				errdetail("pthread_create() failed with err %d", pthread_err)));
-		}
-
-		/* TODO: Call the pthread_join and check result afterwards */
-//		pthread_join(thread, NULL);
-//
-//		res = *param.ppRes;
-//		if (PQresultStatus(res) != PGRES_COMMAND_OK)
-//			pgfdw_report_error(ERROR, res, conn, true, buf.data);
-//		PQclear(res);
-		
-		/* TODO: Wait for the all endpoint are ready, CHANGE IT LATER.*/
-		pg_usleep(5 * 1000);
-		
-	}
 	/* Mark the cursor as created, and show no tuples have been retrieved */
 	fsstate->cursor_exists = true;
 	fsstate->tuples = NULL;
@@ -2157,9 +2124,24 @@ create_cursor(ForeignScanState *node)
 	fsstate->next_tuple = 0;
 	fsstate->fetch_ct_2 = 0;
 	fsstate->eof_reached = false;
+}
 
-	/* Clean up */
-	pfree(buf.data);
+static void
+create_cursor(ForeignScanState *node)
+{
+	StringInfoData	buf;
+	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
+	ForeignScan    *foreign_scan;
+
+	foreign_scan = (ForeignScan *) node->ss.ps.plan;
+
+	/* single node case */
+	if (list_length(foreign_scan->fdw_private) == 2)
+	{
+		appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",
+						 fsstate->cursor_number, fsstate->query);
+		create_cursor_helper(node, buf.data);
+	}
 }
 
 /*
@@ -2190,10 +2172,13 @@ fetch_more_data(ForeignScanState *node)
 		int			i;
 
 		/* The fetch size is arbitrary, but shouldn't be enormous. */
-		fetch_size = 100;
+		fetch_size = 200;
 
-		snprintf(sql, sizeof(sql), "FETCH %d FROM c%u",
-				 fetch_size, fsstate->cursor_number);
+		if (fsstate->is_parallel)
+			snprintf(sql, sizeof(sql), "RETRIEVE \"%d\"", fsstate->token);
+		else
+			snprintf(sql, sizeof(sql), "FETCH %d FROM c%u",
+				fetch_size, fsstate->cursor_number);
 
 		res = PQexec(conn, sql);
 		/* On error, report the original query, not the FETCH. */

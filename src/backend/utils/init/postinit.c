@@ -1134,7 +1134,8 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	}
     else if (IS_QUERY_DISPATCHER() && Gp_role == GP_ROLE_EXECUTE && !Gp_is_writer)
     {
-		/* 
+		/* lappend_int
+		 *
 		 * Entry db singleton QE is a user of the shared snapshot -- not a creator.
 		 * The lookup will occur once the distributed snapshot has been received.
 		 */	

@@ -272,6 +272,12 @@ connect_pg_server(ForeignServer *server, UserMapping *user)
 	return conn;
 }
 
+PGconn *
+ConnectPgServer(ForeignServer *server, UserMapping *user)
+{
+	return connect_pg_server(server, user);
+}
+
 /*
  * For non-superusers, insist that the connstr specify a password.  This
  * prevents a password from being picked up from .pgpass, a service file,
