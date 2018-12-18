@@ -49,6 +49,7 @@ typedef struct ConnCacheEntry
 								 * one level of subxact open, etc */
 	bool		have_prep_stmt; /* have we prepared any stmts in this xact? */
 	bool		have_error;		/* have any subxacts aborted in this xact? */
+	bool 		is_parallel;
 } ConnCacheEntry;
 
 /*
@@ -95,7 +96,7 @@ static void pgfdw_subxact_callback(SubXactEvent event,
  */
 PGconn *
 GetConnection(ForeignServer *server, UserMapping *user,
-			  bool will_prep_stmt)
+			  bool will_prep_stmt, bool is_parallel)
 {
 	bool		found;
 	ConnCacheEntry *entry;
@@ -142,6 +143,7 @@ GetConnection(ForeignServer *server, UserMapping *user,
 		entry->xact_depth = 0;
 		entry->have_prep_stmt = false;
 		entry->have_error = false;
+		entry->is_parallel = is_parallel;
 	}
 
 	/*
@@ -582,6 +584,10 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					entry->have_error = false;
 					break;
 				case XACT_EVENT_PRE_PREPARE:
+					if (entry->is_parallel)
+					{
+						break;
+					}
 
 					/*
 					 * We disallow remote transactions that modified anything,
