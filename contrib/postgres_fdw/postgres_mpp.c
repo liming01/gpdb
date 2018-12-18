@@ -88,7 +88,7 @@ wait_endpoints_ready(ForeignServer	*server,
 			break;
 	}
 
-	ReleaseConnection(conn);
+	PQfinish(conn);
 }
 
 void
