@@ -187,7 +187,14 @@ void
 ExecEndForeignScan(ForeignScanState *node)
 {
 	/* Let the FDW shut down */
-	node->fdwroutine->EndForeignScan(node);
+	if (Gp_role == GP_ROLE_DISPATCH)
+	{
+		node->fdwroutine->EndMppForeignScan(node);
+	}
+	else
+	{
+		node->fdwroutine->EndForeignScan(node);
+	}
 
 	/* Free the exprcontext */
 	ExecFreeExprContext(&node->ss.ps);

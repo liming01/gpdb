@@ -229,6 +229,7 @@ static void greenplumBeginMppForeignScan(ForeignScanState *node, int eflags);
 static TupleTableSlot *postgresIterateForeignScan(ForeignScanState *node);
 static void postgresReScanForeignScan(ForeignScanState *node);
 static void postgresEndForeignScan(ForeignScanState *node);
+static void greenplumEndMppForeignScan(ForeignScanState *node);
 static void postgresAddForeignUpdateTargets(Query *parsetree,
 								RangeTblEntry *target_rte,
 								Relation target_relation);
@@ -343,6 +344,7 @@ postgres_fdw_handler(PG_FUNCTION_ARGS)
 	/* Support functions for ANALYZE */
 	routine->AnalyzeForeignTable = postgresAnalyzeForeignTable;
 	routine->BeginMppForeignScan = greenplumBeginMppForeignScan;
+	routine->EndMppForeignScan = greenplumEndMppForeignScan;
 
 	PG_RETURN_POINTER(routine);
 }
@@ -1040,7 +1042,7 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(server, user, false);
+	fsstate->conn = GetConnection(server, user, true);
 
 	/* Assign a unique ID for my cursor */
 	fsstate->cursor_number = GetCursorNumber(fsstate->conn);
@@ -1217,6 +1219,30 @@ postgresReScanForeignScan(ForeignScanState *node)
  */
 static void
 postgresEndForeignScan(ForeignScanState *node)
+{
+	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
+
+	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
+	if (fsstate == NULL)
+		return;
+
+	/* Close the cursor if open, to prevent accumulation of cursors */
+	if (fsstate->cursor_exists)
+		close_cursor(fsstate->conn, fsstate->cursor_number);
+
+	/* Release remote connection */
+	ReleaseConnection(fsstate->conn);
+	fsstate->conn = NULL;
+
+	/* MemoryContexts will be deleted automatically. */
+}
+
+/*
+ * postgresEndForeignScan
+ *		Finish scanning foreign table and dispose objects used for this scan
+ */
+static void
+greenplumEndMppForeignScan(ForeignScanState *node)
 {
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
 
