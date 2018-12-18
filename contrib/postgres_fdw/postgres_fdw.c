@@ -2204,7 +2204,10 @@ fetch_more_data(ForeignScanState *node)
 			fsstate->fetch_ct_2++;
 
 		/* Must be EOF if we didn't get as many tuples as we asked for. */
-		fsstate->eof_reached = (numrows < fetch_size);
+		// fsstate->eof_reached = (numrows < fetch_size);
+
+		/* We should update the gp2gp system B, and support "RETRIEVE N parallel cursor <token>" */
+		fsstate->eof_reached = true;
 
 		PQclear(res);
 		res = NULL;
