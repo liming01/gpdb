@@ -251,20 +251,19 @@ is_valid_option(const char *keyword, Oid context)
 static bool
 is_libpq_option(const char *keyword)
 {
-	return true;
+	PgFdwOption *opt;
+	Assert(postgres_fdw_options);		/* must be initialized already */
 
-	// TODO: Revert this hack later.
-	// PgFdwOption *opt;
+	if(strcmp(keyword, "options") == 0)
+		return true;
 
-	// Assert(postgres_fdw_options);		/* must be initialized already */
+	for (opt = postgres_fdw_options; opt->keyword; opt++)
+	{
+		if (opt->is_libpq_opt && strcmp(opt->keyword, keyword) == 0)
+			return true;
+	}
 
-	// for (opt = postgres_fdw_options; opt->keyword; opt++)
-	// {
-	// 	if (opt->is_libpq_opt && strcmp(opt->keyword, keyword) == 0)
-	// 		return true;
-	// }
-
-	// return false;
+	 return false;
 }
 
 /*
