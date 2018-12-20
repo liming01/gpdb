@@ -740,7 +740,7 @@ retry_read(int fifo, char *data, int len)
 	int				curr = 0;
 	struct pollfd	fds;
 
-	ep_log(LOG, "Reading data(%d)\n", len);
+	ep_log(DEBUG3, "Reading data(%d)\n", len);
 
 	fds.fd = fifo;
 	fds.events = POLLIN;
@@ -762,7 +762,7 @@ retry_read(int fifo, char *data, int len)
 		rdRet = read(fifo, &data[curr], len);
 		if (rdRet >= 0)
 		{
-			ep_log(LOG, "data read %d bytes", len);
+			ep_log(DEBUG3, "data read %d bytes", len);
 			curr += rdRet;
 			len -= rdRet;
 		}
