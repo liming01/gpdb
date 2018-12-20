@@ -200,7 +200,8 @@ InitPgFdwOptions(void)
 	for (lopt = libpq_options; lopt->keyword; lopt++)
 	{
 		/* Hide debug options, as well as settings we override internally. */
-		if (strchr(lopt->dispchar, 'D') ||
+		/* except the "options" option, we set the gp_session_role via it */
+		if ((strchr(lopt->dispchar, 'D') && strcmp(lopt->keyword, "options") != 0) ||
 			strcmp(lopt->keyword, "fallback_application_name") == 0 ||
 			strcmp(lopt->keyword, "client_encoding") == 0)
 			continue;
@@ -253,9 +254,6 @@ is_libpq_option(const char *keyword)
 {
 	PgFdwOption *opt;
 	Assert(postgres_fdw_options);		/* must be initialized already */
-
-	if(strcmp(keyword, "options") == 0)
-		return true;
 
 	for (opt = postgres_fdw_options; opt->keyword; opt++)
 	{
