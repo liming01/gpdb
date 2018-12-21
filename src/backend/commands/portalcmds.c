@@ -582,15 +582,15 @@ void
 RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
 {
 	TupleTableSlot *result;
-	int            retrieve_count;
+	int64          retrieve_count;
 
 	retrieve_count = stmt->count;
 
-	if (retrieve_count <= 0 )
+	if (retrieve_count <= 0)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					errmsg("RETRIEVE STATME ONLY SUPPORT FORWARD SCAN. COUNT: %d", retrieve_count)));
+					errmsg("RETRIEVE STATEMENT ONLY SUPPORT FORWARD SCAN. Retrieve count should >=0: %d", retrieve_count)));
 	}
 
 	InitConn();
