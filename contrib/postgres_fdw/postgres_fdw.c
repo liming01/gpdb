@@ -2208,10 +2208,11 @@ fetch_more_data(ForeignScanState *node)
 		int			i;
 
 		/* The fetch size is arbitrary, but shouldn't be enormous. */
-		fetch_size = 200;
+		fetch_size = 100;
 
 		if (fsstate->is_parallel)
-			snprintf(sql, sizeof(sql), "RETRIEVE \"%d\"", fsstate->token);
+			snprintf(sql, sizeof(sql), "RETRIEVE %d FROM \"%d\"",
+				fetch_size, fsstate->token);
 		else
 			snprintf(sql, sizeof(sql), "FETCH %d FROM c%u",
 				fetch_size, fsstate->cursor_number);
@@ -2242,14 +2243,7 @@ fetch_more_data(ForeignScanState *node)
 			fsstate->fetch_ct_2++;
 
 		/* Must be EOF if we didn't get as many tuples as we asked for. */
-
-		if (fsstate->is_parallel)
-			/* TODO: We should update the gp2gp system B,
-			 * and support "RETRIEVE N parallel cursor <token>"
-			 */
-			fsstate->eof_reached = true;
-		else
-			fsstate->eof_reached = (numrows < fetch_size);
+		fsstate->eof_reached = (numrows < fetch_size);
 
 		PQclear(res);
 		res = NULL;

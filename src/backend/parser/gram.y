@@ -11878,10 +11878,11 @@ SelectStmt: select_no_parens			%prec UMINUS
 		;
 
 RetrieveStmt:
-			RETRIEVE name
+			RETRIEVE SignedIconst FROM name
 				{
 					RetrieveStmt *n = makeNode(RetrieveStmt);
-					n->token = atol($2);
+					n->token = atol($4);
+					n->count = $2;
 					$$ = (Node *)n;
 				}
 		;

@@ -581,16 +581,27 @@ PersistHoldablePortal(Portal portal)
 void
 RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
 {
-	TupleTableSlot	*result;
+	TupleTableSlot *result;
+	int            retrieve_count;
+
+	retrieve_count = stmt->count;
+
+	if (retrieve_count <= 0 )
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					errmsg("RETRIEVE STATME ONLY SUPPORT FORWARD SCAN. COUNT: %d", retrieve_count)));
+	}
 
 	InitConn();
 
-	while (true)
+	while (retrieve_count > 0)
 	{
 		result = RecvTupleSlot();
 		if (!result)
 			break;
 		(*dest->receiveSlot) (result, dest);
+		retrieve_count--;
 	}
 
 	FinishConn();
