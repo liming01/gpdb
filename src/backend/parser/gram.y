@@ -11885,6 +11885,14 @@ RetrieveStmt:
 					n->count = $2;
 					$$ = (Node *)n;
 				}
+			| RETRIEVE ALL FROM name
+				{
+					RetrieveStmt *n = makeNode(RetrieveStmt);
+                    n->token = atol($4);
+                    n->count = -1;
+                    n->is_all = true;
+                    $$ = (Node *)n;
+				}
 		;
 
 select_with_parens:

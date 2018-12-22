@@ -586,7 +586,7 @@ RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
 
 	retrieve_count = stmt->count;
 
-	if (retrieve_count <= 0)
+	if (retrieve_count <= 0 && !stmt->is_all)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -602,6 +602,17 @@ RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
 			break;
 		(*dest->receiveSlot) (result, dest);
 		retrieve_count--;
+	}
+
+	if (stmt->is_all)
+	{
+		while(true)
+		{
+			result = RecvTupleSlot();
+			if (!result)
+				break;
+			(*dest->receiveSlot) (result, dest);
+		}
 	}
 
 	FinishConn();

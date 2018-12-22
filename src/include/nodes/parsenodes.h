@@ -3397,6 +3397,7 @@ typedef struct RetrieveStmt
 	NodeTag		type;
 	int32		token;
 	int64		count;
+	bool		is_all;
 } RetrieveStmt;
 
 #endif   /* PARSENODES_H */
