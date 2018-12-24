@@ -610,23 +610,36 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 				case XACT_EVENT_ABORT:
 					/* Assume we might have lost track of prepared statements */
 					entry->have_error = true;
-					/* If we're aborting, abort all remote transactions too */
-					res = PQexec(entry->conn, "ABORT TRANSACTION");
-					/* Note: can't throw ERROR, it would be infinite loop */
-					if (PQresultStatus(res) != PGRES_COMMAND_OK)
-						pgfdw_report_error(WARNING, res, entry->conn, true,
-										   "ABORT TRANSACTION");
+
+					if (!entry->is_parallel)
+					{
+						char errbuf[256];
+						memset(errbuf, 0, sizeof(errbuf));
+
+						PGcancel *cn = PQgetCancel(entry->conn);
+						PQcancel(cn, errbuf, 256);
+
+					}
 					else
 					{
-						PQclear(res);
-						/* As above, make sure to clear any prepared stmts */
-						if (entry->have_prep_stmt && entry->have_error)
+						/* If we're aborting, abort all remote transactions too */
+						res = PQexec(entry->conn, "ABORT TRANSACTION");
+						/* Note: can't throw ERROR, it would be infinite loop */
+						if (PQresultStatus(res) != PGRES_COMMAND_OK)
+							pgfdw_report_error(WARNING, res, entry->conn, true,
+											   "ABORT TRANSACTION");
+						else
 						{
-							res = PQexec(entry->conn, "DEALLOCATE ALL");
 							PQclear(res);
+							/* As above, make sure to clear any prepared stmts */
+							if (entry->have_prep_stmt && entry->have_error)
+							{
+								res = PQexec(entry->conn, "DEALLOCATE ALL");
+								PQclear(res);
+							}
+							entry->have_prep_stmt = false;
+							entry->have_error     = false;
 						}
-						entry->have_prep_stmt = false;
-						entry->have_error = false;
 					}
 					break;
 			}
