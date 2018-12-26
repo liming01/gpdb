@@ -65,6 +65,7 @@ wait_endpoints_ready(ForeignServer	*server,
 		bool     all_endpoints_ready = true;
 		PGresult *res;
 
+		CHECK_FOR_INTERRUPTS();
 		res = PQexec(conn, buf.data);
 
 		if (PQresultStatus(res) != PGRES_TUPLES_OK)
