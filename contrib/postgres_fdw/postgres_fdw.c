@@ -1248,8 +1248,6 @@ static void
 greenplumEndMppForeignScan(ForeignScanState *node)
 {
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
-	PGresult *res;
-	StringInfoData buf;
 
 	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
 	if (fsstate == NULL)
@@ -1258,14 +1256,6 @@ greenplumEndMppForeignScan(ForeignScanState *node)
 	/* Close the cursor if open, to prevent accumulation of cursors */
 	if (fsstate->cursor_exists)
 	{
-		initStringInfo(&buf);
-		appendStringInfo(&buf, "EXECUTE PARALLEL CURSOR c%u;",
-			fsstate->cursor_number);
-		res = PQgetResult(fsstate->conn);
-
-		if (PQresultStatus(res) != PGRES_COMMAND_OK)
-			pgfdw_report_error(ERROR, res, fsstate->conn, true, buf.data);
-
 		close_cursor(fsstate->conn, fsstate->cursor_number);
 	}
 
