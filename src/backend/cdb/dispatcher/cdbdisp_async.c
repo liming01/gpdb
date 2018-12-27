@@ -392,7 +392,11 @@ checkDispatchResult(CdbDispatcherState *ds,
 	uint8 ftsVersion = 0;
 
 	db_count = pParms->dispatchCount;
-	fds = (struct pollfd *) palloc(db_count * sizeof(struct pollfd));
+
+	if (GP2GP_conn != NULL && Gp_role == GP_ROLE_DISPATCH)
+		fds = (struct pollfd *) palloc((db_count + 1) * sizeof(struct pollfd));
+	else
+		fds = (struct pollfd *) palloc(db_count * sizeof(struct pollfd));
 
 	/*
 	 * OK, we are finished submitting the command to the segdbs. Now, we have
@@ -463,6 +467,38 @@ checkDispatchResult(CdbDispatcherState *ds,
 			nfds++;
 		}
 
+		if (GP2GP_conn != NULL && Gp_role == GP_ROLE_DISPATCH)
+		{
+			PGconn *gp2gp_conn = (PGconn *) GP2GP_conn;
+			int    ret;
+			/*
+			 * Flush out buffer in case some commands are not fully
+			 * dispatched to QEs, this can prevent QD from polling
+			 * on such QEs forever.
+			 */
+			if (gp2gp_conn->outCount > 0)
+			{
+				/*
+				 * Don't error out here, let following poll() routine to
+				 * handle it.
+				 */
+				if (pqFlush(gp2gp_conn) < 0)
+					elog(LOG, "Failed flushing outbound data to %s:%s",
+						 "gp2gp_conn", PQerrorMessage(gp2gp_conn));
+			}
+
+			/*
+			 * Add socket to fd_set if still connected.
+			 */
+			if (PQisBusy(gp2gp_conn))
+			{
+				sock = PQsocket(gp2gp_conn);
+				Assert(sock >= 0);
+				fds[nfds].fd     = sock;
+				fds[nfds].events = POLLIN;
+				nfds++;
+			}
+		}
 		/*
 		 * Break out when no QEs still running.
 		 */
@@ -544,6 +580,18 @@ checkDispatchResult(CdbDispatcherState *ds,
 				break;
 		}
 		/* We have data waiting on one or more of the connections. */
+		else if (GP2GP_conn != NULL && PQisBusy((PGconn*) GP2GP_conn) && (fds[nfds - 1].revents & POLLIN) != 0)
+		{
+			PGresult *res = PQgetResult((PGconn*)GP2GP_conn);
+			if (PQresultStatus(res) != PGRES_COMMAND_OK)
+			{
+				PQclear(res);
+				ereport(ERROR,
+						(errcode(ERRCODE_CONNECTION_EXCEPTION),
+							errmsg(PQerrorMessage(GP2GP_conn))));
+			}
+			PQclear(res);
+		}
 		else
 			handlePollSuccess(pParms, fds);
 	}
