@@ -2282,7 +2282,18 @@ CreateCommandTag(Node *parsetree)
 			break;
 
 		case T_DeclareCursorStmt:
-			tag = "DECLARE CURSOR";
+			{
+				DeclareCursorStmt *stmt = (DeclareCursorStmt *) parsetree;
+
+				if ((stmt->options & CURSOR_OPT_PARALLEL)!= 0)
+				{
+					tag = "DECLARE PARALLEL CURSOR";
+				}
+				else
+				{
+					tag = "DECLARE CURSOR";
+				}
+			}
 			break;
 
 		case T_ClosePortalStmt:
