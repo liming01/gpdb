@@ -47,13 +47,24 @@ typedef struct sendpointdesc
 
 #define INVALID_SESSION_ID -1
 
-/* cursor name, session id, token and segid */
+#define SHAREDTOKEN_DBID_NUM 64
+/*
+ * SharedTokenDesc is a entry to store the information of a token, includes:
+ * token: token number
+ * cursor_name: the parallel cursor's name
+ * session_id: which session created this parallel cursor
+ * endpoint_cnt: how many endpoints are created.
+ * all_seg: a flag to indicate if the endpoints are on all segments.
+ * dbIds is a int16 array, It stores the dbids of every endpoint
+ */
 typedef struct sharedtokendesc
 {
 	int32	token;
 	char	cursor_name[NAMEDATALEN];
 	int		session_id;
-	bool	on_master;
+	int		endpoint_cnt;
+	bool	all_seg;
+	int16	dbIds[SHAREDTOKEN_DBID_NUM];
 } SharedTokenDesc;
 
 typedef EndPointDesc *EndPoint;
@@ -69,7 +80,7 @@ extern int32 GetUniqueGpToken(void);
 extern void SetGpToken(int32 token);
 extern void ClearGpToken(void);
 extern void DismissGpToken(void);
-extern void AddParallelCursorToken(int32, const char*, int, bool);
+extern void AddParallelCursorToken(int32, const char*, int, bool, List*);
 extern void ClearParallelCursorToken(int32);
 extern int32 GpToken(void);
 

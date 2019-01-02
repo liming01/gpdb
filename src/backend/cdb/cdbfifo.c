@@ -99,10 +99,12 @@ void DismissGpToken()
 	SpinLockRelease(shared_tokens_lock);
 }
 
-void AddParallelCursorToken(int32 token, const char* name, int session_id, bool on_master)
+void AddParallelCursorToken(int32 token, const char* name, int session_id,
+		bool all_seg, List* dbid_list)
 {
 	int i;
-	Assert(token!=InvalidToken && name!= NULL && session_id != INVALID_SESSION_ID);
+	Assert(token!=InvalidToken && name!= NULL
+			&& session_id != INVALID_SESSION_ID);
 
 	SpinLockAcquire(shared_tokens_lock);
 
@@ -113,9 +115,21 @@ void AddParallelCursorToken(int32 token, const char* name, int session_id, bool 
 			strncpy(SharedTokens[i].cursor_name, name, strlen(name));
 			SharedTokens[i].session_id = session_id;
 			SharedTokens[i].token = token;
-			SharedTokens[i].on_master = on_master;
-			elog(LOG, "Add a new token:%d, session id:%d, cursor name:%s, on master:%s into shared memory",
-					token, session_id, SharedTokens[i].cursor_name, on_master?"true":"false");
+			SharedTokens[i].all_seg = all_seg;
+			if (dbid_list != NIL)
+			{
+				ListCell *l;
+				int idx = 0;
+				foreach(l, dbid_list)
+				{
+					int16 dbid = lfirst_int(l);
+					SharedTokens[i].dbIds[idx] = dbid;
+					idx++;
+					SharedTokens[i].endpoint_cnt++;
+				}
+			}
+			elog(LOG, "Add a new token:%d, session id:%d, cursor name:%s, into shared memory",
+					token, session_id, SharedTokens[i].cursor_name);
 			break;
 		}
 	}
@@ -138,13 +152,14 @@ void ClearParallelCursorToken(int32 token)
 	{
 		if (SharedTokens[i].token == token)
 		{
-			elog(LOG, "Remove token:%d, session id:%d, cursor name:%s, on master:%s from shared memory",
-						token, SharedTokens[i].session_id, SharedTokens[i].cursor_name,
-						SharedTokens[i].on_master?"true":"false");
+			elog(LOG, "Remove token:%d, session id:%d, cursor name:%s from shared memory",
+						token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
 			SharedTokens[i].session_id = INVALID_SESSION_ID;
-			SharedTokens[i].on_master = false;
+			SharedTokens[i].endpoint_cnt = 0;
+			SharedTokens[i].all_seg = false;
+			memset(SharedTokens[i].dbIds, 0, sizeof(int16)*SHAREDTOKEN_DBID_NUM);
 		}
 	}
 
@@ -255,12 +270,11 @@ void Token_ShmemInit()
 		{
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
-			SharedTokens[i].on_master = false;
 			SharedTokens[i].session_id = INVALID_SESSION_ID;
 		}
 	}
 
-    shared_tokens_lock = (slock_t *)
+	shared_tokens_lock = (slock_t *)
 						ShmemInitStruct(SHMEM_TOKEN_SLOCK,
 							sizeof(slock_t),
 							&is_shmem_ready);
@@ -988,6 +1002,29 @@ static bool findStatusByTokenAndDbid(EndPoint_Status* status, int number,
 	return found;
 }
 
+static bool isEndPointOnQD(SharedToken token)
+{
+	return ((token->endpoint_cnt == 1) && (token->dbIds[0] == MASTER_DBID));
+}
+
+static bool isDbIDInToken(int16 dbid, SharedToken token)
+{
+	bool find = false;
+
+	if (token->all_seg)
+		return true;
+
+	for (int i = 0; i < token->endpoint_cnt; i++)
+	{
+		if(token->dbIds[i] == dbid)
+		{
+			find = true;
+			break;
+		}
+	}
+	return find;
+}
+
 Datum
 gp_endpoints_info(PG_FUNCTION_ARGS)
 {
@@ -1073,13 +1110,13 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					mystatus->status[idx].token = atoi(PQgetvalue(result, j, 0));
 					mystatus->status[idx].dbid  = atoi(PQgetvalue(result, j, 1));
 					char* attached = PQgetvalue(result, j, 2);
-					mystatus->status[idx].attached = (strncmp(attached, "f", 1)==0)?false:true;
+					mystatus->status[idx].attached = (strncmp(attached, "f", 1) == 0)?false:true;
 					idx++;
 				}
 			}
 		}
 
-		/* get endpoint status on master */
+		/* get end-point status on master */
 		SpinLockAcquire(shared_end_points_lock);
 		int cnt = 0;
 		for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
@@ -1137,8 +1174,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		SharedToken entry = &SharedTokens[mystatus->curTokenIdx];
 		if (entry->token != InvalidToken)
 		{
-			if(entry->on_master)
+			if(isEndPointOnQD(entry))
 			{
+				/* one endpoint on master */
 				dbinfo = dbid_get_dbinfo(MASTER_DBID);
 				values[0] = Int32GetDatum(entry->token);
 				nulls[0]  = false;
@@ -1174,10 +1212,11 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 			}
 			else
 			{
-				while (mystatus->seg_db_list[mystatus->curSegIdx].role != 'p'
-						&& mystatus->curSegIdx < mystatus->segment_num)
+				/* end-points on segments */
+				while (((mystatus->seg_db_list[mystatus->curSegIdx].role != 'p')
+						&& (mystatus->curSegIdx < mystatus->segment_num))
+						|| (!isDbIDInToken(mystatus->seg_db_list[mystatus->curSegIdx].dbid, entry)))
 				{
-					/* try to find a primary segment in the list */
 					mystatus->curSegIdx++;
 				}
 
@@ -1202,7 +1241,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					values[4] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].port);
 					nulls[4]  = false;
 					/*
-					 * find out the status of endpoint
+					 * find out the status of end-point
 					 */
 					bool attached = false;
 					if (!findStatusByTokenAndDbid(mystatus->status,

@@ -178,17 +178,45 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 		if (!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
 				stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
 		{
+			if (stmt->planTree->directDispatch.isDirectDispatch &&
+					stmt->planTree->directDispatch.contentIds != NULL)
+			{
+				/* Direct dispatch to some segments, so end-points only exist
+				 * on these segments
+				 */
+				ListCell *cell;
+				List* l = NIL;
+				foreach(cell, stmt->planTree->directDispatch.contentIds)
+				{
+					int contentid = lfirst_int(cell);
+					l = lappend_int(l, contentid + 2);
+				}
 				AddParallelCursorToken(portal->parallel_cursor_token,
 									   portal->name,
 									   gp_session_id,
-									   false);
+									   false,
+									   l);
+			}
+			else
+			{
+				/* end-points are on all segments */
+				AddParallelCursorToken(portal->parallel_cursor_token,
+									   portal->name,
+									   gp_session_id,
+									   true,
+									   NULL);
+			}
 		}
 		else
 		{
-				AddParallelCursorToken(portal->parallel_cursor_token,
-									   portal->name,
-									   gp_session_id,
-									   true);
+			/* The end-point is on QD */
+			List* l = NIL;
+			l = lappend_int(l, MASTER_DBID);
+			AddParallelCursorToken(portal->parallel_cursor_token,
+								   portal->name,
+								   gp_session_id,
+								   false,
+								   l);
 		}
 	}
 
