@@ -1269,6 +1269,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					SRF_RETURN_NEXT(funcctx, result);
 				}
 			}
+			mystatus->curTokenIdx++;
 		}
 		else
 		{
