@@ -650,17 +650,20 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 		/* Reset state to show we're out of a transaction */
 		entry->xact_depth = 0;
 
+		elog(DEBUG3, "discarding connection %p", entry->conn);
+		PQfinish(entry->conn);
+		entry->conn = NULL;
 		/*
 		 * If the connection isn't in a good idle state, discard it to
 		 * recover. Next GetConnection will open a new connection.
 		 */
-		if (PQstatus(entry->conn) != CONNECTION_OK ||
-			PQtransactionStatus(entry->conn) != PQTRANS_IDLE)
-		{
-			elog(DEBUG3, "discarding connection %p", entry->conn);
-			PQfinish(entry->conn);
-			entry->conn = NULL;
-		}
+//		if (PQstatus(entry->conn) != CONNECTION_OK ||
+//			PQtransactionStatus(entry->conn) != PQTRANS_IDLE)
+//		{
+//			elog(DEBUG3, "discarding connection %p", entry->conn);
+//			PQfinish(entry->conn);
+//			entry->conn = NULL;
+//		}
 	}
 
 	/*

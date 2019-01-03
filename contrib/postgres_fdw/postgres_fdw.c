@@ -913,17 +913,20 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		List	*endpoints_list = list_nth(fdw_private, 2);
 
 		// TODO: calculate segment : endpoint mapping here.
-		List 	*endpoint = list_nth(endpoints_list, GpIdentity.segindex);
+		if (GpIdentity.segindex < list_length(endpoints_list))
+		{
+			List 	*endpoint = list_nth(endpoints_list, GpIdentity.segindex);
 
-		host = list_nth(endpoint, 0);
-		port = list_nth(endpoint, 1);
+			host = list_nth(endpoint, 0);
+			port = list_nth(endpoint, 1);
 
-		server->options = lappend(server->options, makeDefElem(pstrdup("host"), (Node *) host));
-		server->options = lappend(server->options, makeDefElem(pstrdup("port"), (Node *) port));
-		server->options = lappend(server->options, makeDefElem(pstrdup("user"), (Node *)makeString("gpadmin")));
-		server->options = lappend(server->options, makeDefElem(pstrdup("password"), (Node *)makeString("123456")));
-		server->options = lappend(server->options, makeDefElem(pstrdup("options"), (Node *) makeString("-c gp_session_role=retrieve")));
-		fsstate->conn = GetConnection(server, user, false, true);
+			server->options = lappend(server->options, makeDefElem(pstrdup("host"), (Node *) host));
+			server->options = lappend(server->options, makeDefElem(pstrdup("port"), (Node *) port));
+			server->options = lappend(server->options, makeDefElem(pstrdup("user"), (Node *)makeString("gpadmin")));
+			server->options = lappend(server->options, makeDefElem(pstrdup("password"), (Node *)makeString("123456")));
+			server->options = lappend(server->options, makeDefElem(pstrdup("options"), (Node *) makeString("-c gp_session_role=retrieve")));
+			fsstate->conn = GetConnection(server, user, false, true);
+		}
 	}
 	else
 		fsstate->conn = GetConnection(server, user, false, false);
@@ -2199,6 +2202,11 @@ fetch_more_data(ForeignScanState *node)
 		int			fetch_size;
 		int			numrows;
 		int			i;
+
+		if (conn == NULL){
+			fsstate->eof_reached = true;
+			return;
+		}
 
 		/* The fetch size is arbitrary, but shouldn't be enormous. */
 		fetch_size = 100;
