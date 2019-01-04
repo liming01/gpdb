@@ -1213,9 +1213,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 			else
 			{
 				/* end-points on segments */
-				while (((mystatus->seg_db_list[mystatus->curSegIdx].role != 'p')
-						&& (mystatus->curSegIdx < mystatus->segment_num))
-						|| (!isDbIDInToken(mystatus->seg_db_list[mystatus->curSegIdx].dbid, entry)))
+				while ((mystatus->curSegIdx < mystatus->segment_num) &&
+					  ((mystatus->seg_db_list[mystatus->curSegIdx].role != 'p') ||
+					  !isDbIDInToken(mystatus->seg_db_list[mystatus->curSegIdx].dbid, entry)))
 				{
 					mystatus->curSegIdx++;
 				}
@@ -1269,7 +1269,6 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					SRF_RETURN_NEXT(funcctx, result);
 				}
 			}
-			mystatus->curTokenIdx++;
 		}
 		else
 		{
