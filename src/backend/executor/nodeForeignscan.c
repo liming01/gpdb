@@ -169,7 +169,8 @@ ExecInitForeignScan(ForeignScan *node, EState *estate, int eflags)
 	/*
 	 * Tell the FDW to initiate the scan.
 	 */
-	if (Gp_role == GP_ROLE_DISPATCH)
+	ForeignTable *table = GetForeignTable(RelationGetRelid(scanstate->ss.ss_currentRelation));
+	if(table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
 		fdwroutine->BeginMppForeignScan(scanstate, eflags);
 	else
 		fdwroutine->BeginForeignScan(scanstate, eflags);
@@ -187,7 +188,8 @@ void
 ExecEndForeignScan(ForeignScanState *node)
 {
 	/* Let the FDW shut down */
-	if (Gp_role == GP_ROLE_DISPATCH)
+	ForeignTable *table = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
+	if (table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
 	{
 		node->fdwroutine->EndMppForeignScan(node);
 	}
