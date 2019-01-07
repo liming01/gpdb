@@ -2170,10 +2170,13 @@ create_cursor(ForeignScanState *node)
 	/* single node case */
 	if (list_length(foreign_scan->fdw_private) == 2)
 	{
+		initStringInfo(&buf);
 		appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",
 						 fsstate->cursor_number, fsstate->query);
 		create_cursor_helper(node, buf.data);
-	}
+		pfree(buf.data);
+	};
+
 }
 
 /*
