@@ -240,7 +240,6 @@ extern PGDLLIMPORT Oid MyDatabaseId;
 
 extern PGDLLIMPORT Oid MyDatabaseTableSpace;
 
-extern void* GP2GP_conn;
 /*
  * Date/Time Configuration
  *

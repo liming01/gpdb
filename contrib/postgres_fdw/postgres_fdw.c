@@ -1113,9 +1113,6 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 		create_and_execute_parallel_cursor(node);
 
 	// TODO: Add fsstate->conn to QD's listen set
-	if(Gp_role == GP_ROLE_DISPATCH)
-		GP2GP_conn = fsstate->conn;
-
 	wait_endpoints_ready(server, user, fsstate->token);
 }
 

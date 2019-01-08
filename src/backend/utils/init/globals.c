@@ -162,5 +162,3 @@ bool	pljava_classpath_insecure = false;
 /* Memory protection GUCs*/
 int gp_vmem_protect_limit = 8192;
 int gp_vmem_protect_gang_cache_limit = 500;
-
-void* GP2GP_conn = NULL;
