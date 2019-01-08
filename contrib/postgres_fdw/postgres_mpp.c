@@ -151,12 +151,17 @@ create_parallel_cursor(ForeignScanState *node)
 {
 	StringInfoData 	buf;
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
+	ForeignScan    *foreign_scan;
+
+	foreign_scan = (ForeignScan *) node->ss.ps.plan;
+	Assert(list_length(foreign_scan->fdw_private) > 2); /* in mpp mode */
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "DECLARE c%u PARALLEL CURSOR FOR\n%s",
 					 fsstate->cursor_number, fsstate->query);
 	
 	create_cursor_helper(node, buf.data);
+	pfree(buf.data);
 }
 
 void
