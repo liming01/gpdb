@@ -898,7 +898,7 @@ sender_close()
 	if (!s_fifoConnState->created)
 		return;
 
-	if (access(fifo_name, F_OK ) != -1 && unlink(fifo_name) < 0)
+	if (unlink(fifo_name) < 0)
 		ep_log(ERROR, "failed to unlink fifo %s:%m", fifo_name);
 
 	s_fifoConnState->created = false;
@@ -907,7 +907,8 @@ sender_close()
 static void
 receiver_close()
 {
-	sender_close();
+	if (close(s_fifoConnState->fifo) < 0)
+		ep_log(ERROR, "failed to close fifo:%m");
 
 	s_fifoConnState->fifo = -1;
 	s_fifoConnState->created = false;
