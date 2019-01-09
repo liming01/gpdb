@@ -17,6 +17,7 @@
 #include "access/htup_details.h"
 #include "access/sysattr.h"
 #include "cdb/cdbvars.h"
+#include "cdb/cdbgang.h"
 #include "commands/defrem.h"
 #include "commands/explain.h"
 #include "commands/vacuum.h"
@@ -349,6 +350,32 @@ postgres_fdw_handler(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(routine);
 }
 
+static void
+set_foreignpath_qe_num(ForeignServer *server, UserMapping *user)
+{
+	StringInfoData buf;
+	PGconn	   *conn;
+	PGresult   *res;
+
+	initStringInfo(&buf);
+	appendStringInfoString(&buf, "SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0");
+
+	/* Get the remote estimate */
+	conn = GetConnection(server, user, false, false, false);
+
+	res = PQexec(conn, buf.data);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		pgfdw_report_error(ERROR, res, conn, true, buf.data);
+
+	if (PQntuples(res) == 0)
+		pgfdw_report_error(ERROR, res, conn, true, buf.data);
+
+	override_foreignpath_qe_num = pg_atoi(PQgetvalue(res, 0, 0), sizeof(int), 0);
+
+	PQclear(res);
+	ReleaseConnection(conn);
+}
+
 /*
  * postgresGetForeignRelSize
  *		Estimate # of rows and width of the result of the scan
@@ -411,7 +438,8 @@ postgresGetForeignRelSize(PlannerInfo *root,
 	 * should match what ExecCheckRTEPerms() does.  If we fail due to lack of
 	 * permissions, the query would have failed at runtime anyway.
 	 */
-	if (fpinfo->use_remote_estimate)
+	/* if (fpinfo->use_remote_estimate) */
+	if (1)
 	{
 		RangeTblEntry *rte = planner_rt_fetch(baserel->relid, root);
 		Oid			userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
@@ -509,6 +537,9 @@ postgresGetForeignRelSize(PlannerInfo *root,
 								&fpinfo->rows, &fpinfo->width,
 								&fpinfo->startup_cost, &fpinfo->total_cost);
 	}
+
+	// override the foreignpath qe num
+	set_foreignpath_qe_num(fpinfo->server, fpinfo->user);
 }
 
 /*
@@ -911,11 +942,23 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		Value	*host;
 		Value	*port;
 		List	*endpoints_list = list_nth(fdw_private, 2);
+		int slice_no = -1;
+		Slice *slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
 
-		// TODO: calculate segment : endpoint mapping here.
-		if (GpIdentity.segindex < list_length(endpoints_list))
+		if (!slice || !IsA(slice, Slice))
+			ereport(ERROR, (errmsg("No valid slice %d", currentSliceId)));
+
+		int num;
+		bms_foreach(num, slice->processesMap)
 		{
-			List 	*endpoint = list_nth(endpoints_list, GpIdentity.segindex);
+			slice_no++;
+			if (qe_identifier == num)
+				break;
+		}
+
+		if (slice_no >= 0 && slice_no < list_length(endpoints_list))
+		{
+			List 	*endpoint = list_nth(endpoints_list, slice_no);
 
 			host = list_nth(endpoint, 0);
 			port = list_nth(endpoint, 1);
@@ -927,6 +970,8 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 			server->options = lappend(server->options, makeDefElem(pstrdup("options"), (Node *) makeString("-c gp_session_role=retrieve")));
 			fsstate->conn = GetConnection(server, user, false, true, false);
 		}
+		else
+			ereport(ERROR, (errmsg("No valid slice number")));
 	}
 	else
 		fsstate->conn = GetConnection(server, user, false, false, false);

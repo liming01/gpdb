@@ -894,4 +894,5 @@ extern bool gp_create_table_random_default_distribution;
 extern GpperfmonLogAlertLevel lookup_loglevel_by_name(const char *name);
 extern const char * lookup_autostats_mode_by_value(GpAutoStatsModeValue val);
 
+extern int override_foreignpath_qe_num;
 #endif   /* CDBVARS_H */

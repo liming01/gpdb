@@ -115,7 +115,6 @@ extern void deparseAnalyzeSql(StringInfo buf, Relation rel,
 				  List **retrieved_attrs);
 extern void create_cursor_helper(ForeignScanState *node, const char *cursor_sql);
 
-
 extern void wait_endpoints_ready(ForeignServer	*server,
 					 UserMapping 	*user,
 					 int32			token);

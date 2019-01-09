@@ -33,7 +33,10 @@
 #include "catalog/pg_proc.h"
 #include "cdb/cdbpath.h"        /* cdb_create_motion_path() etc */
 #include "cdb/cdbutil.h"		/* getgpsegmentCount() */
+#include "cdb/cdbvars.h"		/* getgpsegmentCount() */
 #include "executor/nodeHash.h"
+
+int override_foreignpath_qe_num = -1;
 
 typedef enum
 {
@@ -2896,7 +2899,10 @@ create_foreignscan_path(PlannerInfo *root, RelOptInfo *rel,
 			CdbPathLocus_MakeGeneral(&(pathnode->path.locus), GP_POLICY_ALL_NUMSEGMENTS);
 			break;
 		case FTEXECLOCATION_ALL_SEGMENTS:
-			CdbPathLocus_MakeStrewn(&(pathnode->path.locus), GP_POLICY_ALL_NUMSEGMENTS);
+			if (override_foreignpath_qe_num > 0)
+				CdbPathLocus_MakeStrewn(&(pathnode->path.locus), override_foreignpath_qe_num);
+			else
+				CdbPathLocus_MakeStrewn(&(pathnode->path.locus), GP_POLICY_ALL_NUMSEGMENTS);
 			break;
 		case FTEXECLOCATION_MASTER:
 			CdbPathLocus_MakeEntry(&(pathnode->path.locus));
