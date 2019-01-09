@@ -733,7 +733,6 @@ retry_write(int fifo, char *data, int len)
 void SendTupleSlot(TupleTableSlot *slot)
 {
 	char cmd = 'T';
-	char tmp[64];
 	int tupleSize = 0;
 
 	if (Gp_endpoint_role != EPR_SENDER)
@@ -742,10 +741,8 @@ void SendTupleSlot(TupleTableSlot *slot)
 	MemTuple mtup = ExecFetchSlotMemTuple(slot, true);
 	Assert(is_memtuple(mtup));
 	tupleSize = memtuple_get_size(mtup);
-	memset(tmp, 0, sizeof(tmp));
-	pg_itoa(tupleSize, tmp);
 	retry_write(s_fifoConnState->fifo, &cmd, 1);
-	retry_write(s_fifoConnState->fifo, &tmp, sizeof(tmp));
+	retry_write(s_fifoConnState->fifo, (char *)&tupleSize, sizeof(int));
 	retry_write(s_fifoConnState->fifo, (char *)mtup, tupleSize);
 }
 
@@ -797,7 +794,6 @@ TupleTableSlot* RecvTupleSlot()
 	int				fifo;
 	TupleTableSlot	*slot;
 	int				tupleSize = 0;
-	char			tmp[64];
 	MemTuple		mtup;
 
 	Assert(s_fifoConnState);
@@ -819,11 +815,9 @@ TupleTableSlot* RecvTupleSlot()
 		}
 
 		Assert(cmd == 'T');
-		memset(tmp, 0, sizeof(tmp));
-		retry_read(s_fifoConnState->fifo, tmp, sizeof(tmp));
-		tupleSize = pg_atoi(tmp, sizeof(int), '\0');
+		retry_read(s_fifoConnState->fifo, (char *)&tupleSize, sizeof(int));
 		Assert(tupleSize > 0);
-		MemTuple mtup = palloc(tupleSize);
+		mtup = palloc(tupleSize);
 		retry_read(s_fifoConnState->fifo, (char *)mtup, tupleSize);
 		slot->PRIVATE_tts_memtuple = mtup;
 		ExecStoreVirtualTuple(slot);
