@@ -1258,15 +1258,26 @@ greenplumEndMppForeignScan(ForeignScanState *node)
 	/* Close the cursor if open, to prevent accumulation of cursors */
 	if (fsstate->cursor_exists)
 	{
-		initStringInfo(&buf);
-		appendStringInfo(&buf, "EXECUTE PARALLEL CURSOR c%u;",
-			fsstate->cursor_number);
-		res = PQgetResult(fsstate->conn);
+		if (PQisBusy(fsstate->conn))
+		{
+			char errbuf[256];
+			memset(errbuf, 0, sizeof(errbuf));
 
-		if (PQresultStatus(res) != PGRES_COMMAND_OK)
-			pgfdw_report_error(ERROR, res, fsstate->conn, true, buf.data);
+			PGcancel *cn = PQgetCancel(fsstate->conn);
+			PQcancel(cn, errbuf, 256);
+		}
+		else
+		{
+			initStringInfo(&buf);
+			appendStringInfo(&buf, "EXECUTE PARALLEL CURSOR c%u;",
+							 fsstate->cursor_number);
+			res = PQgetResult(fsstate->conn);
 
-		close_cursor(fsstate->conn, fsstate->cursor_number);
+			if (PQresultStatus(res) != PGRES_COMMAND_OK)
+				pgfdw_report_error(ERROR, res, fsstate->conn, true, buf.data);
+
+			close_cursor(fsstate->conn, fsstate->cursor_number);
+		}
 	}
 
 	/* Release remote connection */
