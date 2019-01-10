@@ -47,7 +47,7 @@ typedef struct fifoconnstate
 typedef FifoConnStateData 	*FifoConnState;
 
 static FifoConnState 		s_fifoConnState = NULL;
-static TupleTableSlot		*s_resultTupleSlot;
+static TupleTableSlot		*s_resultTupleSlot = NULL;
 
 static SharedTokenDesc		*SharedTokens;
 static slock_t 				*shared_tokens_lock;
@@ -61,6 +61,9 @@ static int32 				Gp_token = InvalidToken;
 static enum EndPointRole 	Gp_endpoint_role = EPR_NONE;
 static bool					s_inAbort = false;
 static bool					s_needAck = false;
+
+static void retry_read(int fifo, char *data, int len);
+static void retry_write(int fifo, char *data, int len);
 
 int32 GetUniqueGpToken()
 {
@@ -311,7 +314,6 @@ void EndPoint_ShmemInit()
 			SharedEndPoints[i].token = InvalidToken;
 			SharedEndPoints[i].attached = false;
 			SharedEndPoints[i].empty = true;
-			SharedEndPoints[i].num_attributes = 0;
 
 			InitSharedLatch(&SharedEndPoints[i].ack_done);
 		}
@@ -328,10 +330,9 @@ void EndPoint_ShmemInit()
 		SpinLockInit(shared_end_points_lock);
 }
 
-void AllocEndPoint(TupleDesc tupdesc)
+void AllocEndPoint()
 {
 	int			i;
-	AttrDesc	attdesc[ENDPOINT_MAX_ATT_NUM];
 
 	if (Gp_endpoint_role != EPR_SENDER)
 		ep_log(ERROR, "%s could not allocate end point slot",
@@ -341,13 +342,6 @@ void AllocEndPoint(TupleDesc tupdesc)
 		ep_log(ERROR, "end point slot already allocated");
 
 	check_gp_token_valid();
-
-	for (i = 0; i < tupdesc->natts; ++i)
-	{
-		Form_pg_attribute	attr = tupdesc->attrs[i];
-		memcpy(attdesc[i].attname.data, attr->attname.data, NAMEDATALEN);
-		attdesc[i].atttypid = attr->atttypid;
-	}
 
 	SpinLockAcquire(shared_end_points_lock);
 
@@ -360,8 +354,6 @@ void AllocEndPoint(TupleDesc tupdesc)
 			SharedEndPoints[i].token = Gp_token;
 			SharedEndPoints[i].attached = false;
 			SharedEndPoints[i].empty = false;
-			SharedEndPoints[i].num_attributes = tupdesc->natts;
-			memcpy(&SharedEndPoints[i].attdesc, attdesc, tupdesc->natts * sizeof(AttrDesc));
 			OwnLatch(&SharedEndPoints[i].ack_done);
 
 			mySharedEndPoint = &SharedEndPoints[i];
@@ -427,17 +419,9 @@ void FreeEndPoint()
 void AttachEndPoint()
 {
 	int			i;
-	Size		num_attributes = 0;
 
-	List		*names = NIL;
-	List		*types = NIL;
-	List		*typmods = NIL;
-	List		*collations = NIL;
 	bool		already_attached = false;
 	pid_t		attached_pid = InvalidPid;
-
-	TupleDesc	tupdesc;
-	AttrDesc	attdesc[ENDPOINT_MAX_ATT_NUM];
 
 	if (Gp_endpoint_role != EPR_RECEIVER)
 		ep_log(ERROR, "%s could not attach end point slot", endpoint_role_to_string(Gp_endpoint_role));
@@ -465,7 +449,6 @@ void AttachEndPoint()
 			SharedEndPoints[i].attached = true;
 			SharedEndPoints[i].receiver_pid = MyProcPid;
 			mySharedEndPoint = &SharedEndPoints[i];
-			num_attributes = SharedEndPoints[i].num_attributes;
 			break;
 		}
 	}
@@ -478,27 +461,6 @@ void AttachEndPoint()
 
 	if (!mySharedEndPoint)
 		ep_log(ERROR, "failed to attach non exist end point %d", Gp_token);
-
-	Assert(num_attributes < ENDPOINT_MAX_ATT_NUM);
-
-	memcpy(attdesc, (EndPointDesc *)&mySharedEndPoint->attdesc , num_attributes * sizeof(AttrDesc));
-
-	for (i = 0; i < num_attributes; ++i)
-	{
-		names = lappend(names, makeString(attdesc[i].attname.data));
-		types = lappend_oid(types, attdesc[i].atttypid);
-		typmods = lappend_int(typmods, -1);
-		collations = lappend_oid(collations, InvalidOid);
-	}
-
-	tupdesc = BuildDescFromLists(names, types, typmods, collations);
-	s_resultTupleSlot = MakeTupleTableSlot();
-	ExecSetSlotDescriptor(s_resultTupleSlot, tupdesc);
-
-	list_free_deep(names);
-	list_free(types);
-	list_free(typmods);
-	list_free(collations);
 
 	s_needAck = false;
 }
@@ -544,11 +506,14 @@ void DetachEndPoint()
 
 	mySharedEndPoint = NULL;
 
-	if (s_resultTupleSlot)
-	{
-		ExecDropSingleTupleTableSlot(s_resultTupleSlot);
-		s_resultTupleSlot = NULL;
-	}
+	/* Don't drop the result slot, we only have one chance to built it. */
+	/*
+	 * if (s_resultTupleSlot)
+	 * {
+	 *     ExecDropSingleTupleTableSlot(s_resultTupleSlot);
+	 *     s_resultTupleSlot = NULL;
+	 * }
+	 */
 
 	if (s_needAck)
 		SetLatch(ack_done);
@@ -558,6 +523,35 @@ void DetachEndPoint()
 
 TupleDesc ResultTupleDesc()
 {
+	char			cmd;
+	int				len;
+	TupleDescNode	*tupdescnode;
+	MemoryContext    oldcontext;
+
+	if (!s_resultTupleSlot)
+	{
+		/* Store the result slot all the retrieve mode QE life cycle, we only
+		 * have one chance to built it. */
+		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+
+		InitConn();
+
+		Assert(s_fifoConnState);
+		retry_read(s_fifoConnState->fifo, &cmd, 1);
+		if (cmd == 'D')
+		{
+			retry_read(s_fifoConnState->fifo, (char *)&len, 4);
+
+			char *tupdescnode_str = palloc(len);
+			retry_read(s_fifoConnState->fifo, tupdescnode_str, len);
+
+			tupdescnode = (TupleDescNode *)readNodeFromBinaryString(tupdescnode_str, len);
+			s_resultTupleSlot = MakeTupleTableSlot();
+			ExecSetSlotDescriptor(s_resultTupleSlot, tupdescnode->tuple);
+		}
+		MemoryContextSwitchTo(oldcontext);
+	}
+
 	Assert(s_resultTupleSlot);
 	Assert(s_resultTupleSlot->tts_tupleDescriptor);
 
@@ -571,8 +565,8 @@ static void make_fifo_conn(void)
 	Assert(s_fifoConnState);
 
 	s_fifoConnState->fifo = -1;
-	s_fifoConnState->created =false;
-	s_fifoConnState->finished =false;
+	s_fifoConnState->created = false;
+	s_fifoConnState->finished = false;
 }
 
 static void
@@ -641,6 +635,21 @@ static void init_conn_for_sender()
 	create_and_connect_fifo();
 }
 
+void SendTupdescToFIFO(TupleDesc tupdesc)
+{
+	Assert(s_fifoConnState);
+
+	char cmd = 'D';
+	retry_write(s_fifoConnState->fifo, &cmd, 1);
+	TupleDescNode *node = makeNode(TupleDescNode);
+	node->natts = tupdesc->natts;
+	node->tuple = tupdesc;
+	int tupdesc_len = 0;
+	char *tupdesc_str = nodeToBinaryStringFast(node, &tupdesc_len);
+	retry_write(s_fifoConnState->fifo, (char *)&tupdesc_len, 4);
+	retry_write(s_fifoConnState->fifo, tupdesc_str, tupdesc_len);
+}
+
 static void init_conn_for_receiver()
 {
 	char	fifo_name[MAX_FIFO_NAME_SIZE];
@@ -657,8 +666,8 @@ static void init_conn_for_receiver()
 
 	if ((s_fifoConnState->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
 	{
-		CloseConn();
 		ep_log(ERROR, "failed to open fifo %s for read:%m", fifo_name);
+		CloseConn();
 	}
 
 	flags = fcntl(s_fifoConnState->fifo, F_GETFL);

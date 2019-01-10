@@ -29,7 +29,6 @@ typedef struct attrdesc
 	Oid			atttypid;
 } AttrDesc;
 
-#define ENDPOINT_MAX_ATT_NUM 1000
 #define InvalidToken		(-1)
 
 typedef struct sendpointdesc
@@ -39,8 +38,6 @@ typedef struct sendpointdesc
 	pid_t		receiver_pid;
 	int32		token;
 	Latch		ack_done;
-	Size		num_attributes;
-	AttrDesc	attdesc[ENDPOINT_MAX_ATT_NUM];
 	bool		attached;
 	bool		empty;
 } EndPointDesc;
@@ -88,7 +85,7 @@ extern void SetEndPointRole(enum EndPointRole role);
 extern void ClearEndPointRole(void);
 extern enum EndPointRole EndPointRole(void);
 
-extern void AllocEndPoint(TupleDesc tupdesc);
+extern void AllocEndPoint(void);
 extern void FreeEndPoint(void);
 
 extern void AttachEndPoint(void);
@@ -96,6 +93,7 @@ extern void DetachEndPoint(void);
 extern TupleDesc ResultTupleDesc(void);
 
 extern void InitConn(void);
+extern void SendTupdescToFIFO(TupleDesc tupdesc);
 
 extern void SendTupleSlot(TupleTableSlot *slot);
 extern TupleTableSlot* RecvTupleSlot(void);

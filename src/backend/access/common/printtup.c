@@ -86,84 +86,6 @@ typedef struct
 	DestReceiver pub;			/* publicly-known function pointers */
 } DR_fifo_printtup;
 
-static void
-read_fifo_binary(int fifo_fd, char *data, int len)
-{
-	int				ret;
-	int				curr = 0;
-	struct pollfd	fds;
-
-	elog(WARNING, "Reading data(%d)\n", len);
-
-	const int POLL_FIFO_TIMEOUT = 500;
-
-	fds.fd = fifo_fd;
-	fds.events = POLLIN;
-
-	while (len > 0)
-	{
-		int 			pollRet;
-
-		do
-		{
-			CHECK_FOR_INTERRUPTS();
-			pollRet = poll(&fds, 1, POLL_FIFO_TIMEOUT);
-		}
-		while (pollRet == 0 || (pollRet < 0 && (errno == EINTR || errno == EAGAIN)));
-
-		if (pollRet < 0)
-			elog(ERROR, "Poll failed during write pipe.\n");
-
-		ret = read(fifo_fd, &data[curr], len);
-		if (ret >= 0)
-		{
-			curr += ret;
-			len -= ret;
-		}
-		if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
-			continue;
-		else if (ret == -1)
-			elog(ERROR, "write error on fifo(%d):%s\n", fifo_fd, strerror(errno));
-	}
-}
-
-static void
-write_fifo_binary(int fifo_fd, void *data, int len)
-{
-	int				ret;
-	struct pollfd	fds;
-
-	elog(WARNING, "Writing data(%d)\n", len);
-
-	const int POLL_FIFO_TIMEOUT = 500;
-
-	fds.fd = fifo_fd;
-	fds.events = POLLOUT;
-
-	while (len > 0)
-	{
-		int 			pollRet;
-
-		do
-		{
-			CHECK_FOR_INTERRUPTS();
-			pollRet = poll(&fds, 1, POLL_FIFO_TIMEOUT);
-		}
-		while (pollRet == 0 || (pollRet < 0 && (errno == EINTR || errno == EAGAIN)));
-
-		if (pollRet < 0)
-			elog(ERROR, "Poll failed during write pipe.\n");
-
-		ret = write(fifo_fd, data, len);
-		if (ret >= 0)
-			len -= ret;
-		if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
-			continue;
-		else if (ret == -1)
-			elog(ERROR, "write error on fifo(%d):%s\n", fifo_fd, strerror(errno));
-	}
-}
-
 /* ----------------
  *		Initialize: create a DestReceiver for printtup
  * ----------------
@@ -196,8 +118,9 @@ printtup_create_DR(CommandDest dest)
 static void
 printtup_startup_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
 {
-	AllocEndPoint(typeinfo);
+	AllocEndPoint();
 	InitConn();
+	SendTupdescToFIFO(typeinfo);
 }
 
 DestReceiver *
