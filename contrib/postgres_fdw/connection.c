@@ -96,7 +96,7 @@ static void pgfdw_subxact_callback(SubXactEvent event,
  */
 PGconn *
 GetConnection(ForeignServer *server, UserMapping *user,
-			  bool will_prep_stmt, bool is_parallel)
+			  bool will_prep_stmt, bool is_parallel, bool force_new_conn)
 {
 	bool		found;
 	ConnCacheEntry *entry;
@@ -136,7 +136,7 @@ GetConnection(ForeignServer *server, UserMapping *user,
 	 * Find or create cached entry for requested connection.
 	 */
 	entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
-	if (!found)
+	if (!found || force_new_conn)
 	{
 		/* initialize new hashtable entry (key is already filled in) */
 		entry->conn = NULL;
