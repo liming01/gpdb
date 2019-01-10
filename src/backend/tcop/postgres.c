@@ -1341,7 +1341,7 @@ exec_mpp_query(const char *query_string,
 						  list_make1(plan ? (Node*)plan : (Node*)utilityStmt),
 						  NULL);
 
-		if (commandType == CMD_SELECT && currentSliceId == 0)
+		if (commandType == CMD_SELECT && currentSliceId == 0 && GpToken() != InvalidToken)
 			SetEndPointRole(EPR_SENDER);
 
 		/*
