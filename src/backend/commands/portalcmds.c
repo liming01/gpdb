@@ -194,6 +194,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 				AddParallelCursorToken(portal->parallel_cursor_token,
 									   portal->name,
 									   gp_session_id,
+									   GetUserId(),
 									   false,
 									   l);
 			}
@@ -203,6 +204,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 				AddParallelCursorToken(portal->parallel_cursor_token,
 									   portal->name,
 									   gp_session_id,
+									   GetUserId(),
 									   true,
 									   NULL);
 			}
@@ -215,6 +217,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 			AddParallelCursorToken(portal->parallel_cursor_token,
 								   portal->name,
 								   gp_session_id,
+								   GetUserId(),
 								   false,
 								   l);
 		}

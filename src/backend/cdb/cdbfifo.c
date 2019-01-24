@@ -39,7 +39,7 @@ const long POLL_FIFO_TIMEOUT = 500;
 
 typedef struct fifoconnstate
 {
-	int32       	fifo;
+	int32			fifo;
 	bool			finished;
 	bool			created;
 } FifoConnStateData;
@@ -57,7 +57,7 @@ volatile EndPointDesc 		*mySharedEndPoint = NULL;
 
 static slock_t 				*shared_end_points_lock;
 
-static int32 				Gp_token = InvalidToken;
+static Token 				Gp_token = {InvalidToken, INVALID_SESSION_ID, InvalidOid};
 static enum EndPointRole 	Gp_endpoint_role = EPR_NONE;
 static bool					s_inAbort = false;
 static bool					s_needAck = false;
@@ -92,7 +92,7 @@ void DismissGpToken()
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedTokens[i].token == Gp_token)
+		if (SharedTokens[i].token == Gp_token.token)
 		{
 			SharedTokens[i].token = InvalidToken;
 			break;
@@ -102,7 +102,7 @@ void DismissGpToken()
 	SpinLockRelease(shared_tokens_lock);
 }
 
-void AddParallelCursorToken(int32 token, const char* name, int session_id,
+void AddParallelCursorToken(int32 token, const char* name, int session_id, Oid user_id,
 		bool all_seg, List* dbid_list)
 {
 	int i;
@@ -118,6 +118,7 @@ void AddParallelCursorToken(int32 token, const char* name, int session_id,
 			strncpy(SharedTokens[i].cursor_name, name, strlen(name));
 			SharedTokens[i].session_id = session_id;
 			SharedTokens[i].token = token;
+			SharedTokens[i].user_id = user_id;
 			SharedTokens[i].all_seg = all_seg;
 			if (dbid_list != NIL)
 			{
@@ -160,6 +161,7 @@ void ClearParallelCursorToken(int32 token)
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
 			SharedTokens[i].session_id = INVALID_SESSION_ID;
+			SharedTokens[i].user_id = InvalidOid;
 			SharedTokens[i].endpoint_cnt = 0;
 			SharedTokens[i].all_seg = false;
 			memset(SharedTokens[i].dbIds, 0, sizeof(int16)*SHAREDTOKEN_DBID_NUM);
@@ -169,24 +171,28 @@ void ClearParallelCursorToken(int32 token)
 	SpinLockRelease(shared_tokens_lock);
 }
 
-void SetGpToken(int32 token)
+void SetGpToken(int32 token, int session_id, Oid user_id)
 {
-	if (Gp_token != InvalidToken)
-		ep_log(ERROR, "end point token %d already set", Gp_token);
+	if (Gp_token.token != InvalidToken)
+		ep_log(ERROR, "end point token %d already set", Gp_token.token);
 
-	ep_log(LOG, "end point token is set from %d to %d", Gp_token, token);
-	Gp_token = token;
+	ep_log(DEBUG3, "end point token is set to %d", token);
+	Gp_token.token = token;
+	Gp_token.session_id = session_id;
+	Gp_token.user_id = user_id;
 }
 
 void ClearGpToken(void)
 {
-	ep_log(LOG, "end point token %d unset", Gp_token);
-	Gp_token = InvalidToken;
+	ep_log(LOG, "end point token %d unset", Gp_token.token);
+	Gp_token.token = InvalidToken;
+	Gp_token.session_id = INVALID_SESSION_ID;
+	Gp_token.user_id = InvalidOid;
 }
 
 int32 GpToken(void)
 {
-	return Gp_token;
+	return Gp_token.token;
 }
 
 static const char*
@@ -237,7 +243,7 @@ enum EndPointRole EndPointRole(void)
 
 static void check_gp_token_valid()
 {
-	if (Gp_role == GP_ROLE_EXECUTE && Gp_token == InvalidToken)
+	if (Gp_role == GP_ROLE_EXECUTE && Gp_token.token == InvalidToken)
 		ep_log(ERROR, "invalid gp token");
 }
 
@@ -274,6 +280,7 @@ void Token_ShmemInit()
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
 			SharedTokens[i].session_id = INVALID_SESSION_ID;
+			SharedTokens[i].user_id = InvalidOid;
 		}
 	}
 
@@ -312,6 +319,8 @@ void EndPoint_ShmemInit()
 			SharedEndPoints[i].sender_pid = InvalidPid;
 			SharedEndPoints[i].receiver_pid = InvalidPid;
 			SharedEndPoints[i].token = InvalidToken;
+			SharedEndPoints[i].session_id = INVALID_SESSION_ID;
+			SharedEndPoints[i].user_id = InvalidOid;
 			SharedEndPoints[i].attached = false;
 			SharedEndPoints[i].empty = true;
 
@@ -351,7 +360,9 @@ void AllocEndPoint()
 		{
 			SharedEndPoints[i].database_id = MyDatabaseId;
 			SharedEndPoints[i].sender_pid = MyProcPid;
-			SharedEndPoints[i].token = Gp_token;
+			SharedEndPoints[i].token = Gp_token.token;
+			SharedEndPoints[i].session_id = Gp_token.session_id;
+			SharedEndPoints[i].user_id = Gp_token.user_id;
 			SharedEndPoints[i].attached = false;
 			SharedEndPoints[i].empty = false;
 			OwnLatch(&SharedEndPoints[i].ack_done);
@@ -393,6 +404,8 @@ void FreeEndPoint()
 			mySharedEndPoint->sender_pid = 0;
 			mySharedEndPoint->token = InvalidToken;
 			mySharedEndPoint->attached = false;
+			mySharedEndPoint->session_id = INVALID_SESSION_ID;
+			mySharedEndPoint->user_id = InvalidOid;
 			mySharedEndPoint->empty = true;
 
 			DisownLatch(&mySharedEndPoint->ack_done);
@@ -436,7 +449,8 @@ void AttachEndPoint()
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedEndPoints[i].database_id == MyDatabaseId &&
-			SharedEndPoints[i].token == Gp_token &&
+			SharedEndPoints[i].token == Gp_token.token &&
+			SharedEndPoints[i].user_id == Gp_token.user_id &&
 			!SharedEndPoints[i].empty)
 		{
 			if (SharedEndPoints[i].attached)
@@ -457,10 +471,10 @@ void AttachEndPoint()
 
 	if (already_attached)
 		ep_log(ERROR, "end point %d already attached by receiver(pid:%d)",
-			   Gp_token, attached_pid);
+			   Gp_token.token, attached_pid);
 
 	if (!mySharedEndPoint)
-		ep_log(ERROR, "failed to attach non exist end point %d", Gp_token);
+		ep_log(ERROR, "failed to attach non exist end point %d", Gp_token.token);
 
 	s_needAck = false;
 }
@@ -471,7 +485,7 @@ void DetachEndPoint()
 
 	if (Gp_endpoint_role != EPR_RECEIVER ||
 		!mySharedEndPoint ||
-		Gp_token == InvalidToken)
+		Gp_token.token == InvalidToken)
 		return;
 
 	if (Gp_endpoint_role != EPR_RECEIVER)
@@ -483,9 +497,9 @@ void DetachEndPoint()
 
 	PG_TRY();
 	{
-		if (mySharedEndPoint->token != Gp_token)
+		if (mySharedEndPoint->token != Gp_token.token)
 			ep_log(LOG, "unmatched token, %d expected but %d met in slot",
-				   Gp_token, mySharedEndPoint->token);
+				   Gp_token.token, mySharedEndPoint->token);
 
 		if (mySharedEndPoint->receiver_pid != MyProcPid)
 			ep_log(ERROR, "unmatched pid, %d expected but %d met in slot",
@@ -500,6 +514,8 @@ void DetachEndPoint()
 
 	mySharedEndPoint->receiver_pid = InvalidPid;
 	mySharedEndPoint->attached = false;
+	mySharedEndPoint->session_id = INVALID_SESSION_ID;
+	mySharedEndPoint->user_id = InvalidOid;
 	ack_done = &mySharedEndPoint->ack_done;
 
 	SpinLockRelease(shared_end_points_lock);
@@ -577,16 +593,16 @@ check_end_point_allocated()
 			   endpoint_role_to_string(Gp_endpoint_role));
 
 	if (!mySharedEndPoint)
-		ep_log(ERROR, "end point slot for token %d not allocated", Gp_token);
+		ep_log(ERROR, "end point slot for token %d not allocated", Gp_token.token);
 
 	check_gp_token_valid();
 
 	SpinLockAcquire(shared_end_points_lock);
 
-	if (mySharedEndPoint->token != Gp_token)
+	if (mySharedEndPoint->token != Gp_token.token)
 	{
 		SpinLockRelease(shared_end_points_lock);
-		ep_log(ERROR, "end point slot for token %d not allocated", Gp_token);
+		ep_log(ERROR, "end point slot for token %d not allocated", Gp_token.token);
 	}
 
 	SpinLockRelease(shared_end_points_lock);
@@ -603,7 +619,7 @@ create_and_connect_fifo()
 	if (s_fifoConnState->created)
 		return;
 
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
+	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
 
 	if (mkfifo(fifo_name, 0666) < 0)
 		ep_log(ERROR, "create fifo %s failed:%m", fifo_name);
@@ -659,7 +675,7 @@ static void init_conn_for_receiver()
 
 	make_fifo_conn();
 
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
+	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
 
 	if (s_fifoConnState->fifo > 0)
 		return;
@@ -895,7 +911,7 @@ sender_close()
 {
 	char	fifo_name[MAX_FIFO_NAME_SIZE];
 
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
+	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
 
 	Assert(s_fifoConnState->fifo > 0);
 
@@ -970,7 +986,9 @@ void AbortEndPoint(void)
 
 	s_inAbort = false;
 	//DismissGpToken();
-	Gp_token = InvalidToken;
+	Gp_token.token = InvalidToken;
+	Gp_token.session_id = INVALID_SESSION_ID;
+	Gp_token.user_id = InvalidOid;
 	Gp_endpoint_role = EPR_NONE;
 }
 
@@ -1041,8 +1059,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	FuncCallContext *funcctx;
 	GP_Endpoints_Info *mystatus;
 	MemoryContext    oldcontext;
-	Datum            values[6];
-	bool             nulls[6] = { true };
+	Datum            values[7];
+	bool             nulls[7] = { true };
 	HeapTuple        tuple;
 	int              res_number = 0;
 
@@ -1058,7 +1076,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tuple descriptor */
-		TupleDesc tupdesc = CreateTemplateTupleDesc(6, false);
+		TupleDesc tupdesc = CreateTemplateTupleDesc(7, false);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
 												INT4OID, -1, 0);
 
@@ -1074,7 +1092,10 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "port",
 												INT4OID, -1, 0);
 
-		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "status",
+		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "userid",
+												OIDOID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 7, "status",
 												TEXTOID, -1, 0);
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
@@ -1198,6 +1219,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				nulls[3]  = false;
 				values[4] = Int32GetDatum(dbinfo->port);
 				nulls[4]  = false;
+				values[5] = ObjectIdGetDatum(entry->user_id);
+				nulls[5]  = false;
 				/*
 				 * find out the status of endpoint
 				 */
@@ -1206,14 +1229,15 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						mystatus->status_num, entry->token, MASTER_DBID,
 						&attached))
 				{
-					values[5] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
-					nulls[5]  = false;
+					values[6] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
+					nulls[6]  = false;
 				}
 				else
 				{
-					values[5] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
-					nulls[5]  = false;
+					values[6] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
+					nulls[6]  = false;
 				}
+
 				tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 				result = HeapTupleGetDatum(tuple);
 				mystatus->curTokenIdx++;
@@ -1250,6 +1274,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					nulls[3]  = false;
 					values[4] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].port);
 					nulls[4]  = false;
+					values[5] = ObjectIdGetDatum(entry->user_id);
+					nulls[5]  = false;
 					/*
 					 * find out the status of end-point
 					 */
@@ -1259,14 +1285,15 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 							mystatus->seg_db_list[mystatus->curSegIdx].dbid,
 							&attached))
 					{
-						values[5] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
-						nulls[5]  = false;
+						values[6] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
+						nulls[6]  = false;
 					}
 					else
 					{
-						values[5] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
-						nulls[5]  = false;
+						values[6] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
+						nulls[6]  = false;
 					}
+
 					mystatus->curSegIdx++;
 					tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 					if (mystatus->curSegIdx == mystatus->segment_num)
@@ -1305,8 +1332,8 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	FuncCallContext *funcctx;
 	GP_Endpoints_Status_Info *mystatus;
 	MemoryContext    oldcontext;
-	Datum            values[6];
-	bool             nulls[6] = { true };
+	Datum            values[8];
+	bool             nulls[8] = { true };
 	HeapTuple        tuple;
 
 	if (SRF_IS_FIRSTCALL())
@@ -1318,7 +1345,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tuple descriptor */
-		TupleDesc tupdesc = CreateTemplateTupleDesc(6, false);
+		TupleDesc tupdesc = CreateTemplateTupleDesc(8, false);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
 												INT4OID, -1, 0);
 
@@ -1336,6 +1363,13 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "dbid",
 												INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 7, "sessionid",
+												INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 8, "userid",
+												OIDOID, -1, 0);
+
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
@@ -1373,6 +1407,10 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			nulls[4]  = false;
 			values[5] = Int32GetDatum(GpIdentity.dbid);
 			nulls[5]  = false;
+			values[6] = Int32GetDatum(entry->session_id);
+			nulls[6]  = false;
+			values[7] = ObjectIdGetDatum(entry->user_id);
+			nulls[7]  = false;
 			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 			result = HeapTupleGetDatum(tuple);
 			mystatus->current_idx++;

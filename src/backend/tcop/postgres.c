@@ -5281,6 +5281,7 @@ PostgresMain(int argc, char *argv[],
 					int serializedQueryDispatchDesclen = 0;
 					int resgroupInfoLen = 0;
 					int multi_process_fetch_token = InvalidToken;
+					int session_id = INVALID_SESSION_ID;
 
 					int rootIdx;
 					TimestampTz statementStart;
@@ -5356,6 +5357,8 @@ PostgresMain(int argc, char *argv[],
 
 					multi_process_fetch_token = pq_getmsgint(&input_message, sizeof(int32));
 
+					session_id = pq_getmsgint(&input_message, sizeof(int));
+
 					pq_getmsgend(&input_message);
 
 					elog((Debug_print_full_dtm ? LOG : DEBUG5), "MPP dispatched stmt from QD: %s.",query_string);
@@ -5410,7 +5413,7 @@ PostgresMain(int argc, char *argv[],
 					else
 					{
 						if(multi_process_fetch_token!=InvalidToken)
-							SetGpToken(multi_process_fetch_token);
+							SetGpToken(multi_process_fetch_token, session_id, cuid);
 
 						exec_mpp_query(query_string,
 									   serializedQuerytree, serializedQuerytreelen,

@@ -39,8 +39,18 @@ typedef struct sendpointdesc
 	int32		token;
 	Latch		ack_done;
 	bool		attached;
+	int			session_id;
+	Oid			user_id;
 	bool		empty;
 } EndPointDesc;
+
+typedef struct token
+{
+	int32	token;
+	int		session_id;
+	Oid		user_id;
+} Token;
+
 
 #define INVALID_SESSION_ID -1
 
@@ -60,6 +70,7 @@ typedef struct sharedtokendesc
 	char	cursor_name[NAMEDATALEN];
 	int		session_id;
 	int		endpoint_cnt;
+	Oid		user_id;
 	bool	all_seg;
 	int16	dbIds[SHAREDTOKEN_DBID_NUM];
 } SharedTokenDesc;
@@ -74,10 +85,10 @@ extern void EndPoint_ShmemInit(void);
 extern void Token_ShmemInit(void);
 
 extern int32 GetUniqueGpToken(void);
-extern void SetGpToken(int32 token);
+extern void SetGpToken(int32, int, Oid);
 extern void ClearGpToken(void);
 extern void DismissGpToken(void);
-extern void AddParallelCursorToken(int32, const char*, int, bool, List*);
+extern void AddParallelCursorToken(int32, const char*, int, Oid, bool, List*);
 extern void ClearParallelCursorToken(int32);
 extern int32 GpToken(void);
 

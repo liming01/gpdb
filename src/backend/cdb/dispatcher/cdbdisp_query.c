@@ -98,6 +98,7 @@ typedef struct DispatchCommandQueryParms
 
 	/* the token for parallel cursor */
 	int32		token;
+	int			sessionId;
 } DispatchCommandQueryParms;
 
 static int fillSliceVector(SliceTable *sliceTable,
@@ -469,6 +470,7 @@ cdbdisp_buildCommandQueryParms(const char *strCommand, int flags)
 	pQueryParms->serializedQueryDispatchDesc = NULL;
 	pQueryParms->serializedQueryDispatchDesclen = 0;
 	pQueryParms->token = InvalidToken;
+	pQueryParms->sessionId = INVALID_SESSION_ID;
 
 	/*
 	 * Serialize a version of our DTX Context Info
@@ -541,7 +543,7 @@ cdbdisp_buildUtilityQueryParms(struct Node *stmt,
 	pQueryParms->serializedQueryDispatchDesc = serializedQueryDispatchDesc;
 	pQueryParms->serializedQueryDispatchDesclen = serializedQueryDispatchDesc_len;
 	pQueryParms->token = InvalidToken;
-
+	pQueryParms->sessionId = INVALID_SESSION_ID;
 	/*
 	 * Serialize a version of our DTX Context Info
 	 */
@@ -842,6 +844,7 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	int			flags = 0;		/* unused flags */
 	int			rootIdx = pQueryParms->rootIdx;
 	int32		token = pQueryParms->token;
+	int			session_id = pQueryParms->sessionId;
 	int64		currentStatementStartTimestamp = GetCurrentStatementStartTimestamp();
 	Oid			sessionUserId = GetSessionUserId();
 	Oid			outerUserId = GetOuterUserId();
@@ -903,7 +906,8 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		sizeof(numsegments) +
 		sizeof(resgroupInfo.len) +
 		resgroupInfo.len +
-		sizeof(int32);
+		sizeof(int32) +
+		sizeof(int);
 
 	shared_query = palloc0(total_query_len);
 
@@ -1027,9 +1031,13 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	}
 
 	n32 = htonl(token);
-	SetGpToken(token);
+	SetGpToken(token, gp_session_id, currentUserId);
 	memcpy(pos, &n32, sizeof(n32));
 	pos += sizeof(n32);
+
+	tmp = htonl(session_id);
+	memcpy(pos, &tmp, sizeof(tmp));
+	pos += sizeof(tmp);
 
 	len = pos - shared_query - 1;
 
@@ -1115,6 +1123,7 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 
 	pQueryParms = cdbdisp_buildPlanQueryParms(queryDesc, planRequiresTxn);
 	pQueryParms->token = portal->parallel_cursor_token;
+	pQueryParms->sessionId = gp_session_id;
 	queryText = buildGpQueryString(pQueryParms, &queryTextLength);
 
 	/*
