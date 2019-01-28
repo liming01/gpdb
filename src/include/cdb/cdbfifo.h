@@ -98,6 +98,7 @@ extern enum EndPointRole EndPointRole(void);
 
 extern void AllocEndPoint(void);
 extern void FreeEndPoint(void);
+extern bool FindEndPoint(Oid user_id, const char * token_str);
 
 extern void AttachEndPoint(void);
 extern void DetachEndPoint(void);

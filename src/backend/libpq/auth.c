@@ -24,6 +24,7 @@
 #include "catalog/indexing.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_auth_time_constraint.h"
+#include "cdb/cdbfifo.h"
 #include "cdb/cdbvars.h"
 #include "libpq/auth.h"
 #include "libpq/crypt.h"
@@ -34,6 +35,7 @@
 #include "miscadmin.h"
 #include "pgtime.h"
 #include "postmaster/postmaster.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/datetime.h"
 #include "utils/fmgroids.h"
@@ -323,34 +325,24 @@ static int
 retrieve_mode_authentication(Port *port)
 {
 	char	   *passwd;
-	char       *username;
-	char       *parallel_cursor_token;
+	Oid        owner_uid;
 
 	sendAuthRequest(port, AUTH_REQ_PASSWORD);
 	passwd = recv_password_packet(port);
 	if (passwd == NULL)
 	{
-		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of"
+		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of "
 		          "null password.");
 		return false;
 	}
 
-	/* verify that the username is same as the owner of parallel cursor */
-	/* TODO: Fetch the owner of the parallel cursor */
-	username="gpadmin";
-	if (strcmp(username, port->user_name)!=0)
-	{
-		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of"
-		          "user name is not same as the owner of the parallel cursor.");
-		return false;
-	}
+	/* verify that the username is same as the owner of parallel cursor and the password is the token*/
+	owner_uid = get_role_oid(port->user_name, false);
 
-	/* TODO: Fetch the token of the parallel cursor */
-	parallel_cursor_token="123456";
-	if (strcmp(parallel_cursor_token, passwd)!=0)
+	if(!FindEndPoint(owner_uid, passwd))
 	{
-		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of"
-		             "the password is not same as the token of the parallel cursor.");
+		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of "
+		          "no token of the parallel cursor created by current user is same as the password.");
 		return false;
 	}
 

@@ -429,6 +429,36 @@ void FreeEndPoint()
 	mySharedEndPoint = NULL;
 }
 
+bool FindEndPoint(Oid user_id, const char * token_str)
+{
+	#define MAX_TOKEN_STR_LEN 16
+	bool isFound = false;
+	char token[MAX_TOKEN_STR_LEN];
+
+	SpinLockAcquire(shared_end_points_lock);
+
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (!SharedEndPoints[i].empty &&
+			SharedEndPoints[i].user_id == user_id)
+		{
+			/* Here convert token from int32 to string before comparation so that even if
+			 * the password can not be parsed to int32, there is no crash.
+			 */
+			snprintf(token, MAX_TOKEN_STR_LEN, "%d", SharedEndPoints[i].token);
+
+			if (strcmp(token, token_str)==0)
+			{
+				isFound = true;
+				break;
+			}
+		}
+	}
+
+	SpinLockRelease(shared_end_points_lock);
+	return isFound;
+}
+
 void AttachEndPoint()
 {
 	int			i;
