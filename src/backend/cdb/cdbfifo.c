@@ -544,8 +544,6 @@ void DetachEndPoint()
 
 	mySharedEndPoint->receiver_pid = InvalidPid;
 	mySharedEndPoint->attached = false;
-	mySharedEndPoint->session_id = INVALID_SESSION_ID;
-	mySharedEndPoint->user_id = InvalidOid;
 	ack_done = &mySharedEndPoint->ack_done;
 
 	SpinLockRelease(shared_end_points_lock);
