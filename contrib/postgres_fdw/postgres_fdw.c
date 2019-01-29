@@ -102,7 +102,10 @@ enum FdwScanPrivateIndex
 	/* Integer list of attribute numbers retrieved by the SELECT */
 	FdwScanPrivateRetrievedAttrs,
 	/* endpoints info for parallel cursor */
-	FdwScanPrivateEndpoints
+	FdwScanPrivateEndpoints,
+	FdwScanPrivateToken,
+	FdwScanPrivateUserName,
+	FdwScanPrivateMaxSize
 };
 
 /*
@@ -915,7 +918,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 
 	fdw_private = ((ForeignScan *) node->ss.ps.plan)->fdw_private;
 
-	if (list_length(fdw_private) == 4)
+	if (list_length(fdw_private) == FdwScanPrivateMaxSize)
 		fsstate->is_parallel = true;
 	else
 		fsstate->is_parallel = false;
@@ -941,9 +944,13 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	{
 		Value	*host;
 		Value	*port;
-		List	*endpoints_list = list_nth(fdw_private, 2);
-		int slice_no = -1;
-		Slice *slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
+		Value   *foreign_username;
+
+		#define MAX_TOKEN_STR_LEN 16
+		char    token_str[MAX_TOKEN_STR_LEN];
+
+		int     slice_no = -1;
+		Slice   *slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
 
 		if (!slice || !IsA(slice, Slice))
 			ereport(ERROR, (errmsg("No valid slice %d", currentSliceId)));
@@ -956,17 +963,23 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 				break;
 		}
 
-		if (slice_no >= 0 && slice_no < list_length(endpoints_list))
+		foreign_username = linitial(list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, FdwScanPrivateUserName));
+		fsstate->token = linitial_int(list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, FdwScanPrivateToken));
+		fsstate->endpoints_list = list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, FdwScanPrivateEndpoints);
+
+		snprintf(token_str, MAX_TOKEN_STR_LEN, "%d", fsstate->token);
+
+		if (slice_no >= 0 && slice_no < list_length(fsstate->endpoints_list))
 		{
-			List 	*endpoint = list_nth(endpoints_list, slice_no);
+			List 	*endpoint = list_nth(fsstate->endpoints_list, slice_no);
 
 			host = list_nth(endpoint, 0);
 			port = list_nth(endpoint, 1);
 
 			server->options = lappend(server->options, makeDefElem(pstrdup("host"), (Node *) host));
 			server->options = lappend(server->options, makeDefElem(pstrdup("port"), (Node *) port));
-			server->options = lappend(server->options, makeDefElem(pstrdup("user"), (Node *)makeString("gpadmin")));
-			server->options = lappend(server->options, makeDefElem(pstrdup("password"), (Node *)makeString("123456")));
+			server->options = lappend(server->options, makeDefElem(pstrdup("user"), (Node *)foreign_username));
+			server->options = lappend(server->options, makeDefElem(pstrdup("password"), (Node *)makeString(pstrdup(token_str))));
 			server->options = lappend(server->options, makeDefElem(pstrdup("options"), (Node *) makeString("-c gp_session_role=retrieve")));
 			fsstate->conn = GetConnection(server, user, false, true, false);
 		}
@@ -974,15 +987,10 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 			ereport(ERROR, (errmsg("No valid slice number")));
 	}
 	else
-		fsstate->conn = GetConnection(server, user, false, false, false);
-
-	/* Assign a unique ID for my cursor */
-	if (!fsstate->is_parallel)
-		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
-	else
 	{
-		fsstate->token = linitial_int(list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, 3));
-		fsstate->endpoints_list = list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, 2);
+		fsstate->conn = GetConnection(server, user, false, false, false);
+		/* Assign a unique ID for my cursor */
+		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
 	}
 
 	fsstate->cursor_exists = false;
@@ -2231,7 +2239,7 @@ create_cursor(ForeignScanState *node)
 	foreign_scan = (ForeignScan *) node->ss.ps.plan;
 
 	/* single node case */
-	if (list_length(foreign_scan->fdw_private) == 2)
+	if (list_length(foreign_scan->fdw_private) == FdwScanPrivateRetrievedAttrs+1)
 	{
 		initStringInfo(&buf);
 		appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",

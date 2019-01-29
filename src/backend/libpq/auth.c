@@ -342,7 +342,8 @@ retrieve_mode_authentication(Port *port)
 	if(!FindEndPoint(owner_uid, passwd))
 	{
 		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of "
-		          "no token of the parallel cursor created by current user is same as the password.");
+		          "no token of the parallel cursor created by current user \"%s\" "
+			      "is same as the password \"%s\".", port->user_name, passwd);
 		return false;
 	}
 

@@ -102,10 +102,11 @@ get_endpoints_info(PGconn 	*conn,
 	StringInfoData sql_buf;
 	PGresult       *res;
 	List			*endpoints_list;
+	char           *foreign_username;
 
 	initStringInfo(&sql_buf);
 	appendStringInfo(&sql_buf,
-		"SELECT hostname, port, token FROM gp_endpoints "
+		"SELECT hostname, port, token, pg_get_userbyid(userid) FROM gp_endpoints "
   "WHERE sessionid=%d AND cursorname = 'c%d'",
 		session_id, cursor_number);
 
@@ -126,7 +127,7 @@ get_endpoints_info(PGconn 	*conn,
 		char *port;
 		List	   *endpoint = NIL;
 
-		if (PQnfields(res) != 3)
+		if (PQnfields(res) != 4)
 			pgfdw_report_error(ERROR, res, conn, true, sql_buf.data);
 
 		host = pstrdup(PQgetvalue(res, row, 0));
@@ -139,9 +140,15 @@ get_endpoints_info(PGconn 	*conn,
 			*token = atoi(PQgetvalue(res, row, 2));
 		else if (*token != atoi(PQgetvalue(res, row, 2)))
 			pgfdw_report_error(ERROR, res, conn, true, sql_buf.data);
+
+		if (row==0)
+			foreign_username = pstrdup(PQgetvalue(res, row, 3));
 	}
 
+	/* The order should be same as enum FdwScanPrivateIndex definition */
 	*fdw_private = lappend(*fdw_private, endpoints_list);
+	*fdw_private = lappend(*fdw_private, list_make1_int(*token));
+	*fdw_private = lappend(*fdw_private, list_make1(makeString(foreign_username)));
 
 	PQclear(res);
 }
@@ -193,6 +200,5 @@ create_and_execute_parallel_cursor(ForeignScanState *node)
 	get_endpoints_info(fsstate->conn, fsstate->cursor_number, session_id,
 		&(foreign_scan->fdw_private), &token);
 	execute_parallel_cursor(node);
-	foreign_scan->fdw_private = lappend(foreign_scan->fdw_private, list_make1_int(token));
 	fsstate->token = token;
 }
