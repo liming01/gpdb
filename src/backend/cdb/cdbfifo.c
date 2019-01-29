@@ -1233,7 +1233,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		CdbComponentDatabaseInfo *dbinfo;
 
 		SharedToken entry = &SharedTokens[mystatus->curTokenIdx];
-		if (entry->token != InvalidToken)
+		if (entry->token != InvalidToken && (superuser() || entry->user_id == GetUserId()))
 		{
 			if(isEndPointOnQD(entry))
 			{
@@ -1423,7 +1423,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		Datum	result;
 
 		EndPoint entry = &SharedEndPoints[mystatus->current_idx];
-		if (!entry->empty)
+		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
 		{
 			values[0] = Int32GetDatum(entry->token);
 			nulls[0]  = false;
