@@ -11820,17 +11820,7 @@ cursor_options: /*EMPTY*/					{ $$ = 0; }
 			| cursor_options SCROLL			{ $$ = $1 | CURSOR_OPT_SCROLL; }
 			| cursor_options BINARY			{ $$ = $1 | CURSOR_OPT_BINARY; }
 			| cursor_options INSENSITIVE	{ $$ = $1 | CURSOR_OPT_INSENSITIVE; }
-			| cursor_options PARALLEL
-			{
-				if ($$ & CURSOR_OPT_SCROLL)
-				{
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("SCROLL is not allowed for PARALLEL cursors"),
-								 parser_errposition(@1)));
-				}
-				$$ = $1 | CURSOR_OPT_PARALLEL;
-			}
+			| cursor_options PARALLEL		{ $$ = $1 | CURSOR_OPT_PARALLEL; }
 		;
 
 opt_hold: /* EMPTY */						{ $$ = 0; }
