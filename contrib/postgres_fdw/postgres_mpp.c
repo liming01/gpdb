@@ -102,7 +102,7 @@ get_endpoints_info(PGconn 	*conn,
 	StringInfoData sql_buf;
 	PGresult       *res;
 	List			*endpoints_list;
-	char           *foreign_username;
+	char           *foreign_username = NULL;
 
 	initStringInfo(&sql_buf);
 	appendStringInfo(&sql_buf,
