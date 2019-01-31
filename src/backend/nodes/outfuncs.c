@@ -4642,7 +4642,7 @@ _outRetrieveStmt(StringInfo str, const RetrieveStmt *node)
 {
 	WRITE_NODE_TYPE("RETRIEVESTMT");
 
-	WRITE_NODE_FIELD(token);
+	WRITE_INT_FIELD(token);
 }
 
 #ifndef COMPILING_BINARY_FUNCS

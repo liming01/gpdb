@@ -1087,8 +1087,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	FuncCallContext *funcctx;
 	GP_Endpoints_Info *mystatus;
 	MemoryContext    oldcontext;
-	Datum            values[7];
-	bool             nulls[7] = { true };
+	#define GP_ENDPOINTS_INFO_ATTRNUM 8
+	Datum            values[GP_ENDPOINTS_INFO_ATTRNUM];
+	bool             nulls[GP_ENDPOINTS_INFO_ATTRNUM] = { true };
 	HeapTuple        tuple;
 	int              res_number = 0;
 
@@ -1104,7 +1105,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tuple descriptor */
-		TupleDesc tupdesc = CreateTemplateTupleDesc(7, false);
+		TupleDesc tupdesc = CreateTemplateTupleDesc(GP_ENDPOINTS_INFO_ATTRNUM, false);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
 												INT4OID, -1, 0);
 
@@ -1120,10 +1121,13 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "port",
 												INT4OID, -1, 0);
 
-		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "userid",
+		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "dbid",
+		                   INT4OID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 7, "userid",
 												OIDOID, -1, 0);
 
-		TupleDescInitEntry(tupdesc, (AttrNumber) 7, "status",
+		TupleDescInitEntry(tupdesc, (AttrNumber) 8, "status",
 												TEXTOID, -1, 0);
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
@@ -1247,8 +1251,10 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				nulls[3]  = false;
 				values[4] = Int32GetDatum(dbinfo->port);
 				nulls[4]  = false;
-				values[5] = ObjectIdGetDatum(entry->user_id);
+				values[5] = Int32GetDatum(MASTER_DBID);
 				nulls[5]  = false;
+				values[6] = ObjectIdGetDatum(entry->user_id);
+				nulls[6]  = false;
 				/*
 				 * find out the status of endpoint
 				 */
@@ -1257,13 +1263,13 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						mystatus->status_num, entry->token, MASTER_DBID,
 						&attached))
 				{
-					values[6] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
-					nulls[6]  = false;
+					values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
+					nulls[7]  = false;
 				}
 				else
 				{
-					values[6] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
-					nulls[6]  = false;
+					values[7] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
+					nulls[7]  = false;
 				}
 
 				tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
@@ -1302,8 +1308,10 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					nulls[3]  = false;
 					values[4] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].port);
 					nulls[4]  = false;
-					values[5] = ObjectIdGetDatum(entry->user_id);
+					values[5] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].dbid);
 					nulls[5]  = false;
+					values[6] = ObjectIdGetDatum(entry->user_id);
+					nulls[6]  = false;
 					/*
 					 * find out the status of end-point
 					 */
@@ -1313,13 +1321,13 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 							mystatus->seg_db_list[mystatus->curSegIdx].dbid,
 							&attached))
 					{
-						values[6] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
-						nulls[6]  = false;
+						values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
+						nulls[7]  = false;
 					}
 					else
 					{
-						values[6] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
-						nulls[6]  = false;
+						values[7] = CStringGetTextDatum(attached?GP_ENDPOINT_STATUS_RETRIEVING:GP_ENDPOINT_STATUS_READY);
+						nulls[7]  = false;
 					}
 
 					mystatus->curSegIdx++;

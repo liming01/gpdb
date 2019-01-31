@@ -626,7 +626,7 @@ RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					errmsg("RETRIEVE STATEMENT ONLY SUPPORT FORWARD SCAN. Retrieve count should >=0: %d", retrieve_count)));
+					errmsg("RETRIEVE STATEMENT ONLY SUPPORT FORWARD SCAN. Retrieve count should >=0: %ld", retrieve_count)));
 	}
 
 	InitConn();
