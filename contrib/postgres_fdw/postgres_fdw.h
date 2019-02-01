@@ -65,7 +65,8 @@ extern int	set_transmission_modes(void);
 extern void reset_transmission_modes(int nestlevel);
 
 /* in connection.c */
-extern PGconn *GetConnection(ForeignServer *server, UserMapping *user,
+#define DBID_OUTER_CONN 0    /* indicate the normal outer connection which is not retrieve mode libpq connect to QE */
+extern PGconn *GetConnection(ForeignServer *server, UserMapping *user, int32 dbid,
 			  bool will_prep_stmt, bool is_parallel, bool new_conn);
 extern void ReleaseConnection(PGconn *conn);
 extern unsigned int GetCursorNumber(PGconn *conn);

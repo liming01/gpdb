@@ -364,7 +364,7 @@ set_foreignpath_qe_num(ForeignServer *server, UserMapping *user)
 	appendStringInfoString(&buf, "SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0");
 
 	/* Get the remote estimate */
-	conn = GetConnection(server, user, false, false, false);
+	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
 
 	res = PQexec(conn, buf.data);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
@@ -942,13 +942,15 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 */
 	if (fsstate->is_parallel)
 	{
-		Value	*host;
-		Value	*port;
-		Value   *foreign_username;
-
+		DefElem    *dbnameDE = NULL;
+		ListCell   *cell;
+		#define SVR_OPT_DBNAME "dbname"
 		#define MAX_TOKEN_STR_LEN 16
 		char    token_str[MAX_TOKEN_STR_LEN];
-
+		Value	*host;
+		Value	*port;
+		int32   dbid;
+		Value   *foreign_username;
 		int     slice_no = -1;
 		Slice   *slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
 
@@ -963,6 +965,18 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 				break;
 		}
 
+		/* find foreign sever option "dbname" */
+		foreach(cell, server->options)
+		{
+			DefElem    *defel = (DefElem *) lfirst(cell);
+
+			if (strcmp(defel->defname, SVR_OPT_DBNAME) == 0)
+			{
+				dbnameDE = defel;
+				break;
+			}
+		}
+
 		foreign_username = linitial(list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, FdwScanPrivateUserName));
 		fsstate->token = linitial_int(list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, FdwScanPrivateToken));
 		fsstate->endpoints_list = list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, FdwScanPrivateEndpoints);
@@ -975,20 +989,50 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 
 			host = list_nth(endpoint, 0);
 			port = list_nth(endpoint, 1);
+			char *dbid_str = strVal(list_nth(endpoint, 2));
+			dbid = atoi(dbid_str);
 
-			server->options = lappend(server->options, makeDefElem(pstrdup("host"), (Node *) host));
-			server->options = lappend(server->options, makeDefElem(pstrdup("port"), (Node *) port));
-			server->options = lappend(server->options, makeDefElem(pstrdup("user"), (Node *)foreign_username));
-			server->options = lappend(server->options, makeDefElem(pstrdup("password"), (Node *)makeString(pstrdup(token_str))));
-			server->options = lappend(server->options, makeDefElem(pstrdup("options"), (Node *) makeString("-c gp_session_role=retrieve")));
-			fsstate->conn = GetConnection(server, user, false, true, false);
+			/* duplicate foreign server without any option */
+			ForeignServer *segServer;
+			segServer = (ForeignServer *) palloc(sizeof(ForeignServer));
+			segServer->serverid = server->serverid;
+			segServer->fdwid = server->fdwid;
+			segServer->owner = server->owner;
+			segServer->servername = server->servername;
+			segServer->servertype = server->servertype;
+			segServer->serverversion = server->serverversion;
+
+			segServer->options = NIL;
+			segServer->options = lappend(segServer->options, makeDefElem(pstrdup("host"), (Node *) host));
+			segServer->options = lappend(segServer->options, makeDefElem(pstrdup("port"), (Node *) port));
+			if(dbnameDE!=NULL)
+			{
+				segServer->options = lappend(segServer->options, makeDefElem(pstrdup(SVR_OPT_DBNAME), dbnameDE->arg));
+			}
+			segServer->options = lappend(segServer->options, makeDefElem(pstrdup("options"), (Node *) makeString("-c gp_session_role=retrieve")));
+
+			/* duplicate user mapping without any option */
+			UserMapping *segUser;
+			segUser = (UserMapping *) palloc(sizeof(UserMapping));
+			segUser->userid = user->userid;
+			segUser->serverid = user->serverid;
+
+			segUser->options = NIL;
+			segUser->options = lappend(segUser->options, makeDefElem(pstrdup("user"), (Node *)foreign_username));
+			segUser->options = lappend(segUser->options, makeDefElem(pstrdup("password"), (Node *)makeString(pstrdup(token_str))));
+
+
+			fsstate->conn = GetConnection(segServer, segUser, dbid, false, true, false);
+
+			pfree(segUser);
+			pfree(segServer);
 		}
 		else
 			ereport(ERROR, (errmsg("No valid slice number")));
 	}
 	else
 	{
-		fsstate->conn = GetConnection(server, user, false, false, false);
+		fsstate->conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
 		/* Assign a unique ID for my cursor */
 		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
 	}
@@ -1098,7 +1142,7 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(server, user, true, false, true);
+	fsstate->conn = GetConnection(server, user, DBID_OUTER_CONN, true, false, true);
 
 	/* Assign a unique ID for my cursor */
 	fsstate->cursor_number = GetCursorNumber(fsstate->conn);
@@ -1536,7 +1580,7 @@ postgresBeginForeignModify(ModifyTableState *mtstate,
 	user = GetUserMapping(userid, server->serverid);
 
 	/* Open connection; report that we'll create a prepared statement. */
-	fmstate->conn = GetConnection(server, user, true, false, false);
+	fmstate->conn = GetConnection(server, user, DBID_OUTER_CONN, true, false, false);
 	fmstate->p_name = NULL;		/* prepared statement not made yet */
 
 	/* Deconstruct fdw_private data. */
@@ -1986,7 +2030,7 @@ estimate_path_cost_size(PlannerInfo *root,
 							  (fpinfo->remote_conds == NIL), NULL);
 
 		/* Get the remote estimate */
-		conn = GetConnection(fpinfo->server, fpinfo->user, false, false, false);
+		conn = GetConnection(fpinfo->server, fpinfo->user, DBID_OUTER_CONN, false, false, false);
 		get_remote_estimate(sql.data, conn, &rows, &width,
 							&startup_cost, &total_cost);
 		ReleaseConnection(conn);
@@ -2575,7 +2619,7 @@ postgresAnalyzeForeignTable(Relation relation,
 	table = GetForeignTable(RelationGetRelid(relation));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(relation->rd_rel->relowner, server->serverid);
-	conn = GetConnection(server, user, false, false, false);
+	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
 
 	/*
 	 * Construct command to get page count for relation.
@@ -2667,7 +2711,7 @@ postgresAcquireSampleRowsFunc(Relation relation, int elevel,
 	table = GetForeignTable(RelationGetRelid(relation));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(relation->rd_rel->relowner, server->serverid);
-	conn = GetConnection(server, user, false, false, false);
+	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
 
 	/*
 	 * Construct cursor that retrieves whole rows from remote.

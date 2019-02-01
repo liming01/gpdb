@@ -106,7 +106,7 @@ get_endpoints_info(PGconn 	*conn,
 
 	initStringInfo(&sql_buf);
 	appendStringInfo(&sql_buf,
-		"SELECT hostname, port, token, pg_get_userbyid(userid) FROM gp_endpoints "
+		"SELECT hostname, port, dbid, token, pg_get_userbyid(userid) FROM gp_endpoints "
   "WHERE sessionid=%d AND cursorname = 'c%d'",
 		session_id, cursor_number);
 
@@ -125,24 +125,26 @@ get_endpoints_info(PGconn 	*conn,
 	{
 		char *host;
 		char *port;
+		char *dbid;
 		List	   *endpoint = NIL;
 
-		if (PQnfields(res) != 4)
+		if (PQnfields(res) != 5)
 			pgfdw_report_error(ERROR, res, conn, true, sql_buf.data);
 
 		host = pstrdup(PQgetvalue(res, row, 0));
 		port = pstrdup(PQgetvalue(res, row, 1));
-		endpoint = list_make2(makeString(host), makeString(port));
+		dbid = pstrdup(PQgetvalue(res, row, 2));
+		endpoint = list_make3(makeString(host), makeString(port), makeString(dbid));
 
 		endpoints_list = lappend(endpoints_list, endpoint);
 
 		if (*token == InvalidToken)
-			*token = atoi(PQgetvalue(res, row, 2));
-		else if (*token != atoi(PQgetvalue(res, row, 2)))
+			*token = atoi(PQgetvalue(res, row, 3));
+		else if (*token != atoi(PQgetvalue(res, row, 3)))
 			pgfdw_report_error(ERROR, res, conn, true, sql_buf.data);
 
 		if (row==0)
-			foreign_username = pstrdup(PQgetvalue(res, row, 3));
+			foreign_username = pstrdup(PQgetvalue(res, row, 4));
 	}
 
 	/* The order should be same as enum FdwScanPrivateIndex definition */

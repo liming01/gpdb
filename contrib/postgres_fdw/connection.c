@@ -38,6 +38,7 @@
 typedef struct ConnCacheKey
 {
 	Oid			serverid;		/* OID of foreign server */
+	int32       dbid;           /* the segment/master node id of the foreign gpdb server */
 	Oid			userid;			/* OID of local user whose mapping we use */
 } ConnCacheKey;
 
@@ -93,9 +94,12 @@ static void pgfdw_subxact_callback(SubXactEvent event,
  * syscaches.  For the moment, though, it's not clear that this would really
  * be useful and not mere pedantry.  We could not flush any active connections
  * mid-transaction anyway.
+ *
+ * For gp2gp, if DBID is not DBID_OUTER_CONN (i.e. 0), then the connection should be in
+ * RETRIEVE mode to endpoints.
  */
 PGconn *
-GetConnection(ForeignServer *server, UserMapping *user,
+GetConnection(ForeignServer *server, UserMapping *user, int32 dbid,
 			  bool will_prep_stmt, bool is_parallel, bool force_new_conn)
 {
 	bool		found;
@@ -130,6 +134,7 @@ GetConnection(ForeignServer *server, UserMapping *user,
 
 	/* Create hash key for the entry.  Assume no pad bytes in key struct */
 	key.serverid = server->serverid;
+	key.dbid = dbid;
 	key.userid = user->userid;
 
 	/*
