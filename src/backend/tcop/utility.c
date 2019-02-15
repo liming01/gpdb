@@ -26,6 +26,7 @@
 #include "catalog/aoseg.h"
 #include "catalog/aoblkdir.h"
 #include "catalog/aovisimap.h"
+#include "cdb/cdbfifo.h"
 #include "commands/alter.h"
 #include "commands/async.h"
 #include "commands/cluster.h"

@@ -46,8 +46,16 @@ typedef struct fifoconnstate
 
 typedef FifoConnStateData 	*FifoConnState;
 
-static FifoConnState 		s_fifoConnState = NULL;
-static TupleTableSlot		*s_resultTupleSlot = NULL;
+/* in retrieve session, cache tuple descriptor for all tokens which have been retrieved in this session */
+static FifoConnState    retr_fifoConnState[MAX_ENDPOINT_SIZE] = {};
+static TupleTableSlot*  retr_resultTupleSlot[MAX_ENDPOINT_SIZE] = {};
+static int32	retr_tokens[MAX_ENDPOINT_SIZE];
+#define RETR_STATUS_INIT 0
+#define RETR_STATUS_GET_TUPLEDSCR 1
+#define RETR_STATUS_GET_DATA 2
+#define RETR_STATUS_FINISH 3
+static int 		retr_status[MAX_ENDPOINT_SIZE];
+static int 		retr_tk_len=0,retr_tk_cur=0;
 
 static SharedTokenDesc		*SharedTokens;
 static slock_t 				*shared_tokens_lock;
@@ -381,6 +389,7 @@ void AllocEndPoint()
 void FreeEndPoint()
 {
 	pid_t		receiver_pid;
+	bool        is_attached;
 
 	if (Gp_endpoint_role != EPR_SENDER)
 		ep_log(ERROR, "%s can free end point slot", endpoint_role_to_string(Gp_endpoint_role));
@@ -393,10 +402,12 @@ void FreeEndPoint()
 	while (true)
 	{
 		receiver_pid = InvalidPid;
+		is_attached = false;
 
 		SpinLockAcquire(shared_end_points_lock);
 
 		receiver_pid = mySharedEndPoint->receiver_pid;
+		is_attached = mySharedEndPoint->attached;
 
 		if (receiver_pid == InvalidPid)
 		{
@@ -413,7 +424,7 @@ void FreeEndPoint()
 
 		SpinLockRelease(shared_end_points_lock);
 
-		if (receiver_pid != InvalidPid)
+		if (receiver_pid != InvalidPid && is_attached)
 		{
 			/*
 			 * TODO: Kill receiver process and wait again
@@ -462,8 +473,9 @@ bool FindEndPoint(Oid user_id, const char * token_str)
 void AttachEndPoint()
 {
 	int			i;
-
-	bool		already_attached = false;
+	bool 		isFound = false;
+	bool		already_attached = false; /* now is attached? */
+	bool        is_self_pid = false;  /* indicate this process has been attached to this token */
 	pid_t		attached_pid = InvalidPid;
 
 	if (Gp_endpoint_role != EPR_RECEIVER)
@@ -491,7 +503,13 @@ void AttachEndPoint()
 			}
 
 			SharedEndPoints[i].attached = true;
-			SharedEndPoints[i].receiver_pid = MyProcPid;
+			if (SharedEndPoints[i].receiver_pid == MyProcPid)
+			{
+				is_self_pid = true;
+			}else{
+				SharedEndPoints[i].receiver_pid = MyProcPid;
+			}
+
 			mySharedEndPoint = &SharedEndPoints[i];
 			break;
 		}
@@ -507,9 +525,31 @@ void AttachEndPoint()
 		ep_log(ERROR, "failed to attach non exist end point %d", Gp_token.token);
 
 	s_needAck = false;
-}
 
-void DetachEndPoint()
+	/* Search all tokens that trieved in this session, set retr_tk_cur to it's array index */
+	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (retr_tokens[i] == Gp_token.token)
+		{
+			isFound = true;
+			retr_tk_cur = i;
+			break;
+		}
+	}
+	if (!isFound)
+	{
+		retr_tk_cur = retr_tk_len;
+		retr_tokens[retr_tk_len++]= Gp_token.token;
+	}
+	if (!is_self_pid)
+	{
+		retr_status[retr_tk_cur] = RETR_STATUS_INIT;
+	}
+}
+/* When detach endpoint, if this process have not yet finish this fifo reading, then don't reset it's pid,
+ * so that we can know the process is the first time of attaching endpoint (need to re-read tuple descriptor).
+ */
+void DetachEndPoint(bool reset_pid)
 {
 	volatile Latch	*ack_done;
 
@@ -542,7 +582,10 @@ void DetachEndPoint()
 	}
 	PG_END_TRY();
 
-	mySharedEndPoint->receiver_pid = InvalidPid;
+	if(reset_pid)
+	{
+		mySharedEndPoint->receiver_pid = InvalidPid;
+	}
 	mySharedEndPoint->attached = false;
 	ack_done = &mySharedEndPoint->ack_done;
 
@@ -552,10 +595,10 @@ void DetachEndPoint()
 
 	/* Don't drop the result slot, we only have one chance to built it. */
 	/*
-	 * if (s_resultTupleSlot)
+	 * if (retr_resultTupleSlot[retr_tk_cur])
 	 * {
-	 *     ExecDropSingleTupleTableSlot(s_resultTupleSlot);
-	 *     s_resultTupleSlot = NULL;
+	 *     ExecDropSingleTupleTableSlot(retr_resultTupleSlot[retr_tk_cur]);
+	 *     retr_resultTupleSlot[retr_tk_cur] = NULL;
 	 * }
 	 */
 
@@ -572,7 +615,7 @@ TupleDesc ResultTupleDesc()
 	TupleDescNode	*tupdescnode;
 	MemoryContext    oldcontext;
 
-	if (!s_resultTupleSlot)
+	if (!retr_resultTupleSlot[retr_tk_cur] && retr_status[retr_tk_cur]<RETR_STATUS_GET_TUPLEDSCR)
 	{
 		/* Store the result slot all the retrieve mode QE life cycle, we only
 		 * have one chance to built it. */
@@ -580,37 +623,38 @@ TupleDesc ResultTupleDesc()
 
 		InitConn();
 
-		Assert(s_fifoConnState);
-		retry_read(s_fifoConnState->fifo, &cmd, 1);
+		Assert(retr_fifoConnState[retr_tk_cur]);
+		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
 		if (cmd == 'D')
 		{
-			retry_read(s_fifoConnState->fifo, (char *)&len, 4);
+			retry_read(retr_fifoConnState[retr_tk_cur]->fifo, (char *)&len, 4);
 
 			char *tupdescnode_str = palloc(len);
-			retry_read(s_fifoConnState->fifo, tupdescnode_str, len);
+			retry_read(retr_fifoConnState[retr_tk_cur]->fifo, tupdescnode_str, len);
 
 			tupdescnode = (TupleDescNode *)readNodeFromBinaryString(tupdescnode_str, len);
-			s_resultTupleSlot = MakeTupleTableSlot();
-			ExecSetSlotDescriptor(s_resultTupleSlot, tupdescnode->tuple);
+			retr_resultTupleSlot[retr_tk_cur] = MakeTupleTableSlot();
+			ExecSetSlotDescriptor(retr_resultTupleSlot[retr_tk_cur], tupdescnode->tuple);
+			retr_status[retr_tk_cur] = RETR_STATUS_GET_TUPLEDSCR;
 		}
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	Assert(s_resultTupleSlot);
-	Assert(s_resultTupleSlot->tts_tupleDescriptor);
+	Assert(retr_resultTupleSlot[retr_tk_cur]);
+	Assert(retr_resultTupleSlot[retr_tk_cur]->tts_tupleDescriptor);
 
-	return s_resultTupleSlot->tts_tupleDescriptor;
+	return retr_resultTupleSlot[retr_tk_cur]->tts_tupleDescriptor;
 }
 
 static void make_fifo_conn(void)
 {
-	s_fifoConnState = (FifoConnStateData*) gp_malloc(sizeof(FifoConnStateData));
+	retr_fifoConnState[retr_tk_cur] = (FifoConnStateData*) gp_malloc(sizeof(FifoConnStateData));
 
-	Assert(s_fifoConnState);
+	Assert(retr_fifoConnState[retr_tk_cur]);
 
-	s_fifoConnState->fifo = -1;
-	s_fifoConnState->created = false;
-	s_fifoConnState->finished = false;
+	retr_fifoConnState[retr_tk_cur]->fifo = -1;
+	retr_fifoConnState[retr_tk_cur]->created = false;
+	retr_fifoConnState[retr_tk_cur]->finished = false;
 }
 
 static void
@@ -644,7 +688,7 @@ create_and_connect_fifo()
 
 	check_gp_token_valid();
 
-	if (s_fifoConnState->created)
+	if (retr_fifoConnState[retr_tk_cur]->created)
 		return;
 
 	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
@@ -652,20 +696,20 @@ create_and_connect_fifo()
 	if (mkfifo(fifo_name, 0666) < 0)
 		ep_log(ERROR, "create fifo %s failed:%m", fifo_name);
 	else
-		s_fifoConnState->created = true;
+		retr_fifoConnState[retr_tk_cur]->created = true;
 
-	if (s_fifoConnState->fifo > 0)
+	if (retr_fifoConnState[retr_tk_cur]->fifo > 0)
 		return;
 
-	if ((s_fifoConnState->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
+	if ((retr_fifoConnState[retr_tk_cur]->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
 	{
 		CloseConn();
 		ep_log(ERROR, "open fifo %s for write failed:%m", fifo_name);
 	}
 
-	flags = fcntl(s_fifoConnState->fifo, F_GETFL);
+	flags = fcntl(retr_fifoConnState[retr_tk_cur]->fifo, F_GETFL);
 
-	if (flags < 0 || fcntl(s_fifoConnState->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
+	if (flags < 0 || fcntl(retr_fifoConnState[retr_tk_cur]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
 	{
 		CloseConn();
 		ep_log(ERROR, "set nonblock fifo %s failed:%m", fifo_name);
@@ -681,17 +725,17 @@ static void init_conn_for_sender()
 
 void SendTupdescToFIFO(TupleDesc tupdesc)
 {
-	Assert(s_fifoConnState);
+	Assert(retr_fifoConnState[retr_tk_cur]);
 
 	char cmd = 'D';
-	retry_write(s_fifoConnState->fifo, &cmd, 1);
+	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
 	TupleDescNode *node = makeNode(TupleDescNode);
 	node->natts = tupdesc->natts;
 	node->tuple = tupdesc;
 	int tupdesc_len = 0;
 	char *tupdesc_str = nodeToBinaryStringFast(node, &tupdesc_len);
-	retry_write(s_fifoConnState->fifo, (char *)&tupdesc_len, 4);
-	retry_write(s_fifoConnState->fifo, tupdesc_str, tupdesc_len);
+	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, (char *)&tupdesc_len, 4);
+	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, tupdesc_str, tupdesc_len);
 }
 
 static void init_conn_for_receiver()
@@ -705,24 +749,24 @@ static void init_conn_for_receiver()
 
 	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
 
-	if (s_fifoConnState->fifo > 0)
+	if (retr_fifoConnState[retr_tk_cur]->fifo > 0)
 		return;
 
-	if ((s_fifoConnState->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
+	if ((retr_fifoConnState[retr_tk_cur]->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
 	{
 		ep_log(ERROR, "failed to open fifo %s for read:%m", fifo_name);
 		CloseConn();
 	}
 
-	flags = fcntl(s_fifoConnState->fifo, F_GETFL);
+	flags = fcntl(retr_fifoConnState[retr_tk_cur]->fifo, F_GETFL);
 
-	if (flags < 0 || fcntl(s_fifoConnState->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
+	if (flags < 0 || fcntl(retr_fifoConnState[retr_tk_cur]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
 	{
 		CloseConn();
 		ep_log(ERROR, "set nonblock fifo %s failed:%m", fifo_name);
 	}
 
-	s_fifoConnState->created = true;
+	retr_fifoConnState[retr_tk_cur]->created = true;
 }
 
 void InitConn()
@@ -794,9 +838,9 @@ void SendTupleSlot(TupleTableSlot *slot)
 	MemTuple mtup = ExecFetchSlotMemTuple(slot, true);
 	Assert(is_memtuple(mtup));
 	tupleSize = memtuple_get_size(mtup);
-	retry_write(s_fifoConnState->fifo, &cmd, 1);
-	retry_write(s_fifoConnState->fifo, (char *)&tupleSize, sizeof(int));
-	retry_write(s_fifoConnState->fifo, (char *)mtup, tupleSize);
+	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
+	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, (char *)&tupleSize, sizeof(int));
+	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, (char *)mtup, tupleSize);
 }
 
 static void
@@ -849,17 +893,17 @@ TupleTableSlot* RecvTupleSlot()
 	int				tupleSize = 0;
 	MemTuple		mtup;
 
-	Assert(s_fifoConnState);
-	Assert(s_resultTupleSlot);
+	Assert(retr_fifoConnState[retr_tk_cur]);
+	Assert(retr_resultTupleSlot[retr_tk_cur]);
 
-	ExecClearTuple(s_resultTupleSlot);
+	ExecClearTuple(retr_resultTupleSlot[retr_tk_cur]);
 
-	fifo = s_fifoConnState->fifo;
-	slot = s_resultTupleSlot;
+	fifo = retr_fifoConnState[retr_tk_cur]->fifo;
+	slot = retr_resultTupleSlot[retr_tk_cur];
 
 	while (true)
 	{
-		retry_read(s_fifoConnState->fifo, &cmd, 1);
+		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
 
 		if (cmd == 'F')
 		{
@@ -868,10 +912,10 @@ TupleTableSlot* RecvTupleSlot()
 		}
 
 		Assert(cmd == 'T');
-		retry_read(s_fifoConnState->fifo, (char *)&tupleSize, sizeof(int));
+		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, (char *)&tupleSize, sizeof(int));
 		Assert(tupleSize > 0);
 		mtup = palloc(tupleSize);
-		retry_read(s_fifoConnState->fifo, (char *)mtup, tupleSize);
+		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, (char *)mtup, tupleSize);
 		slot->PRIVATE_tts_memtuple = mtup;
 		ExecStoreVirtualTuple(slot);
 
@@ -883,7 +927,7 @@ static void sender_finish()
 {
 	char	cmd = 'F';
 
-	retry_write(s_fifoConnState->fifo, &cmd, 1);
+	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
 
 	while (true)
 	{
@@ -931,7 +975,7 @@ void FinishConn(void)
 		ep_log(ERROR, "none end point role");
 	}
 
-	s_fifoConnState->finished = true;
+	retr_fifoConnState[retr_tk_cur]->finished = true;
 }
 
 static void
@@ -941,37 +985,37 @@ sender_close()
 
 	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
 
-	Assert(s_fifoConnState->fifo > 0);
+	Assert(retr_fifoConnState[retr_tk_cur]->fifo > 0);
 
-	if (s_fifoConnState->fifo > 0 && close(s_fifoConnState->fifo) < 0)
+	if (retr_fifoConnState[retr_tk_cur]->fifo > 0 && close(retr_fifoConnState[retr_tk_cur]->fifo) < 0)
 		ep_log(ERROR, "failed to close fifo %s:%m", fifo_name);
 
-	s_fifoConnState->fifo = -1;
+	retr_fifoConnState[retr_tk_cur]->fifo = -1;
 
-	if (!s_fifoConnState->created)
+	if (!retr_fifoConnState[retr_tk_cur]->created)
 		return;
 
 	if (unlink(fifo_name) < 0)
 		ep_log(ERROR, "failed to unlink fifo %s:%m", fifo_name);
 
-	s_fifoConnState->created = false;
+	retr_fifoConnState[retr_tk_cur]->created = false;
 }
 
 static void
 receiver_close()
 {
-	if (close(s_fifoConnState->fifo) < 0)
+	if (close(retr_fifoConnState[retr_tk_cur]->fifo) < 0)
 		ep_log(ERROR, "failed to close fifo:%m");
 
-	s_fifoConnState->fifo = -1;
-	s_fifoConnState->created = false;
+	retr_fifoConnState[retr_tk_cur]->fifo = -1;
+	retr_fifoConnState[retr_tk_cur]->created = false;
 }
 
 void CloseConn(void)
 {
-	Assert(s_fifoConnState);
+	Assert(retr_fifoConnState[retr_tk_cur]);
 
-	if (!s_fifoConnState->finished)
+	if (!retr_fifoConnState[retr_tk_cur]->finished)
 		ep_log(ERROR, "not finished");
 
 	check_gp_token_valid();
@@ -988,8 +1032,8 @@ void CloseConn(void)
 		ep_log(ERROR, "none end point role");
 	}
 
-	gp_free(s_fifoConnState);
-	s_fifoConnState = NULL;
+	gp_free(retr_fifoConnState[retr_tk_cur]);
+	retr_fifoConnState[retr_tk_cur] = NULL;
 }
 
 void AbortEndPoint(void)
@@ -999,14 +1043,14 @@ void AbortEndPoint(void)
 	switch (Gp_endpoint_role)
 	{
 	case EPR_SENDER:
-		if (s_fifoConnState)
+		if (retr_fifoConnState[retr_tk_cur])
 			sender_close();
 		FreeEndPoint();
 		break;
 	case EPR_RECEIVER:
-		if (s_fifoConnState)
+		if (retr_fifoConnState[retr_tk_cur])
 			receiver_close();
-		DetachEndPoint();
+		DetachEndPoint(true);
 		break;
 	default:
 		break;
@@ -1459,3 +1503,57 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 
 	SRF_RETURN_DONE(funcctx);
 }
+
+void
+RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
+{
+	TupleTableSlot *result;
+	int64          retrieve_count;
+
+	retrieve_count = stmt->count;
+
+	if (retrieve_count <= 0 && !stmt->is_all)
+	{
+		ereport(ERROR,
+		        (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			        errmsg("RETRIEVE STATEMENT ONLY SUPPORT FORWARD SCAN. Retrieve count should >=0: %ld", retrieve_count)));
+	}
+
+	if(retr_status[retr_tk_cur] < RETR_STATUS_FINISH)
+	{
+		InitConn();
+
+		while (retrieve_count > 0)
+		{
+			result = RecvTupleSlot();
+			if (!result){
+				retr_status[retr_tk_cur] = RETR_STATUS_FINISH;
+				break;
+			}
+			(*dest->receiveSlot) (result, dest);
+			retrieve_count--;
+		}
+
+		if (stmt->is_all)
+		{
+			while(true)
+			{
+				result = RecvTupleSlot();
+				if (!result){
+					retr_status[retr_tk_cur] = RETR_STATUS_FINISH;
+					break;
+				}
+				(*dest->receiveSlot) (result, dest);
+			}
+		}
+
+		FinishConn();
+		CloseConn();
+	}
+
+
+	DetachEndPoint(false);
+	ClearEndPointRole();
+	ClearGpToken();
+}
+

@@ -30,6 +30,4 @@ extern void PortalCleanup(Portal portal);
 
 extern void PersistHoldablePortal(Portal portal);
 
-extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
-
 #endif   /* PORTALCMDS_H */

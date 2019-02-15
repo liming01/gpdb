@@ -12,9 +12,11 @@
 #define CDBFIFO_H
 
 #include "postgres.h"
-#include "storage/latch.h"
 #include "access/tupdesc.h"
 #include "executor/tuptable.h"
+#include "nodes/parsenodes.h"
+#include "storage/latch.h"
+#include "tcop/dest.h"
 
 enum EndPointRole
 {
@@ -101,7 +103,7 @@ extern void FreeEndPoint(void);
 extern bool FindEndPoint(Oid user_id, const char * token_str);
 
 extern void AttachEndPoint(void);
-extern void DetachEndPoint(void);
+extern void DetachEndPoint(bool reset_pid);
 extern TupleDesc ResultTupleDesc(void);
 
 extern void InitConn(void);
@@ -115,4 +117,5 @@ extern void CloseConn(void);
 
 extern void AbortEndPoint(void);
 
+extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
 #endif   /* CDBFIFO_H */
