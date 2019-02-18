@@ -349,7 +349,7 @@ void EndPoint_ShmemInit()
 
 void AllocEndPoint()
 {
-	int			i;
+	int			i, found_idx = -1;
 
 	if (Gp_endpoint_role != EPR_SENDER)
 		ep_log(ERROR, "%s could not allocate end point slot",
@@ -362,23 +362,40 @@ void AllocEndPoint()
 
 	SpinLockAcquire(shared_end_points_lock);
 
+	/* Presume that for any token, only one parallel cursor is activated at that time. */
+	/* find the slot with the same token */
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedEndPoints[i].empty)
+		if(SharedEndPoints[i].token == Gp_token.token)
 		{
-			SharedEndPoints[i].database_id = MyDatabaseId;
-			SharedEndPoints[i].sender_pid = MyProcPid;
-			SharedEndPoints[i].token = Gp_token.token;
-			SharedEndPoints[i].session_id = Gp_token.session_id;
-			SharedEndPoints[i].user_id = Gp_token.user_id;
-			SharedEndPoints[i].attached = false;
-			SharedEndPoints[i].empty = false;
-			OwnLatch(&SharedEndPoints[i].ack_done);
-
-			mySharedEndPoint = &SharedEndPoints[i];
+			found_idx = i;
 			break;
 		}
 	}
+
+	/* find a new slot */
+	for (i = 0; i < MAX_ENDPOINT_SIZE && found_idx == -1; ++i)
+	{
+		if (SharedEndPoints[i].empty)
+		{
+			found_idx = i;
+			break;
+		}
+	}
+
+	if (found_idx!=-1)
+	{
+		SharedEndPoints[i].database_id = MyDatabaseId;
+		SharedEndPoints[i].sender_pid = MyProcPid;
+		SharedEndPoints[i].token = Gp_token.token;
+		SharedEndPoints[i].session_id = Gp_token.session_id;
+		SharedEndPoints[i].user_id = Gp_token.user_id;
+		SharedEndPoints[i].attached = false;
+		SharedEndPoints[i].empty = false;
+		OwnLatch(&SharedEndPoints[i].ack_done);
+	}
+
+	mySharedEndPoint = &SharedEndPoints[i];
 
 	SpinLockRelease(shared_end_points_lock);
 
@@ -409,10 +426,11 @@ void FreeEndPoint()
 		receiver_pid = mySharedEndPoint->receiver_pid;
 		is_attached = mySharedEndPoint->attached;
 
-		if (receiver_pid == InvalidPid)
+		if (receiver_pid == InvalidPid || !is_attached)
 		{
 			mySharedEndPoint->database_id = InvalidOid;
 			mySharedEndPoint->sender_pid = 0;
+			mySharedEndPoint->receiver_pid = InvalidPid;
 			mySharedEndPoint->token = InvalidToken;
 			mySharedEndPoint->attached = false;
 			mySharedEndPoint->session_id = INVALID_SESSION_ID;
@@ -526,7 +544,7 @@ void AttachEndPoint()
 
 	s_needAck = false;
 
-	/* Search all tokens that trieved in this session, set retr_tk_cur to it's array index */
+	/* Search all tokens that retrieved in this session, set retr_tk_cur to it's array index */
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (retr_tokens[i] == Gp_token.token)
@@ -615,7 +633,7 @@ TupleDesc ResultTupleDesc()
 	TupleDescNode	*tupdescnode;
 	MemoryContext    oldcontext;
 
-	if (!retr_resultTupleSlot[retr_tk_cur] && retr_status[retr_tk_cur]<RETR_STATUS_GET_TUPLEDSCR)
+	if (retr_status[retr_tk_cur]<RETR_STATUS_GET_TUPLEDSCR)
 	{
 		/* Store the result slot all the retrieve mode QE life cycle, we only
 		 * have one chance to built it. */
@@ -633,6 +651,8 @@ TupleDesc ResultTupleDesc()
 			retry_read(retr_fifoConnState[retr_tk_cur]->fifo, tupdescnode_str, len);
 
 			tupdescnode = (TupleDescNode *)readNodeFromBinaryString(tupdescnode_str, len);
+			if(retr_resultTupleSlot[retr_tk_cur]!=NULL)
+				ExecClearTuple(retr_resultTupleSlot[retr_tk_cur]);
 			retr_resultTupleSlot[retr_tk_cur] = MakeTupleTableSlot();
 			ExecSetSlotDescriptor(retr_resultTupleSlot[retr_tk_cur], tupdescnode->tuple);
 			retr_status[retr_tk_cur] = RETR_STATUS_GET_TUPLEDSCR;
