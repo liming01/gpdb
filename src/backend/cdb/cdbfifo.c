@@ -355,7 +355,7 @@ void AllocEndPoint()
 		ep_log(ERROR, "%s could not allocate end point slot",
 			   endpoint_role_to_string(Gp_endpoint_role));
 
-	if (mySharedEndPoint)
+	if (mySharedEndPoint && mySharedEndPoint->token!=InvalidToken)
 		ep_log(ERROR, "end point slot already allocated");
 
 	check_gp_token_valid();
@@ -401,6 +401,33 @@ void AllocEndPoint()
 
 	if (!mySharedEndPoint)
 		ep_log(ERROR, "failed to allocate end point slot");
+}
+void FreeEndPoint4token(int token)
+{
+	bool found = false;
+
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (!SharedEndPoints[i].empty &&
+			SharedEndPoints[i].token == token)
+		{
+			SharedEndPoints[i].database_id = InvalidOid;
+			SharedEndPoints[i].sender_pid = 0;
+			SharedEndPoints[i].receiver_pid = InvalidPid;
+			SharedEndPoints[i].token = InvalidToken;
+			SharedEndPoints[i].attached = false;
+			SharedEndPoints[i].session_id = INVALID_SESSION_ID;
+			SharedEndPoints[i].user_id = InvalidOid;
+			SharedEndPoints[i].empty = true;
+
+			DisownLatch(&mySharedEndPoint->ack_done);
+			found = true;
+			break;
+		}
+	}
+	if(!found){
+		ep_log(ERROR, "Cannot free end points for token %d", token);
+	}
 }
 
 void FreeEndPoint()

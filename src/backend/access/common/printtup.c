@@ -751,7 +751,6 @@ printtup_shutdown_fifo(DestReceiver *self)
 {
 	FinishConn();
 	CloseConn();
-	FreeEndPoint();
 }
 
 /* ----------------

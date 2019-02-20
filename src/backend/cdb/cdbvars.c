@@ -89,7 +89,7 @@ int			gp_cached_gang_threshold;	/* How many gangs to keep around from
 
 bool		Gp_write_shared_snapshot;	/* tell the writer QE to write the
 										 * shared snapshot */
-
+int         Gp_free_endpoints_token;
 bool		gp_reraise_signal = false;	/* try to dump core when we get
 										 * SIGABRT & SIGSEGV */
 

@@ -3746,7 +3746,16 @@ struct config_int ConfigureNamesInt_gp[] =
 		-1, INT_MIN, INT_MAX,
 		NULL, NULL, NULL
 	},
-
+	{
+		{"gp_free_endpoints_token", PGC_USERSET, UNGROUPED,
+		 gettext_noop("Forces the writer gang to free endpoints token in shared memory on QE."),
+		 NULL,
+		 GUC_NO_SHOW_ALL | GUC_NO_RESET_ALL | GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
+		},
+		&Gp_free_endpoints_token,
+		-1, INT_MIN, INT_MAX,
+		NULL, assign_free_endpoints_token, NULL
+	},
 	{
 		{"gp_segments_for_planner", PGC_USERSET, QUERY_TUNING_COST,
 			gettext_noop("If >0, number of segment dbs for the planner to assume in its cost and size estimates."),

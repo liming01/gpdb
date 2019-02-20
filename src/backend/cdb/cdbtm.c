@@ -45,6 +45,7 @@
 #include "storage/procarray.h"
 
 #include "cdb/cdbllize.h"
+#include "cdb/cdbfifo.h"
 #include "utils/faultinjector.h"
 #include "utils/guc.h"
 #include "utils/fmgroids.h"
@@ -2417,6 +2418,25 @@ assign_gp_write_shared_snapshot(bool newval, void *extra)
 			}
 
 			PopActiveSnapshot();
+		}
+	}
+}
+void
+assign_free_endpoints_token(int newval, void *extra)
+{
+
+#if FALSE
+	elog(DEBUG1, "SET gp_free_endpoints_token: %d", newval);
+#endif
+
+	if (newval!=InvalidToken)
+	{
+		if (Gp_role == GP_ROLE_EXECUTE)
+		{
+			if (Gp_is_writer)
+			{
+				FreeEndPoint4token(newval);
+			}
 		}
 	}
 }

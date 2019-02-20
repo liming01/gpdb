@@ -29,6 +29,7 @@
 #include "utils/snapmgr.h"
 
 #include "cdb/ml_ipc.h"
+#include "cdb/cdbdisp_query.h"
 #include "cdb/cdbfifo.h"
 #include "commands/createas.h"
 #include "commands/queue.h"
@@ -1917,6 +1918,14 @@ DoPortalRunFetch(Portal portal,
 	if (portal->strategy == PORTAL_MULTI_QUERY)
 	{
 		PortalRunMulti(portal, false, dest, dest, NULL);
+
+		if(portal->parallel_cursor_token!=InvalidToken)
+		{
+			char		cmd[255];
+			sprintf(cmd, "set gp_free_endpoints_token=%d", portal->parallel_cursor_token);
+			CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+		}
+
 		MarkPortalDone(portal);
 		return 0;
 	}
