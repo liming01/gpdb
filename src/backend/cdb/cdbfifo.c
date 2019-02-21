@@ -520,7 +520,8 @@ void AttachEndPoint()
 	int			i;
 	bool 		isFound = false;
 	bool		already_attached = false; /* now is attached? */
-	bool        is_self_pid = false;  /* indicate this process has been attached to this token */
+	bool        is_self_pid = false;  /* indicate this process has been attached to this token before */
+	bool        is_other_pid = false; /* indicate other process has been attached to this token before */
 	pid_t		attached_pid = InvalidPid;
 
 	if (Gp_endpoint_role != EPR_RECEIVER)
@@ -547,14 +548,20 @@ void AttachEndPoint()
 				break;
 			}
 
-			SharedEndPoints[i].attached = true;
-			if (SharedEndPoints[i].receiver_pid == MyProcPid)
+			if (SharedEndPoints[i].receiver_pid == MyProcPid)  /* already attached by this process before */
 			{
 				is_self_pid = true;
-			}else{
+			}else if(SharedEndPoints[i].receiver_pid != InvalidPid) /* already attached by other process before */
+			{
+				is_other_pid = true;
+				attached_pid = SharedEndPoints[i].receiver_pid;
+				break;
+			}else
+			{
 				SharedEndPoints[i].receiver_pid = MyProcPid;
 			}
 
+			SharedEndPoints[i].attached = true;
 			mySharedEndPoint = &SharedEndPoints[i];
 			break;
 		}
@@ -562,7 +569,7 @@ void AttachEndPoint()
 
 	SpinLockRelease(shared_end_points_lock);
 
-	if (already_attached)
+	if (already_attached||is_other_pid)
 		ep_log(ERROR, "end point %d already attached by receiver(pid:%d)",
 			   Gp_token.token, attached_pid);
 
