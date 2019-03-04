@@ -39,6 +39,7 @@
 #include "libpq/pqformat.h"
 #include "utils/portal.h"
 
+#include "cdb/cdbendpoint.h"
 #include "cdb/cdbvars.h"
 #include "utils/vmem_tracker.h"
 
@@ -131,6 +132,9 @@ CreateDestReceiver(CommandDest dest)
 
 		case DestTransientRel:
 			return CreateTransientRelDestReceiver(InvalidOid);
+
+		case DestEndpoint:
+			return CreateEndpointReceiver();
 	}
 
 	/* should never get here */
@@ -164,6 +168,7 @@ EndCommand(const char *commandTag, CommandDest dest)
 		case DestCopyOut:
 		case DestSQLFunction:
 		case DestTransientRel:
+		case DestEndpoint:
 			break;
 	}
 }
@@ -206,6 +211,7 @@ NullCommand(CommandDest dest)
 		case DestCopyOut:
 		case DestSQLFunction:
 		case DestTransientRel:
+		case DestEndpoint:
 			break;
 	}
 }
@@ -257,6 +263,7 @@ ReadyForQuery(CommandDest dest)
 		case DestCopyOut:
 		case DestSQLFunction:
 		case DestTransientRel:
+		case DestEndpoint:
 			break;
 	}
 }

@@ -4621,6 +4621,14 @@ _outAlterTSDictionaryStmt(StringInfo str, const AlterTSDictionaryStmt *node)
 	WRITE_NODE_FIELD(options);
 }
 
+static void
+_outRetrieveStmt(StringInfo str, const RetrieveStmt *node)
+{
+	WRITE_NODE_TYPE("RETRIEVESTMT");
+
+	WRITE_INT_FIELD(token);
+}
+
 #ifndef COMPILING_BINARY_FUNCS
 static void
 _outTupleDescNode(StringInfo str, const TupleDescNode *node)
@@ -5563,6 +5571,9 @@ _outNode(StringInfo str, const void *obj)
 				break;
 			case T_AlterTSDictionaryStmt:
 				_outAlterTSDictionaryStmt(str, obj);
+				break;
+			case T_RetrieveStmt:
+				_outRetrieveStmt(str, obj);
 				break;
 			default:
 

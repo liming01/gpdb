@@ -72,6 +72,7 @@
 
 #include "catalog/oid_dispatch.h"
 #include "cdb/cdbdisp_query.h"
+#include "cdb/cdbendpoint.h"
 #include "cdb/cdbpartition.h"
 #include "cdb/cdbvars.h"
 
@@ -1033,6 +1034,10 @@ standard_ProcessUtility(Node *parsetree,
 			}
 			break;
 
+		case T_RetrieveStmt:
+			RetrieveResults((RetrieveStmt *) parsetree, dest);
+			break;
+
 		default:
 			/* All other statement types have event trigger support */
 			ProcessUtilitySlow(parsetree, queryString,
@@ -1852,6 +1857,9 @@ UtilityReturnsTuples(Node *parsetree)
 		case T_VariableShowStmt:
 			return true;
 
+		case T_RetrieveStmt:
+			return true;
+
 		default:
 			return false;
 	}
@@ -1868,6 +1876,11 @@ UtilityReturnsTuples(Node *parsetree)
 TupleDesc
 UtilityTupleDescriptor(Node *parsetree)
 {
+
+	/* Only allow RETRIEVE statement in retrieve mode */
+	if ((Gp_role == GP_ROLE_RETRIEVE) && (nodeTag(parsetree)!= T_RetrieveStmt))
+		elog(ERROR, "Only allow RETRIEVE and SELECT statement in retrieve mode");
+
 	switch (nodeTag(parsetree))
 	{
 		case T_FetchStmt:
@@ -1902,6 +1915,23 @@ UtilityTupleDescriptor(Node *parsetree)
 				VariableShowStmt *n = (VariableShowStmt *) parsetree;
 
 				return GetPGVariableResultDesc(n->name);
+			}
+
+		case T_RetrieveStmt:
+			{
+				RetrieveStmt *n = (RetrieveStmt *) parsetree;
+
+				if (n->token <= 0)
+					elog(ERROR, "Invalid token %d", n->token);
+
+				if (Gp_role != GP_ROLE_RETRIEVE)
+					elog(ERROR, "RETRIEVE command can only run in retrieve mode");
+
+				SetGpToken(n->token, INVALID_SESSION_ID, GetUserId());
+				SetEndPointRole(EPR_RECEIVER);
+				AttachEndPoint();
+
+				return CreateTupleDescCopy(ResultTupleDesc());
 			}
 
 		default:
@@ -2206,7 +2236,18 @@ CreateCommandTag(Node *parsetree)
 			break;
 
 		case T_DeclareCursorStmt:
-			tag = "DECLARE CURSOR";
+			{
+				DeclareCursorStmt *stmt = (DeclareCursorStmt *) parsetree;
+
+				if ((stmt->options & CURSOR_OPT_PARALLEL)!= 0)
+				{
+					tag = "DECLARE PARALLEL CURSOR";
+				}
+				else
+				{
+					tag = "DECLARE CURSOR";
+				}
+			}
 			break;
 
 		case T_ClosePortalStmt:
@@ -2224,7 +2265,10 @@ CreateCommandTag(Node *parsetree)
 			{
 				FetchStmt  *stmt = (FetchStmt *) parsetree;
 
-				tag = (stmt->ismove) ? "MOVE" : "FETCH";
+				if (stmt->isParallelCursor)
+					tag = "EXECUTE PARALLEL CURSOR";
+				else
+					tag = (stmt->ismove) ? "MOVE" : "FETCH";
 			}
 			break;
 
@@ -2918,6 +2962,10 @@ CreateCommandTag(Node *parsetree)
 
 		case T_AlterTypeStmt:
 			tag = "ALTER TYPE";
+			break;
+
+		case T_RetrieveStmt:
+			tag = "RETRIEVE";
 			break;
 
 		default:

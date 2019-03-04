@@ -4023,7 +4023,7 @@ DATA(insert OID = 2509 (  pg_get_expr		   PGNSP PGUID 12 1 0 0 0 f f f f t f s 3
 DESCR("deparse an encoded expression with pretty-print option");
 DATA(insert OID = 2510 (  pg_prepared_statement PGNSP PGUID 12 1 1000 0 0 f f f f t t s 0 0 2249 "" "{25,25,1184,2211,16}" "{o,o,o,o,o}" "{name,statement,prepare_time,parameter_types,from_sql}" _null_ pg_prepared_statement _null_ _null_ _null_ ));
 DESCR("get the prepared statements for this session");
-DATA(insert OID = 2511 (  pg_cursor PGNSP PGUID 12 1 1000 0 0 f f f f t t s 0 0 2249 "" "{25,25,16,16,16,1184}" "{o,o,o,o,o,o}" "{name,statement,is_holdable,is_binary,is_scrollable,creation_time}" _null_ pg_cursor _null_ _null_ _null_ ));
+DATA(insert OID = 2511 (  pg_cursor PGNSP PGUID 12 1 1000 0 0 f f f f t t s 0 0 2249 "" "{25,25,16,16,16,16,1184}" "{o,o,o,o,o,o,o}" "{name,statement,is_holdable,is_binary,is_scrollable,is_parallel,creation_time}" _null_ pg_cursor _null_ _null_ _null_ ));
 DESCR("get the open cursors for this session");
 DATA(insert OID = 2599 (  pg_timezone_abbrevs	PGNSP PGUID 12 1 1000 0 0 f f f f t t s 0 0 2249 "" "{25,1186,16}" "{o,o,o}" "{abbrev,utc_offset,is_dst}" _null_ pg_timezone_abbrevs _null_ _null_ _null_ ));
 DESCR("get the available time zone abbreviations");

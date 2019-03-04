@@ -193,6 +193,10 @@ typedef struct PortalData
 
 	/* MPP: is this portal a CURSOR, or protocol level portal? */
 	bool		is_extended_query; /* simple or extended query protocol? */
+
+	bool		is_parallel;
+	int32		parallel_cursor_token;
+
 	/*
 	 * This field belongs with createSubid, but in pre-9.5 branches, add it
 	 * at the end to avoid creating an ABI break for extensions that examine

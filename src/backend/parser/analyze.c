@@ -3173,6 +3173,13 @@ transformDeclareCursorStmt(ParseState *pstate, DeclareCursorStmt *stmt)
 		result->utilityStmt != NULL)
 		elog(ERROR, "unexpected non-SELECT command in DECLARE CURSOR");
 
+	/* Can not support holdable parallel cursor at present */
+	if ((stmt->options & CURSOR_OPT_HOLD) && (stmt->options & CURSOR_OPT_PARALLEL))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					errmsg("DECLARE PARALLEL CURSOR WITH HOLD ... is not supported"),
+					errdetail("Holdable cursors can not be parallel")));
+
 	/*
 	 * We also disallow data-modifying WITH in a cursor.  (This could be
 	 * allowed, but the semantics of when the updates occur might be

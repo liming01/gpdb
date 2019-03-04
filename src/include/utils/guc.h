@@ -679,6 +679,7 @@ extern void SetPGVariable(const char *name, List *args, bool is_local);
 extern void SetPGVariableOptDispatch(const char *name, List *args, bool is_local, bool gp_dispatch);
 extern void GetPGVariable(const char *name, DestReceiver *dest);
 extern TupleDesc GetPGVariableResultDesc(const char *name);
+extern TupleDesc GetRetrieveResultDesc(const char *name);
 
 extern void ExecSetVariableStmt(VariableSetStmt *stmt, bool isTopLevel);
 extern char *ExtractSetVariableArgs(VariableSetStmt *stmt);
@@ -755,6 +756,7 @@ extern bool check_gp_role(char **newval, void **extra, GucSource source);
 extern void assign_gp_role(const char *newval, void *extra);
 extern const char *show_gp_role(void);
 extern void assign_gp_write_shared_snapshot(bool newval, void *extra);
+extern void assign_free_endpoints_token(int newval, void *extra);
 extern bool gpvars_check_gp_resource_manager_policy(char **newval, void **extra, GucSource source);
 extern void gpvars_assign_gp_resource_manager_policy(const char *newval, void *extra);
 extern const char *gpvars_show_gp_resource_manager_policy(void);

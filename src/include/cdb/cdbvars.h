@@ -116,6 +116,7 @@ typedef enum
 	GP_ROLE_UTILITY = 0,		/* Operating as a simple database engine */
 	GP_ROLE_DISPATCH,			/* Operating as the parallel query dispatcher */
 	GP_ROLE_EXECUTE,			/* Operating as a parallel query executor */
+	GP_ROLE_RETRIEVE,
 	GP_ROLE_UNDEFINED			/* Should never see this role in use */
 } GpRoleValue;
 
@@ -287,6 +288,7 @@ extern int gp_safefswritesize;
  * gangs. But should be used for other things if it makes sense to do so.
  */
 extern bool Gp_write_shared_snapshot;
+extern int Gp_free_endpoints_token;
 
 extern int gp_fts_transition_retries;
 extern int gp_fts_transition_timeout;

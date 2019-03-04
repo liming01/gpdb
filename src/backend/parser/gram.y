@@ -50,6 +50,7 @@
 
 #include <ctype.h>
 #include <limits.h>
+#include <stdlib.h>
 
 #include "catalog/index.h"
 #include "catalog/namespace.h"
@@ -258,6 +259,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 		DropOwnedStmt ReassignOwnedStmt
 		AlterTSConfigurationStmt AlterTSDictionaryStmt
 		CreateMatViewStmt RefreshMatViewStmt
+		RetrieveStmt
 
 /* GPDB-specific commands */
 %type <node>	AlterTypeStmt AlterQueueStmt AlterResourceGroupStmt
@@ -663,7 +665,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 	OBJECT_P OF OFF OFFSET OIDS ON ONLY OPERATOR OPTION OPTIONS OR
 	ORDER ORDINALITY OUT_P OUTER_P OVER OVERLAPS OVERLAY OWNED OWNER
 
-	PARSER PARTIAL PARTITION PASSING PASSWORD PLACING PLANS POSITION
+	PARALLEL PARSER PARTIAL PARTITION PASSING PASSWORD PLACING PLANS POSITION
 	PRECEDING PRECISION PRESERVE PREPARE PREPARED PRIMARY
 	PRIOR PRIVILEGES PROCEDURAL PROCEDURE PROGRAM
 
@@ -671,7 +673,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 
 	RANGE READ REAL REASSIGN RECHECK RECURSIVE REF REFERENCES REFRESH REINDEX
 	RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA
-	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK
+	RESET RESTART RESTRICT RETRIEVE RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK
 	ROW ROWS RULE
 
 	SAVEPOINT SCHEMA SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE SEQUENCES
@@ -951,6 +953,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 			%nonassoc OVERCOMMIT
 			%nonassoc OWNED
 			%nonassoc OWNER
+			%nonassoc PARALLEL
 			%nonassoc PARTIAL
 			%nonassoc PARTITIONS
 			%nonassoc PASSWORD
@@ -982,6 +985,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 			%nonassoc RESOURCE
 			%nonassoc RESTART
 			%nonassoc RESTRICT
+			%nonassoc RETRIEVE
 			%nonassoc RETURNS
 			%nonassoc REVOKE
 			%nonassoc ROLE
@@ -1280,6 +1284,7 @@ stmt :
 			| VariableSetStmt
 			| VariableShowStmt
 			| ViewStmt
+			| RetrieveStmt
 			| /*EMPTY*/
 				{ $$ = NULL; }
 		;
@@ -8007,12 +8012,25 @@ FetchStmt:	FETCH fetch_args
 				{
 					FetchStmt *n = (FetchStmt *) $2;
 					n->ismove = FALSE;
+					n->isParallelCursor = FALSE;
 					$$ = (Node *)n;
 				}
 			| MOVE fetch_args
 				{
 					FetchStmt *n = (FetchStmt *) $2;
 					n->ismove = TRUE;
+					n->isParallelCursor = FALSE;
+					$$ = (Node *)n;
+				}
+			| EXECUTE PARALLEL CURSOR cursor_name
+				{
+					/* Execute parallel cursor is same as FETCH ALL FROM cursor_name */
+					FetchStmt *n = makeNode(FetchStmt);
+					n->ismove = FALSE;
+					n->isParallelCursor = TRUE;
+					n->portalname = $4;
+					n->direction = FETCH_FORWARD;
+					n->howMany = FETCH_ALL;
 					$$ = (Node *)n;
 				}
 		;
@@ -11828,6 +11846,7 @@ cursor_options: /*EMPTY*/					{ $$ = 0; }
 			| cursor_options SCROLL			{ $$ = $1 | CURSOR_OPT_SCROLL; }
 			| cursor_options BINARY			{ $$ = $1 | CURSOR_OPT_BINARY; }
 			| cursor_options INSENSITIVE	{ $$ = $1 | CURSOR_OPT_INSENSITIVE; }
+			| cursor_options PARALLEL		{ $$ = $1 | CURSOR_OPT_PARALLEL; }
 		;
 
 opt_hold: /* EMPTY */						{ $$ = 0; }
@@ -11882,6 +11901,24 @@ opt_hold: /* EMPTY */						{ $$ = 0; }
 
 SelectStmt: select_no_parens			%prec UMINUS
 			| select_with_parens		%prec UMINUS
+		;
+
+RetrieveStmt:
+			RETRIEVE SignedIconst FROM name
+				{
+					RetrieveStmt *n = makeNode(RetrieveStmt);
+					n->token = atol($4);
+					n->count = $2;
+					$$ = (Node *)n;
+				}
+			| RETRIEVE ALL FROM name
+				{
+					RetrieveStmt *n = makeNode(RetrieveStmt);
+					n->token = atol($4);
+					n->count = -1;
+					n->is_all = true;
+					$$ = (Node *)n;
+				}
 		;
 
 select_with_parens:
@@ -15733,6 +15770,7 @@ unreserved_keyword:
 			| OVERCOMMIT
 			| OWNED
 			| OWNER
+			| PARALLEL
 			| PARSER
 			| PARTIAL
 			| PARTITIONS
@@ -15774,6 +15812,7 @@ unreserved_keyword:
 			| RESOURCE
 			| RESTART
 			| RESTRICT
+			| RETRIEVE
 			| RETURNS
 			| REVOKE
 			| ROLE
@@ -16027,6 +16066,7 @@ PartitionIdentKeyword: ABORT_P
 			| OVERCOMMIT
 			| OWNED
 			| OWNER
+			| PARALLEL
 			| PARTIAL
 			| PARTITIONS
 			| PASSWORD

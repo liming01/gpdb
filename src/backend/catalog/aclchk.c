@@ -5050,6 +5050,15 @@ pg_database_aclcheck(Oid db_oid, Oid roleid, AclMode mode)
 AclResult
 pg_proc_aclcheck(Oid proc_oid, Oid roleid, AclMode mode)
 {
+	/* Only gp_endpoints_info function can be called in retrieve mode */
+	if (Gp_role == GP_ROLE_RETRIEVE)
+	{
+		if (proc_oid != F_GP_ENDPOINTS_STATUS_INFO)
+		{
+			elog(ERROR, "Only gp_endpoints_status_info function can be called in retrieve mode");
+		}
+	}
+
 	if (pg_proc_aclmask(proc_oid, roleid, mode, ACLMASK_ANY) != 0)
 		return ACLCHECK_OK;
 	else

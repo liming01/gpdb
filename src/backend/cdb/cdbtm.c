@@ -44,6 +44,7 @@
 #include "port/atomics.h"
 #include "storage/procarray.h"
 
+#include "cdb/cdbendpoint.h"
 #include "cdb/cdbllize.h"
 #include "utils/faultinjector.h"
 #include "utils/guc.h"
@@ -1523,6 +1524,14 @@ assign_gp_write_shared_snapshot(bool newval, void *extra)
 
 			PopActiveSnapshot();
 		}
+	}
+}
+void
+assign_free_endpoints_token(int newval, void *extra)
+{
+	if ((newval != InvalidToken) && (Gp_role == GP_ROLE_EXECUTE) && Gp_is_writer)
+	{
+		FreeEndPoint4token(newval);
 	}
 }
 

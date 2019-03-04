@@ -24,17 +24,22 @@
 #include "postgres.h"
 
 #include <limits.h>
+#include <poll.h>
+#include <unistd.h>
 
 #include "access/xact.h"
 #include "commands/portalcmds.h"
 #include "executor/executor.h"
 #include "executor/tstoreReceiver.h"
+#include "lib/stringinfo.h"
 #include "tcop/pquery.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
 #include "cdb/cdbgang.h"
 #include "cdb/cdbvars.h"
+#include "cdb/cdbendpoint.h"
+#include "cdb/tupser.h"
 #include "postmaster/backoff.h"
 #include "utils/resscheduler.h"
 
@@ -54,6 +59,11 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	DeclareCursorStmt *cstmt = (DeclareCursorStmt *) stmt->utilityStmt;
 	Portal		portal;
 	MemoryContext oldContext;
+
+	if ((cstmt->options & CURSOR_OPT_SCROLL) && (cstmt->options & CURSOR_OPT_PARALLEL))
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("SCROLL is not allowed for PARALLEL cursors")));
 
 	if (cstmt == NULL || !IsA(cstmt, DeclareCursorStmt))
 		elog(ERROR, "PerformCursorOpen called for non-cursor query");
@@ -161,7 +171,65 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	PortalStart(portal, params, 0, GetActiveSnapshot(), NULL);
 
-	Assert(portal->strategy == PORTAL_ONE_SELECT);
+	/*
+	 * Generate a token for parallel cursor, and add it into
+	 * shared memory
+	 */
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
+	{
+		portal->parallel_cursor_token = GetUniqueGpToken();
+		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
+
+		if (!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
+				stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
+		{
+			if (stmt->planTree->directDispatch.isDirectDispatch &&
+					stmt->planTree->directDispatch.contentIds != NULL)
+			{
+				/* Direct dispatch to some segments, so end-points only exist
+				 * on these segments
+				 */
+				ListCell *cell;
+				List* l = NIL;
+				foreach(cell, stmt->planTree->directDispatch.contentIds)
+				{
+					int contentid = lfirst_int(cell);
+					l = lappend_int(l, contentid + 2);
+				}
+				AddParallelCursorToken(portal->parallel_cursor_token,
+									   portal->name,
+									   gp_session_id,
+									   GetUserId(),
+									   false,
+									   l);
+			}
+			else
+			{
+				/* end-points are on all segments */
+				AddParallelCursorToken(portal->parallel_cursor_token,
+									   portal->name,
+									   gp_session_id,
+									   GetUserId(),
+									   true,
+									   NULL);
+			}
+		}
+		else
+		{
+			/* The end-point is on QD */
+			List* l = NIL;
+			l = lappend_int(l, MASTER_DBID);
+			AddParallelCursorToken(portal->parallel_cursor_token,
+								   portal->name,
+								   gp_session_id,
+								   GetUserId(),
+								   false,
+								   l);
+		}
+	}
+
+	Assert((!(portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_ONE_SELECT) ||
+		   ((portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_MULTI_QUERY));
 
 	/*
 	 * We're done; the query won't actually be run until PerformPortalFetch is
@@ -219,9 +287,15 @@ PerformPortalFetch(FetchStmt *stmt,
 
 	/* Return command status if wanted */
 	if (completionTag)
-		snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
-				 stmt->ismove ? "MOVE" : "FETCH",
-				 nprocessed);
+	{
+		if (stmt->isParallelCursor)
+			snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
+					 "EXECUTE PARALLEL CURSOR");
+		else
+			snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
+					 stmt->ismove ? "MOVE" : "FETCH",
+					 nprocessed);
+	}
 }
 
 /*
@@ -265,6 +339,16 @@ PerformPortalClose(const char *name)
 	 * Note: PortalCleanup is called as a side-effect, if not already done.
 	 */
 	PortalDrop(portal, false);
+
+	/*
+	 * Clear related token in shared memory,
+	 * if it is a parallel cursor
+	 */
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
+	{
+		Assert(portal->parallel_cursor_token != InvalidToken);
+		ClearParallelCursorToken(portal->parallel_cursor_token);
+	}
 }
 
 /*

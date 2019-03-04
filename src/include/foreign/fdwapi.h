@@ -119,10 +119,12 @@ typedef struct FdwRoutine
 	GetForeignRelSize_function GetForeignRelSize;
 	GetForeignPaths_function GetForeignPaths;
 	GetForeignPlan_function GetForeignPlan;
+	BeginForeignScan_function BeginMppForeignScan;
 	BeginForeignScan_function BeginForeignScan;
 	IterateForeignScan_function IterateForeignScan;
 	ReScanForeignScan_function ReScanForeignScan;
 	EndForeignScan_function EndForeignScan;
+	EndForeignScan_function EndMppForeignScan;
 
 	/*
 	 * Remaining functions are optional.  Set the pointer to NULL for any that
