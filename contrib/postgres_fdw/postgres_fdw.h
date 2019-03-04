@@ -17,16 +17,57 @@
 #include "lib/stringinfo.h"
 #include "nodes/relation.h"
 #include "utils/rel.h"
+#include "funcapi.h"
 
 #include "libpq-fe.h"
+
+/*
+ * Execution state of a foreign scan using postgres_fdw.
+ */
+typedef struct PgFdwScanState
+{
+	Relation	rel;			/* relcache entry for the foreign table */
+	AttInMetadata *attinmeta;	/* attribute datatype conversion metadata */
+
+	/* extracted fdw_private data */
+	char	   *query;			/* text of SELECT command */
+	List	   *retrieved_attrs;	/* list of retrieved attribute numbers */
+
+	/* for remote query execution */
+	PGconn	   *conn;			/* connection for the scan */
+	unsigned int cursor_number; /* quasi-unique ID for my cursor */
+	bool		cursor_exists;	/* have we created the cursor? */
+	int			numParams;		/* number of parameters passed to query */
+	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
+	List	   *param_exprs;	/* executable expressions for param values */
+	const char **param_values;	/* textual values of query parameters */
+
+	/* for storing result tuples */
+	HeapTuple  *tuples;			/* array of currently-retrieved tuples */
+	int			num_tuples;		/* # of tuples in array */
+	int			next_tuple;		/* index of next one to return */
+
+	/* batch-level state, for optimizing rewinds and avoiding useless fetch */
+	int			fetch_ct_2;		/* Min(# of fetches done, 2) */
+	bool		eof_reached;	/* true if last fetch reached EOF */
+
+	/* working memory contexts */
+	MemoryContext batch_cxt;	/* context holding current batch of tuples */
+	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
+
+	bool 		  is_parallel;
+	int32		  token;
+	List		  *endpoints_list;
+} PgFdwScanState;
 
 /* in postgres_fdw.c */
 extern int	set_transmission_modes(void);
 extern void reset_transmission_modes(int nestlevel);
 
 /* in connection.c */
-extern PGconn *GetConnection(ForeignServer *server, UserMapping *user,
-			  bool will_prep_stmt);
+#define DBID_OUTER_CONN 0    /* indicate the normal outer connection which is not retrieve mode libpq connect to QE */
+extern PGconn *GetConnection(ForeignServer *server, UserMapping *user, int32 dbid,
+			  bool will_prep_stmt, bool is_parallel, bool new_conn);
 extern void ReleaseConnection(PGconn *conn);
 extern unsigned int GetCursorNumber(PGconn *conn);
 extern unsigned int GetPrepStmtNumber(PGconn *conn);
@@ -75,5 +116,26 @@ extern void deparseDeleteSql(StringInfo buf, PlannerInfo *root,
 extern void deparseAnalyzeSizeSql(StringInfo buf, Relation rel);
 extern void deparseAnalyzeSql(StringInfo buf, Relation rel,
 				  List **retrieved_attrs);
+extern void create_cursor_helper(ForeignScanState *node, const char *cursor_sql);
 
+extern void wait_endpoints_ready(ForeignServer	*server,
+					 UserMapping 	*user,
+					 int32			token);
+
+extern void
+get_endpoints_info(PGconn 	*conn,
+				   int 		cursor_number,
+				   int 		session_id,
+				   List 	**endpoints_list,
+				   int32 	*token);
+
+extern void
+create_and_execute_parallel_cursor(ForeignScanState *node);
+
+extern void execute_parallel_cursor(ForeignScanState *node);
+
+extern void create_parallel_cursor(ForeignScanState *node);
+
+
+extern PGconn *ConnectPgServer(ForeignServer *server, UserMapping *user);
 #endif   /* POSTGRES_FDW_H */

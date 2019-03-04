@@ -46,6 +46,7 @@ typedef struct ConnCacheKey
 {
 	Oid			serverid;		/* OID of foreign server */
 	Oid			userid;			/* OID of local user whose mapping we use */
+	int			dbid;           /* the segment/master node id of the foreign gpdb server */
 } ConnCacheKey;
 
 typedef struct ConnCacheEntry
@@ -61,6 +62,7 @@ typedef struct ConnCacheEntry
 	bool		invalidated;	/* true if reconnect is pending */
 	uint32		server_hashvalue;	/* hash value of foreign server OID */
 	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
+	bool 		is_parallel;		/* is a connection for gp2gp */
 } ConnCacheEntry;
 
 /*
@@ -105,10 +107,13 @@ static bool pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime,
  * will_prep_stmt must be true if caller intends to create any prepared
  * statements.  Since those don't go away automatically at transaction end
  * (not even on error), we need this flag to cue manual cleanup.
+ *
+ * For gp2gp, if DBID is not DBID_OUTER_CONN (i.e. 0), then the connection
+ * should be in RETRIEVE mode to endpoints.
  */
 PGconn *
-GetConnection(ForeignServer *server, UserMapping *user,
-			  bool will_prep_stmt)
+GetConnection(ForeignServer *server, UserMapping *user, int dbid,
+			  bool will_prep_stmt, bool is_parallel, bool force_new_conn)
 {
 	bool		found;
 	ConnCacheEntry *entry;
@@ -147,18 +152,20 @@ GetConnection(ForeignServer *server, UserMapping *user,
 	/* Create hash key for the entry.  Assume no pad bytes in key struct */
 	key.serverid = server->serverid;
 	key.userid = user->userid;
+	key.dbid = dbid;
 
 	/*
 	 * Find or create cached entry for requested connection.
 	 */
 	entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
-	if (!found)
+	if (!found || force_new_conn)
 	{
 		/*
 		 * We need only clear "conn" here; remaining fields will be filled
 		 * later when "conn" is set.
 		 */
 		entry->conn = NULL;
+		entry->is_parallel = is_parallel;
 	}
 
 	/* Reject further use of connections which failed abort cleanup. */
@@ -326,6 +333,12 @@ connect_pg_server(ForeignServer *server, UserMapping *user)
 	return conn;
 }
 
+PGconn *
+ConnectPgServer(ForeignServer *server, UserMapping *user)
+{
+	return connect_pg_server(server, user);
+}
+
 /*
  * Disconnect any open connection for a connection cache entry.
  */
@@ -454,7 +467,8 @@ begin_remote_xact(ConnCacheEntry *entry)
 		if (IsolationIsSerializable())
 			sql = "START TRANSACTION ISOLATION LEVEL SERIALIZABLE";
 		else
-			sql = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ";
+			// sql = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ";
+			sql = "START TRANSACTION ISOLATION LEVEL SERIALIZABLE";
 		entry->changing_xact_state = true;
 		do_sql_command(entry->conn, sql);
 		entry->xact_depth = 1;
@@ -742,6 +756,9 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					break;
 				case XACT_EVENT_PRE_PREPARE:
 
+					if (entry->is_parallel)
+						break;
+
 					/*
 					 * We disallow remote transactions that modified anything,
 					 * since it's not very reasonable to hold them open until
@@ -836,6 +853,13 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 			PQtransactionStatus(entry->conn) != PQTRANS_IDLE ||
 			entry->changing_xact_state)
 		{
+			elog(DEBUG3, "discarding connection %p", entry->conn);
+			disconnect_pg_server(entry);
+		}
+
+		/* Close the connection, we don't leave it there for sharing */
+		/* FIXME, why for segment connections? */
+		if (entry->is_parallel) {
 			elog(DEBUG3, "discarding connection %p", entry->conn);
 			disconnect_pg_server(entry);
 		}
