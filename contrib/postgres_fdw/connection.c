@@ -720,6 +720,8 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 			{
 				case XACT_EVENT_PRE_COMMIT:
 
+					pgfdw_get_result(entry->conn, NULL);
+
 					/*
 					 * If abort cleanup previously failed for this connection,
 					 * we can't issue any more commands against it.
