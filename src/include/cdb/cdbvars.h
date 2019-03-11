@@ -288,7 +288,7 @@ extern int gp_safefswritesize;
  * gangs. But should be used for other things if it makes sense to do so.
  */
 extern bool Gp_write_shared_snapshot;
-extern int Gp_free_endpoints_token;
+extern char *Gp_endpoints_token_operation;
 
 extern int gp_fts_transition_retries;
 extern int gp_fts_transition_timeout;

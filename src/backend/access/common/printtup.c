@@ -118,7 +118,7 @@ printtup_create_DR(CommandDest dest)
 static void
 printtup_startup_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
 {
-	AllocEndPoint();
+	SetSendPid4EndPoint();
 	InitConn();
 	SendTupdescToFIFO(typeinfo);
 }
@@ -751,6 +751,7 @@ printtup_shutdown_fifo(DestReceiver *self)
 {
 	FinishConn();
 	CloseConn();
+	SetAttachStatus4MyEndPoint(AttachStatusFinished);
 }
 
 /* ----------------

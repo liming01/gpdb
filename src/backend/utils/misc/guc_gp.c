@@ -3746,16 +3746,7 @@ struct config_int ConfigureNamesInt_gp[] =
 		-1, INT_MIN, INT_MAX,
 		NULL, NULL, NULL
 	},
-	{
-		{"gp_free_endpoints_token", PGC_USERSET, UNGROUPED,
-		 gettext_noop("Forces the writer gang to free endpoints token in shared memory on QE."),
-		 NULL,
-		 GUC_NO_SHOW_ALL | GUC_NO_RESET_ALL | GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
-		},
-		&Gp_free_endpoints_token,
-		-1, INT_MIN, INT_MAX,
-		NULL, assign_free_endpoints_token, NULL
-	},
+
 	{
 		{"gp_segments_for_planner", PGC_USERSET, QUERY_TUNING_COST,
 			gettext_noop("If >0, number of segment dbs for the planner to assume in its cost and size estimates."),
@@ -4796,6 +4787,16 @@ struct config_string ConfigureNamesString_gp[] =
 		&gp_server_version_string,
 		GP_VERSION,
 		NULL, NULL, NULL
+	},
+
+	{
+		{"gp_endpoints_token_operation", PGC_USERSET, UNGROUPED,
+		 gettext_noop("Forces the writer gang to do endpoints token operation in shared memory on QE."),
+		 NULL,
+		 GUC_NO_SHOW_ALL | GUC_NO_RESET_ALL | GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
+		},
+		&Gp_endpoints_token_operation, "",
+		NULL, assign_gp_endpoints_token_operation, NULL
 	},
 
 	/* End-of-list marker */
