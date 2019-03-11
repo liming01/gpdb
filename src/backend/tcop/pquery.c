@@ -1916,7 +1916,8 @@ DoPortalRunFetch(Portal portal,
 		if (portal->parallel_cursor_token!=InvalidToken)
 		{
 			char		cmd[255];
-			sprintf(cmd, "set gp_free_endpoints_token=%d", portal->parallel_cursor_token);
+			/* Unset sendpid for end point token */
+			sprintf(cmd, "set gp_endpoints_token_operation='u%d'", portal->parallel_cursor_token);
 			CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
 		}
 

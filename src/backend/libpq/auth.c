@@ -343,7 +343,7 @@ retrieve_mode_authentication(Port *port)
 	/* verify that the username is same as the owner of parallel cursor and the password is the token*/
 	owner_uid = get_role_oid(port->user_name, false);
 
-	if(!FindEndPoint(owner_uid, passwd))
+	if(!FindEndPointTokenByUser(owner_uid, passwd))
 	{
 		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of "
 				  "no token of the parallel cursor created by current user \"%s\" "

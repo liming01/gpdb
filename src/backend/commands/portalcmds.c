@@ -36,6 +36,7 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
+#include "cdb/cdbdisp_query.h"
 #include "cdb/cdbgang.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbendpoint.h"
@@ -212,6 +213,10 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 									   GetUserId(),
 									   true,
 									   NULL);
+				/* Push token to all segments */
+				char		cmd[255];
+				sprintf(cmd, "set gp_endpoints_token_operation='p%d'", portal->parallel_cursor_token);
+				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
 			}
 		}
 		else

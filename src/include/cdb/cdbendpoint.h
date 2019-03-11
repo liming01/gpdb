@@ -33,6 +33,13 @@ typedef struct attrdesc
 
 #define InvalidToken		(-1)
 
+typedef enum AttachStatus
+{
+	AttachStatusNotAttached = 0,
+	AttachStatusAttached,
+	AttachStatusFinished
+}	AttachStatus;
+
 typedef struct sendpointdesc
 {
 	Oid			database_id;
@@ -40,7 +47,7 @@ typedef struct sendpointdesc
 	pid_t		receiver_pid;
 	int32		token;
 	Latch		ack_done;
-	bool		attached;
+	AttachStatus attached;
 	int			session_id;
 	Oid			user_id;
 	bool		empty;
@@ -97,11 +104,18 @@ extern int32 GpToken(void);
 extern void SetEndPointRole(enum EndPointRole role);
 extern void ClearEndPointRole(void);
 extern enum EndPointRole EndPointRole(void);
+extern void SetSendPid4EndPoint(void);
+extern void UnSetSendPid4MyEndPoint(void);
 
-extern void AllocEndPoint(void);
-extern void FreeEndPoint(void);
+extern void AllocEndPoint4token(int token);
 extern void FreeEndPoint4token(int token);
-extern bool FindEndPoint(Oid user_id, const char *token_str);
+extern void UnSetSendPid4EndPoint(int token);
+extern void SetAttachStatus4MyEndPoint(AttachStatus status);
+extern void ResetEndPointRecvPid(volatile EndPointDesc * endPointDesc);
+extern void ResetEndPointSendPid(volatile EndPointDesc * endPointDesc);
+extern void ResetEndPointToken(volatile EndPointDesc * endPointDesc);
+extern bool FindEndPointTokenByUser(Oid user_id, const char *token_str);
+extern volatile EndPointDesc *FindEndPointByToken(int token);
 
 extern void AttachEndPoint(void);
 extern void DetachEndPoint(bool reset_pid);
