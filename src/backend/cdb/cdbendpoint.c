@@ -1365,6 +1365,7 @@ typedef struct
 	int			token;
 	int			dbid;
 	AttachStatus attached;
+	pid_t		sender_pid;
 }	EndPoint_Status;
 
 typedef struct
@@ -1385,23 +1386,19 @@ typedef struct
 #define GP_ENDPOINT_STATUS_RETRIEVING "RETRIEVING"
 #define GP_ENDPOINT_STATUS_FINISH	  "FINISH"
 
-static bool
-findStatusByTokenAndDbid(EndPoint_Status * status, int number,
-						 int token, int dbid, AttachStatus * attached)
+static EndPoint_Status *
+findStatusByTokenAndDbid(EndPoint_Status * status_array, int number,
+						 int token, int dbid)
 {
-	bool		found = false;
-
 	for (int i = 0; i < number; i++)
 	{
-		if (status[i].token == token
-			&& status[i].dbid == dbid)
+		if (status_array[i].token == token
+			&& status_array[i].dbid == dbid)
 		{
-			found = true;
-			*attached = status[i].attached;
-			break;
+			return &status_array[i];
 		}
 	}
-	return found;
+	return NULL;
 }
 
 static bool
@@ -1493,7 +1490,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		CdbPgResults cdb_pgresults = {NULL, 0};
 
-		CdbDispatchCommand("SELECT token,dbid,attached FROM pg_catalog.gp_endpoints_status_info()",
+		CdbDispatchCommand("SELECT token,dbid,attached,senderpid FROM pg_catalog.gp_endpoints_status_info()",
 					  DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
 
 		if (cdb_pgresults.numResults == 0)
@@ -1525,6 +1522,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					mystatus->status[idx].token = atoi(PQgetvalue(result, j, 0));
 					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 1));
 					mystatus->status[idx].attached = atoi(PQgetvalue(result, j, 2));
+					mystatus->status[idx].sender_pid= atoi(PQgetvalue(result, j, 3));
 					idx++;
 				}
 			}
@@ -1565,6 +1563,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					mystatus->status[mystatus->status_num - cnt + idx].token = entry->token;
 					mystatus->status[mystatus->status_num - cnt + idx].dbid = MASTER_DBID;
 					mystatus->status[mystatus->status_num - cnt + idx].attached = entry->attached;
+					mystatus->status[mystatus->status_num - cnt + idx].sender_pid = entry->sender_pid;
 					idx++;
 				}
 			}
@@ -1615,23 +1614,21 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				/*
 				 * find out the status of endpoint
 				 */
-				AttachStatus attached = AttachStatusNotAttached;
-
-				if (!findStatusByTokenAndDbid(mystatus->status,
-							 mystatus->status_num, entry->token, MASTER_DBID,
-											  &attached))
-				{
-					values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
-					nulls[7] = false;
-				}
-				else
+				EndPoint_Status *qe_status = findStatusByTokenAndDbid(mystatus->status,
+				                                                     mystatus->status_num, entry->token,
+				                                                     MASTER_DBID);
+				if (qe_status!=NULL)
 				{
 					char	   *status = NULL;
 
-					switch (attached)
+					switch (qe_status->attached)
 					{
 						case AttachStatusNotAttached:
-							status = GP_ENDPOINT_STATUS_READY;
+							if(qe_status->sender_pid == InvalidPid){
+								status = GP_ENDPOINT_STATUS_INIT;
+							}else{
+								status = GP_ENDPOINT_STATUS_READY;
+							}
 							break;
 						case AttachStatusAttached:
 							status = GP_ENDPOINT_STATUS_RETRIEVING;
@@ -1642,6 +1639,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					}
 					values[7] = CStringGetTextDatum(status);
 					nulls[7] = false;
+				}else{
+					nulls[7] = true;
 				}
 
 				tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
@@ -1688,24 +1687,21 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					/*
 					 * find out the status of end-point
 					 */
-					AttachStatus attached = AttachStatusNotAttached;
-
-					if (!findStatusByTokenAndDbid(mystatus->status,
-										  mystatus->status_num, entry->token,
-							 mystatus->seg_db_list[mystatus->curSegIdx].dbid,
-												  &attached))
-					{
-						values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_INIT);
-						nulls[7] = false;
-					}
-					else
+					EndPoint_Status *qe_status = findStatusByTokenAndDbid(mystatus->status,
+					                                                     mystatus->status_num, entry->token,
+					                                                     mystatus->seg_db_list[mystatus->curSegIdx].dbid);
+					if (qe_status!=NULL)
 					{
 						char	   *status = NULL;
 
-						switch (attached)
+						switch (qe_status->attached)
 						{
 							case AttachStatusNotAttached:
-								status = GP_ENDPOINT_STATUS_READY;
+								if(qe_status->sender_pid == InvalidPid){
+									status = GP_ENDPOINT_STATUS_INIT;
+								}else{
+									status = GP_ENDPOINT_STATUS_READY;
+								}
 								break;
 							case AttachStatusAttached:
 								status = GP_ENDPOINT_STATUS_RETRIEVING;
@@ -1716,6 +1712,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						}
 						values[7] = CStringGetTextDatum(status);
 						nulls[7] = false;
+					}else{
+						nulls[7] = true;
 					}
 
 					mystatus->curSegIdx++;
