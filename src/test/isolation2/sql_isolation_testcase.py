@@ -50,21 +50,23 @@ def parse_include_statement(sql):
 
 
 class SQLIsolationExecutor(object):
+    # define enum value for connection_mode
+    NORMAL_MODE, UTILITY_MODE, RETRIEVE_MODE = range(0, 3)
     def __init__(self, dbname=''):
         self.processes = {}
         # The re.S flag makes the "." in the regex match newlines.
         # When matched against a command in process_command(), all
         # lines in the command are matched and sent as SQL query.
-        self.command_pattern = re.compile(r"^(-?\d+|[*])([&\\<\\>UIq]*?)\:(.*)", re.S)
+        self.command_pattern = re.compile(r"^(-?\d+|[*])([&\\<\\>URIq]*?)\:(.*)", re.S)
         if dbname:
             self.dbname = dbname
         else:
             self.dbname = os.environ.get('PGDATABASE')
 
     class SQLConnection(object):
-        def __init__(self, out_file, name, utility_mode, dbname):
+        def __init__(self, out_file, name, connection_mode, dbname):
             self.name = name
-            self.utility_mode = utility_mode
+            self.connection_mode = connection_mode
             self.out_file = out_file
             self.dbname = dbname
 
@@ -82,7 +84,7 @@ class SQLIsolationExecutor(object):
 
         def session_process(self, pipe):
             sp = SQLIsolationExecutor.SQLSessionProcess(self.name, 
-                self.utility_mode, pipe, self.dbname)
+                self.connection_mode, pipe, self.dbname)
             sp.do()
 
         def query(self, command):
@@ -135,25 +137,31 @@ class SQLIsolationExecutor(object):
             self.p.terminate()
 
     class SQLSessionProcess(object):
-        def __init__(self, name, utility_mode, pipe, dbname):
+        def __init__(self, name, connection_mode, pipe, dbname):
             """
                 Constructor
             """
             self.name = name
-            self.utility_mode = utility_mode
+            self.connection_mode = connection_mode
             self.pipe = pipe
             self.dbname = dbname
-            if self.utility_mode:
+            if self.connection_mode == SQLIsolationExecutor.UTILITY_MODE:
                 (hostname, port) = self.get_utility_mode_port(name)
                 self.con = self.connectdb(given_dbname=self.dbname,
                                           given_host=hostname,
                                           given_port=port,
                                           given_opt="-c gp_session_role=utility")
-
+            elif self.connection_mode == SQLIsolationExecutor.RETRIEVE_MODE:
+                (hostname, port) = self.get_utility_mode_port(name)
+                self.con = self.connectdb(given_dbname=self.dbname,
+                                          given_host=hostname,
+                                          given_port=port,
+                                          given_opt="-c gp_session_role=retrieve",
+                                          given_passwd="nopasswd")
             else:
                 self.con = self.connectdb(self.dbname)
 
-        def connectdb(self, given_dbname, given_host = None, given_port = None, given_opt = None):
+        def connectdb(self, given_dbname, given_host = None, given_port = None, given_opt = None, given_user = None, given_passwd = None):
             con = None
             retry = 1000
             while retry:
@@ -161,12 +169,16 @@ class SQLIsolationExecutor(object):
                     if (given_port is None):
                         con = pygresql.pg.connect(host= given_host,
                                           opt= given_opt,
-                                          dbname= given_dbname)
+                                          dbname= given_dbname,
+                                          user = given_user,
+                                          passwd = given_passwd)
                     else:
                         con = pygresql.pg.connect(host= given_host,
                                                   port= given_port,
                                                   opt= given_opt,
-                                                  dbname= given_dbname)
+                                                  dbname= given_dbname,
+                                                  user = given_user,
+                                                  passwd = given_passwd)
                     break
                 except Exception as e:
                     if (("the database system is starting up" in str(e) or
@@ -289,35 +301,35 @@ class SQLIsolationExecutor(object):
                 (c, wait) = self.pipe.recv()
 
 
-    def get_process(self, out_file, name, utility_mode=False, dbname=""):
+    def get_process(self, out_file, name, connection_mode=NORMAL_MODE, dbname=""):
         """
             Gets or creates the process by the given name
         """
         if len(name) > 0 and not is_digit(name):
             raise Exception("Name should be a number")
-        if len(name) > 0 and not utility_mode and int(name) >= 1024:
-            raise Exception("Session name should be smaller than 1024 unless it is utility mode number")
+        if len(name) > 0 and (connection_mode==SQLIsolationExecutor.NORMAL_MODE) and int(name) >= 1024:
+            raise Exception("Session name should be smaller than 1024 unless it is utility or retrieve mode number")
 
-        if not (name, utility_mode) in self.processes:
+        if not (name, connection_mode) in self.processes:
             if not dbname:
                 dbname = self.dbname
-            self.processes[(name, utility_mode)] = SQLIsolationExecutor.SQLConnection(out_file, name, utility_mode, dbname)
-        return self.processes[(name, utility_mode)]
+            self.processes[(name, connection_mode)] = SQLIsolationExecutor.SQLConnection(out_file, name, connection_mode, dbname)
+        return self.processes[(name, connection_mode)]
 
-    def quit_process(self, out_file, name, utility_mode=False, dbname=""):
+    def quit_process(self, out_file, name, connection_mode=NORMAL_MODE, dbname=""):
         """
         Quits a process with the given name
         """
         if len(name) > 0 and not is_digit(name):
             raise Exception("Name should be a number")
-        if len(name) > 0 and not utility_mode and int(name) >= 1024:
-            raise Exception("Session name should be smaller than 1024 unless it is utility mode number")
+        if len(name) > 0 and (connection_mode==SQLIsolationExecutor.NORMAL_MODE) and int(name) >= 1024:
+            raise Exception("Session name should be smaller than 1024 unless it is utility or retrieve mode number")
 
-        if not (name, utility_mode) in self.processes:
+        if not (name, connection_mode) in self.processes:
             raise Exception("Sessions not started cannot be quit")
 
-        self.processes[(name, utility_mode)].quit()
-        del self.processes[(name, utility_mode)]
+        self.processes[(name, connection_mode)].quit()
+        del self.processes[(name, connection_mode)]
 
     def get_all_primary_contentids(self, dbname):
         """
@@ -419,17 +431,35 @@ class SQLIsolationExecutor(object):
                 process_names = [process_name]
 
             for name in process_names:
-                self.get_process(output_file, name, utility_mode=True, dbname=dbname).query(sql.strip())
+                self.get_process(output_file, name, connection_mode=SQLIsolationExecutor.UTILITY_MODE, dbname=dbname).query(sql.strip())
         elif flag == "U&":
-            self.get_process(output_file, process_name, utility_mode=True, dbname=dbname).fork(sql.strip(), True)
+            self.get_process(output_file, process_name, connection_mode=SQLIsolationExecutor.UTILITY_MODE, dbname=dbname).fork(sql.strip(), True)
         elif flag == "U<":
             if len(sql) > 0:
                 raise Exception("No query should be given on join")
-            self.get_process(output_file, process_name, utility_mode=True, dbname=dbname).join()
+            self.get_process(output_file, process_name, connection_mode=SQLIsolationExecutor.UTILITY_MODE, dbname=dbname).join()
         elif flag == "Uq":
             if len(sql) > 0:
                 raise Exception("No query should be given on quit")
-            self.quit_process(output_file, process_name, utility_mode=True, dbname=dbname)
+            self.quit_process(output_file, process_name, connection_mode=SQLIsolationExecutor.UTILITY_MODE, dbname=dbname)
+        elif flag == "R":
+            if process_name == '*':
+                process_names = [str(content) for content in self.get_all_primary_contentids(dbname)]
+            else:
+                process_names = [process_name]
+
+            for name in process_names:
+                self.get_process(output_file, name, connection_mode=SQLIsolationExecutor.RETRIEVE_MODE, dbname=dbname).query(sql.strip())
+        elif flag == "R&":
+            self.get_process(output_file, process_name, connection_mode=SQLIsolationExecutor.RETRIEVE_MODE, dbname=dbname).fork(sql.strip(), True)
+        elif flag == "R<":
+            if len(sql) > 0:
+                raise Exception("No query should be given on join")
+            self.get_process(output_file, process_name, connection_mode=SQLIsolationExecutor.RETRIEVE_MODE, dbname=dbname).join()
+        elif flag == "Rq":
+            if len(sql) > 0:
+                raise Exception("No query should be given on quit")
+            self.quit_process(output_file, process_name, connection_mode=SQLIsolationExecutor.RETRIEVE_MODE, dbname=dbname)
         else:
             raise Exception("Invalid isolation flag")
 
@@ -449,7 +479,7 @@ class SQLIsolationExecutor(object):
                     command_part = line.partition("--")[0] # remove comment from line
                 if command_part == "" or command_part == "\n":
                     print >>output_file 
-                elif command_part.endswith(";\n") or re.match(r"^\d+[q\\<]:$", line) or re.match(r"^-?\d+U[q\\<]:$", line):
+                elif re.match(r".*;\s*$", line) or re.match(r"^\d+[q\\<]:\s*$", line) or re.match(r"^-?\d+[UR][q\\<]:\s*$", line):
                     command += command_part
                     try:
                         self.process_command(command, output_file)
@@ -476,7 +506,8 @@ class SQLIsolationTestCase:
 
         [<#>[flag]:] <sql> | ! <shell scripts or command>
         #: either an integer indicating a unique session, or a content-id if
-           followed by U (for utility-mode connections). In 'U' mode, the
+           followed by U (for utility-mode connections) or R (for retrieve-mode
+           connection). In 'U' mode or 'R' mode, the
            content-id can alternatively be an asterisk '*' to perform a
            utility-mode query on the master and all primaries.
         flag:
@@ -489,6 +520,9 @@ class SQLIsolationTestCase:
             U&: expect blocking behavior in utility mode (does not currently support an asterisk target)
             U<: join an existing utility mode session (does not currently support an asterisk target)
             I: include a file of sql statements (useful for loading reusable functions)
+
+            R|R&|R<: similar to 'U' meaning execept that the connect is in retrieve mode, here don't
+               thinking about retrieve mode authentication, just using the normal authentication directly.
 
         An example is:
 
