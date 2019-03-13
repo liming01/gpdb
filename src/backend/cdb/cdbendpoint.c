@@ -89,6 +89,8 @@ static void send_slot_to_endpoint_receiver(TupleTableSlot *slot, DestReceiver *s
 static void shutdown_endpoint_fifo(DestReceiver *self);
 static void destroy_endpoint_fifo(DestReceiver *self);
 
+static void cancel_pending_action(void);
+
 int32
 GetUniqueGpToken()
 {
@@ -814,6 +816,9 @@ AttachEndPoint()
 	{
 		retr_status[retr_tk_cur] = RETR_STATUS_INIT;
 	}
+
+	/* cleanup and sigterm QEs while cancelling */
+	cancel_pending_hook = *cancel_pending_action;
 }
 
 /* When detach endpoint, if this process have not yet finish this fifo reading, then don't reset it's pid,
@@ -1945,4 +1950,23 @@ CreateEndpointReceiver()
 	self->pub.mydest = DestEndpoint;
 
 	return (DestReceiver *) self;
+}
+
+static void cancel_pending_action(void)
+{
+	pid_t sender_pid = -1;
+
+	SpinLockAcquire(shared_end_points_lock);
+
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedEndPoints[i].token == Gp_token.token)
+		{
+			sender_pid = SharedEndPoints[i].sender_pid;
+			pg_signal_backend(sender_pid, SIGINT, NULL);
+			break;
+		}
+	}
+
+	SpinLockRelease(shared_end_points_lock);
 }

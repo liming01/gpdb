@@ -505,6 +505,8 @@ extern Datum pg_file_length(PG_FUNCTION_ARGS);
 extern Datum pg_ls_dir_1arg(PG_FUNCTION_ARGS);
 
 /* misc.c */
+extern int pg_signal_backend(int pid, int sig, char *msg);
+
 extern Datum current_database(PG_FUNCTION_ARGS);
 extern Datum current_query(PG_FUNCTION_ARGS);
 extern Datum pg_cancel_backend(PG_FUNCTION_ARGS);
