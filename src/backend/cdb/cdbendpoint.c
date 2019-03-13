@@ -506,6 +506,7 @@ FreeEndPoint4token(int token)
 
 	ResetEndPointToken(endPointDesc);
 }
+
 void
 UnSetSendPid4EndPoint(int token)
 {
@@ -518,6 +519,7 @@ UnSetSendPid4EndPoint(int token)
 
 	ResetEndPointSendPid(endPointDesc);
 }
+
 void
 UnSetSendPid4MyEndPoint()
 {
@@ -587,11 +589,16 @@ ResetEndPointRecvPid(volatile EndPointDesc * endPointDesc)
 			 */
 			if (kill(receiver_pid, SIGINT) < 0)
 				elog(WARNING, "failed to kill receiver process(pid:%d): %m", (int) receiver_pid);
+
+			/* no permission or non-existing */
+			if (errno == EPERM || errno == ESRCH)
+				break;
 		}
 		else
 			break;
 	}
 }
+
 void
 ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
 {
@@ -600,6 +607,7 @@ ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
 	if (!endPointDesc && !endPointDesc->empty)
 		ep_log(ERROR, "Not an valid endpoint");
 
+	/* Since the receiver is not in the session, sender has the duty to cancel it */
 	ResetEndPointRecvPid(endPointDesc);
 
 	while (true)
@@ -629,6 +637,10 @@ ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
 			 */
 			if (kill(pid, SIGINT) < 0)
 				elog(WARNING, "failed to kill receiver process(pid:%d): %m", (int) pid);
+
+			/* no permission or non-existing */
+			if (errno == EPERM || errno == ESRCH)
+				break;
 		}
 		else
 			break;
@@ -707,6 +719,7 @@ FindEndPointByToken(int token)
 	SpinLockRelease(shared_end_points_lock);
 	return res;
 }
+
 void
 AttachEndPoint()
 {
@@ -1954,6 +1967,14 @@ CreateEndpointReceiver()
 
 static void cancel_pending_action(void)
 {
+	volatile EndPointDesc *endPointDesc;
+
+	if (Gp_endpoint_role == EPR_RECEIVER)
+	{
+		endPointDesc = FindEndPointByToken(Gp_token.token);
+		ResetEndPointRecvPid(endPointDesc);
+	}
+
 	pid_t sender_pid = -1;
 
 	SpinLockAcquire(shared_end_points_lock);
