@@ -132,7 +132,7 @@ DismissGpToken()
 
 void
 AddParallelCursorToken(int32 token, const char *name, int session_id, Oid user_id,
-					   bool all_seg, List *dbid_list)
+					   bool all_seg, List *seg_list)
 {
 	int			i;
 
@@ -150,16 +150,16 @@ AddParallelCursorToken(int32 token, const char *name, int session_id, Oid user_i
 			SharedTokens[i].token = token;
 			SharedTokens[i].user_id = user_id;
 			SharedTokens[i].all_seg = all_seg;
-			if (dbid_list != NIL)
+			if (seg_list != NIL)
 			{
 				ListCell   *l;
 				int			idx = 0;
 
-				foreach(l, dbid_list)
+				foreach(l, seg_list)
 				{
-					int16		dbid = lfirst_int(l);
+					int16 contentid = lfirst_int(l);
 
-					SharedTokens[i].dbIds[idx] = dbid;
+					SharedTokens[i].dbIds[idx] = contentid + 2;
 					idx++;
 					SharedTokens[i].endpoint_cnt++;
 				}
@@ -183,12 +183,31 @@ void
 ClearParallelCursorToken(int32 token)
 {
 	Assert(token != InvalidToken);
+	bool endpoint_on_QD = false;
+	List *seg_list = NIL;
+
 	SpinLockAcquire(shared_tokens_lock);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedTokens[i].token == token)
 		{
+			if(isEndPointOnQD(&SharedTokens[i]))
+			{
+				endpoint_on_QD = true;
+			}
+			else
+			{
+				if (!SharedTokens[i].all_seg)
+				{
+					for(int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
+					{
+						int dbid = SharedTokens[i].dbIds[j];
+						seg_list = lappend_int(seg_list, dbid - 2);
+					}
+				}
+			}
+
 			elog(LOG, "Remove token:%d, session id:%d, cursor name:%s from shared memory",
 			 token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
 			SharedTokens[i].token = InvalidToken;
@@ -203,12 +222,26 @@ ClearParallelCursorToken(int32 token)
 
 	SpinLockRelease(shared_tokens_lock);
 
-	/* tell segment to free end point */
-	char		cmd[255];
-
-	/* Free end point token */
-	sprintf(cmd, "set gp_endpoints_token_operation='f%d'", token);
-	CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+	/* Free end-point */
+	if (endpoint_on_QD)
+	{
+		FreeEndPoint4token(token);
+	}
+	else
+	{
+		char cmd[255];
+		sprintf(cmd, "set gp_endpoints_token_operation='f%d'", token);
+		if (seg_list != NIL)
+		{
+			/* dispatch to some segments. */
+			CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, seg_list, NULL);
+		}
+		else
+		{
+			/* dispatch to all segments. */
+			CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+		}
+	}
 }
 
 void
@@ -371,7 +404,7 @@ EndPoint_ShmemInit()
 			SharedEndPoints[i].token = InvalidToken;
 			SharedEndPoints[i].session_id = INVALID_SESSION_ID;
 			SharedEndPoints[i].user_id = InvalidOid;
-			SharedEndPoints[i].attached = AttachStatusNotAttached;
+			SharedEndPoints[i].attached = Status_NotAttached;
 			SharedEndPoints[i].empty = true;
 
 			InitSharedLatch(&SharedEndPoints[i].ack_done);
@@ -427,7 +460,7 @@ SetSendPid4EndPoint()
 		SharedEndPoints[i].token = Gp_token.token;
 		SharedEndPoints[i].session_id = Gp_token.session_id;
 		SharedEndPoints[i].user_id = Gp_token.user_id;
-		SharedEndPoints[i].attached = AttachStatusNotAttached;
+		SharedEndPoints[i].attached = Status_NotAttached;
 		SharedEndPoints[i].empty = false;
 		OwnLatch(&SharedEndPoints[i].ack_done);
 	}
@@ -484,7 +517,7 @@ AllocEndPoint4token(int token)
 
 		SharedEndPoints[i].sender_pid = InvalidPid;
 		SharedEndPoints[i].receiver_pid = InvalidPid;
-		SharedEndPoints[i].attached = AttachStatusNotAttached;
+		SharedEndPoints[i].attached = Status_NotAttached;
 		SharedEndPoints[i].empty = false;
 	}
 
@@ -551,7 +584,7 @@ SetAttachStatus4MyEndPoint(AttachStatus status)
 
 	SpinLockRelease(shared_end_points_lock);
 
-	if (status == AttachStatusFinished)
+	if (status == Status_Finished)
 		mySharedEndPoint = NULL;
 }
 
@@ -572,12 +605,12 @@ ResetEndPointRecvPid(volatile EndPointDesc * endPointDesc)
 		SpinLockAcquire(shared_end_points_lock);
 
 		receiver_pid = endPointDesc->receiver_pid;
-		is_attached = endPointDesc->attached == AttachStatusAttached;
+		is_attached = endPointDesc->attached == Status_Attached;
 
 		if (receiver_pid == InvalidPid || !is_attached)
 		{
 			endPointDesc->receiver_pid = InvalidPid;
-			endPointDesc->attached = AttachStatusNotAttached;
+			endPointDesc->attached = Status_NotAttached;
 		}
 
 		SpinLockRelease(shared_end_points_lock);
@@ -756,7 +789,7 @@ AttachEndPoint()
 				break;
 			}
 
-			if (SharedEndPoints[i].attached == AttachStatusAttached)
+			if (SharedEndPoints[i].attached == Status_Attached)
 			{
 				already_attached = true;
 				attached_pid = SharedEndPoints[i].receiver_pid;
@@ -780,10 +813,10 @@ AttachEndPoint()
 				SharedEndPoints[i].receiver_pid = MyProcPid;
 			}
 
-			/* Not set if AttachStatusFinished */
-			if (SharedEndPoints[i].attached == AttachStatusNotAttached)
+			/* Not set if Status_Finished */
+			if (SharedEndPoints[i].attached == Status_NotAttached)
 			{
-				SharedEndPoints[i].attached = AttachStatusAttached;
+				SharedEndPoints[i].attached = Status_Attached;
 			}
 			mySharedEndPoint = &SharedEndPoints[i];
 			break;
@@ -875,10 +908,10 @@ DetachEndPoint(bool reset_pid)
 	{
 		mySharedEndPoint->receiver_pid = InvalidPid;
 	}
-	/* Not set if AttachStatusFinished */
-	if (mySharedEndPoint->attached == AttachStatusAttached)
+	/* Not set if Status_Finished */
+	if (mySharedEndPoint->attached == Status_Attached)
 	{
-		mySharedEndPoint->attached = AttachStatusNotAttached;
+		mySharedEndPoint->attached = Status_NotAttached;
 	}
 	ack_done = &mySharedEndPoint->ack_done;
 
@@ -1419,10 +1452,35 @@ findStatusByTokenAndDbid(EndPoint_Status * status_array, int number,
 	return NULL;
 }
 
-static bool
-isEndPointOnQD(SharedToken token)
+bool isEndPointOnQD(SharedToken token)
 {
 	return ((token->endpoint_cnt == 1) && (token->dbIds[0] == MASTER_DBID));
+}
+
+List* getContentidListByToken(int token)
+{
+	List* l = NIL;
+
+	SpinLockAcquire(shared_tokens_lock);
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedTokens[i].token == token)
+		{
+			if (SharedTokens[i].all_seg)
+			{
+				l = NIL;
+				break;
+			}
+			else
+			{
+				for (int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
+					l = lappend_int(l, SharedTokens[i].dbIds[j] - 2);
+				break;
+			}
+		}
+	}
+	SpinLockRelease(shared_tokens_lock);
+	return l;
 }
 
 static bool
@@ -1444,14 +1502,14 @@ isDbIDInToken(int16 dbid, SharedToken token)
 	return find;
 }
 
+#define GP_ENDPOINTS_INFO_ATTRNUM 8
+
 Datum
 gp_endpoints_info(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	GP_Endpoints_Info *mystatus;
 	MemoryContext oldcontext;
-
-#define GP_ENDPOINTS_INFO_ATTRNUM 8
 	Datum		values[GP_ENDPOINTS_INFO_ATTRNUM];
 	bool		nulls[GP_ENDPOINTS_INFO_ATTRNUM] = {true};
 	HeapTuple	tuple;
@@ -1608,11 +1666,12 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		SharedToken entry = &SharedTokens[mystatus->curTokenIdx];
 
-		if (entry->token != InvalidToken && (superuser() || entry->user_id == GetUserId()))
+		if (entry->token != InvalidToken
+				&& (superuser() || entry->user_id == GetUserId()))
 		{
 			if (isEndPointOnQD(entry))
 			{
-				/* one endpoint on master */
+				/* one end-point on master */
 				dbinfo = dbid_get_dbinfo(MASTER_DBID);
 				values[0] = Int32GetDatum(entry->token);
 				nulls[0] = false;
@@ -1630,34 +1689,33 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				nulls[6] = false;
 
 				/*
-				 * find out the status of endpoint
+				 * find out the status of end-point
 				 */
-				EndPoint_Status *qe_status = findStatusByTokenAndDbid(mystatus->status,
-				                                                     mystatus->status_num, entry->token,
-				                                                     MASTER_DBID);
-				if (qe_status!=NULL)
+				EndPoint_Status *ep_status = findStatusByTokenAndDbid(mystatus->status, mystatus->status_num,
+																	entry->token, MASTER_DBID);
+				if (ep_status != NULL)
 				{
-					char	   *status = NULL;
+					char *status = NULL;
 
-					switch (qe_status->attached)
+					switch (ep_status->attached)
 					{
-						case AttachStatusNotAttached:
-							if(qe_status->sender_pid == InvalidPid){
+						case Status_NotAttached:
+							if (ep_status->sender_pid == InvalidPid) {
 								status = GP_ENDPOINT_STATUS_INIT;
-							}else{
+							} else {
 								status = GP_ENDPOINT_STATUS_READY;
 							}
 							break;
-						case AttachStatusAttached:
+						case Status_Attached:
 							status = GP_ENDPOINT_STATUS_RETRIEVING;
 							break;
-						case AttachStatusFinished:
+						case Status_Finished:
 							status = GP_ENDPOINT_STATUS_FINISH;
 							break;
 					}
 					values[7] = CStringGetTextDatum(status);
 					nulls[7] = false;
-				}else{
+				} else {
 					nulls[7] = true;
 				}
 
@@ -1706,31 +1764,32 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					 * find out the status of end-point
 					 */
 					EndPoint_Status *qe_status = findStatusByTokenAndDbid(mystatus->status,
-					                                                     mystatus->status_num, entry->token,
-					                                                     mystatus->seg_db_list[mystatus->curSegIdx].dbid);
-					if (qe_status!=NULL)
+																		 mystatus->status_num,
+																		 entry->token,
+																		 mystatus->seg_db_list[mystatus->curSegIdx].dbid);
+					if (qe_status != NULL)
 					{
-						char	   *status = NULL;
+						char *status = NULL;
 
 						switch (qe_status->attached)
 						{
-							case AttachStatusNotAttached:
-								if(qe_status->sender_pid == InvalidPid){
+							case Status_NotAttached:
+								if (qe_status->sender_pid == InvalidPid) {
 									status = GP_ENDPOINT_STATUS_INIT;
-								}else{
+								} else {
 									status = GP_ENDPOINT_STATUS_READY;
 								}
 								break;
-							case AttachStatusAttached:
+							case Status_Attached:
 								status = GP_ENDPOINT_STATUS_RETRIEVING;
 								break;
-							case AttachStatusFinished:
+							case Status_Finished:
 								status = GP_ENDPOINT_STATUS_FINISH;
 								break;
 						}
 						values[7] = CStringGetTextDatum(status);
 						nulls[7] = false;
-					}else{
+					} else {
 						nulls[7] = true;
 					}
 
@@ -1942,7 +2001,7 @@ shutdown_endpoint_fifo(DestReceiver *self)
 {
 	FinishConn();
 	CloseConn();
-	SetAttachStatus4MyEndPoint(AttachStatusFinished);
+	SetAttachStatus4MyEndPoint(Status_Finished);
 }
 
 static void

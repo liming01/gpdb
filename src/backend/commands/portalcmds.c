@@ -180,6 +180,8 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	{
 		portal->parallel_cursor_token = GetUniqueGpToken();
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
+		char		cmd[255];
+		sprintf(cmd, "set gp_endpoints_token_operation='p%d'", portal->parallel_cursor_token);
 
 		if (!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
 				stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
@@ -195,7 +197,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 				foreach(cell, stmt->planTree->directDispatch.contentIds)
 				{
 					int contentid = lfirst_int(cell);
-					l = lappend_int(l, contentid + 2);
+					l = lappend_int(l, contentid);
 				}
 				AddParallelCursorToken(portal->parallel_cursor_token,
 									   portal->name,
@@ -203,6 +205,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 									   GetUserId(),
 									   false,
 									   l);
+				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, l, NULL);
 			}
 			else
 			{
@@ -214,8 +217,6 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 									   true,
 									   NULL);
 				/* Push token to all segments */
-				char		cmd[255];
-				sprintf(cmd, "set gp_endpoints_token_operation='p%d'", portal->parallel_cursor_token);
 				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
 			}
 		}
@@ -223,13 +224,14 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 		{
 			/* The end-point is on QD */
 			List* l = NIL;
-			l = lappend_int(l, MASTER_DBID);
+			l = lappend_int(l, MASTER_CONTENT_ID);
 			AddParallelCursorToken(portal->parallel_cursor_token,
 								   portal->name,
 								   gp_session_id,
 								   GetUserId(),
 								   false,
 								   l);
+			AllocEndPoint4token(portal->parallel_cursor_token);
 		}
 	}
 

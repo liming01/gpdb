@@ -35,9 +35,9 @@ typedef struct attrdesc
 
 typedef enum AttachStatus
 {
-	AttachStatusNotAttached = 0,
-	AttachStatusAttached,
-	AttachStatusFinished
+	Status_NotAttached = 0,
+	Status_Attached,
+	Status_Finished
 }	AttachStatus;
 
 typedef struct sendpointdesc
@@ -106,7 +106,8 @@ extern void ClearEndPointRole(void);
 extern enum EndPointRole EndPointRole(void);
 extern void SetSendPid4EndPoint(void);
 extern void UnSetSendPid4MyEndPoint(void);
-
+extern bool isEndPointOnQD(SharedToken);
+extern List* getContentidListByToken(int);
 extern void AllocEndPoint4token(int token);
 extern void FreeEndPoint4token(int token);
 extern void UnSetSendPid4EndPoint(int token);

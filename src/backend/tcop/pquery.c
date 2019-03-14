@@ -1916,9 +1916,28 @@ DoPortalRunFetch(Portal portal,
 		if (portal->parallel_cursor_token!=InvalidToken)
 		{
 			char		cmd[255];
-			/* Unset sendpid for end point token */
+			/* Unset sender pid for end-point */
 			sprintf(cmd, "set gp_endpoints_token_operation='u%d'", portal->parallel_cursor_token);
-			CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+
+			List* l = getContentidListByToken(portal->parallel_cursor_token);
+			if (l)
+			{
+				if (l->length == 1 && list_nth_int(l, 0) == MASTER_CONTENT_ID)
+				{
+					/* unset sender pid for end-point on master*/
+					UnSetSendPid4EndPoint(portal->parallel_cursor_token);
+				}
+				else
+				{
+					/* dispatch to some segments */
+					CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, l, NULL);
+				}
+			}
+			else
+			{
+				/* dispatch to all segments */
+				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+			}
 		}
 
 		MarkPortalDone(portal);
