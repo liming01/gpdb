@@ -183,7 +183,7 @@ void
 ClearParallelCursorToken(int32 token)
 {
 	Assert(token != InvalidToken);
-	bool endpoint_on_QD = false;
+	bool endpoint_on_QD = false, found = false;
 	List *seg_list = NIL;
 
 	SpinLockAcquire(shared_tokens_lock);
@@ -192,6 +192,7 @@ ClearParallelCursorToken(int32 token)
 	{
 		if (SharedTokens[i].token == token)
 		{
+			found = true;
 			if(isEndPointOnQD(&SharedTokens[i]))
 			{
 				endpoint_on_QD = true;
@@ -209,7 +210,7 @@ ClearParallelCursorToken(int32 token)
 			}
 
 			elog(LOG, "Remove token:%d, session id:%d, cursor name:%s from shared memory",
-			 token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
+						token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
 			SharedTokens[i].session_id = INVALID_SESSION_ID;
@@ -217,29 +218,33 @@ ClearParallelCursorToken(int32 token)
 			SharedTokens[i].endpoint_cnt = 0;
 			SharedTokens[i].all_seg = false;
 			memset(SharedTokens[i].dbIds, 0, sizeof(int16) * SHAREDTOKEN_DBID_NUM);
+			break;
 		}
 	}
 
 	SpinLockRelease(shared_tokens_lock);
 
-	/* Free end-point */
-	if (endpoint_on_QD)
+	if (found)
 	{
-		FreeEndPoint4token(token);
-	}
-	else
-	{
-		char cmd[255];
-		sprintf(cmd, "set gp_endpoints_token_operation='f%d'", token);
-		if (seg_list != NIL)
+		/* Free end-point */
+		if (endpoint_on_QD)
 		{
-			/* dispatch to some segments. */
-			CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, seg_list, NULL);
+			FreeEndPoint4token(token);
 		}
 		else
 		{
-			/* dispatch to all segments. */
-			CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+			char cmd[255];
+			sprintf(cmd, "set gp_endpoints_token_operation='f%d'", token);
+			if (seg_list != NIL)
+			{
+				/* dispatch to some segments. */
+				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, seg_list, NULL);
+			}
+			else
+			{
+				/* dispatch to all segments. */
+				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+			}
 		}
 	}
 }
