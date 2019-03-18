@@ -982,7 +982,11 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 
 		snprintf(token_str, MAX_TOKEN_STR_LEN, "%d", fsstate->token);
 
-		if (slice_no >= 0 && slice_no < list_length(fsstate->endpoints_list))
+		if (slice_no < 0)
+			ereport(ERROR, (errmsg("No valid slice number")));
+
+		/* FIXME if slice_no >= list_length(fsstate->endpoints_list), too much useless routines */
+		if (slice_no < list_length(fsstate->endpoints_list))
 		{
 			List 	*endpoint = list_nth(fsstate->endpoints_list, slice_no);
 
@@ -1026,8 +1030,6 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 			pfree(segUser);
 			pfree(segServer);
 		}
-		else
-			ereport(ERROR, (errmsg("No valid slice number")));
 	}
 	else
 	{
