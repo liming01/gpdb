@@ -130,8 +130,6 @@ enum FdwModifyPrivateIndex
 	FdwModifyPrivateRetrievedAttrs
 };
 
-
-
 /*
  * Execution state of a foreign insert/update/delete operation.
  */
@@ -230,11 +228,9 @@ static ForeignScan *postgresGetForeignPlan(PlannerInfo *root,
 					   List *tlist,
 					   List *scan_clauses);
 static void postgresBeginForeignScan(ForeignScanState *node, int eflags);
-static void greenplumBeginMppForeignScan(ForeignScanState *node, int eflags);
 static TupleTableSlot *postgresIterateForeignScan(ForeignScanState *node);
 static void postgresReScanForeignScan(ForeignScanState *node);
 static void postgresEndForeignScan(ForeignScanState *node);
-static void greenplumEndMppForeignScan(ForeignScanState *node);
 static void postgresAddForeignUpdateTargets(Query *parsetree,
 								RangeTblEntry *target_rte,
 								Relation target_relation);
@@ -312,6 +308,9 @@ static HeapTuple make_tuple_from_result_row(PGresult *res,
 						   List *retrieved_attrs,
 						   MemoryContext temp_context);
 static void conversion_error_callback(void *arg);
+static void greenplumBeginMppForeignScan(ForeignScanState *node, int eflags);
+static void greenplumEndMppForeignScan(ForeignScanState *node);
+static void set_foreignpath_qe_num(ForeignServer *server, UserMapping *user);
 
 
 /*
@@ -348,34 +347,8 @@ postgres_fdw_handler(PG_FUNCTION_ARGS)
 
 	/* Support functions for ANALYZE */
 	routine->AnalyzeForeignTable = postgresAnalyzeForeignTable;
-	routine->BeginMppForeignScan = greenplumBeginMppForeignScan;
-	routine->EndMppForeignScan = greenplumEndMppForeignScan;
 
 	PG_RETURN_POINTER(routine);
-}
-
-static void
-set_foreignpath_qe_num(ForeignServer *server, UserMapping *user)
-{
-	PGconn	   *conn;
-	PGresult   *res;
-
-	char *query =  "SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0";
-
-	/* Get the remote estimate */
-	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
-
-	res = pgfdw_exec_query(conn, query);
-	if (PQresultStatus(res) != PGRES_TUPLES_OK)
-		pgfdw_report_error(ERROR, res, conn, true, query);
-
-	if (PQntuples(res) == 0)
-		pgfdw_report_error(ERROR, res, conn, true, query);
-
-	override_foreignpath_qe_num = pg_atoi(PQgetvalue(res, 0, 0), sizeof(int), 0);
-
-	PQclear(res);
-	ReleaseConnection(conn);
 }
 
 /*
@@ -890,6 +863,13 @@ postgresGetForeignPlan(PlannerInfo *root,
 static void
 postgresBeginForeignScan(ForeignScanState *node, int eflags)
 {
+	ForeignTable *rel = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
+	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
+	{
+		greenplumBeginMppForeignScan(node, eflags);
+		return;
+	}
+
 	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
 	EState	   *estate = node->ss.ps.state;
 	PgFdwScanState *fsstate;
@@ -1099,121 +1079,6 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		fsstate->param_values = NULL;
 }
 
-static void
-greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
-{
-	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
-	EState	   *estate = node->ss.ps.state;
-	PgFdwScanState *fsstate;
-	RangeTblEntry *rte;
-	Oid			userid;
-	ForeignTable *table;
-	ForeignServer *server;
-	UserMapping *user;
-	int			numParams;
-	int			i;
-	ListCell   *lc;
-
-	/*
-	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
-	 */
-	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
-		return;
-
-	/*
-	 * We'll save private state in node->fdw_state.
-	 */
-	fsstate = (PgFdwScanState *) palloc0(sizeof(PgFdwScanState));
-	node->fdw_state = (void *) fsstate;
-
-	/*
-	 * Identify which user to do the remote access as.  This should match what
-	 * ExecCheckRTEPerms() does.
-	 */
-	rte = rt_fetch(fsplan->scan.scanrelid, estate->es_range_table);
-	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
-
-	/* Get info about foreign table. */
-	fsstate->rel = node->ss.ss_currentRelation;
-	table = GetForeignTable(RelationGetRelid(fsstate->rel));
-	server = GetForeignServer(table->serverid);
-	user = GetUserMapping(userid, server->serverid);
-
-	/*
-	 * Get connection to the foreign server.  Connection manager will
-	 * establish new connection if necessary.
-	 */
-	fsstate->conn = GetConnection(server, user, DBID_OUTER_CONN, true, false, true);
-
-	/* Assign a unique ID for my cursor */
-	fsstate->cursor_number = GetCursorNumber(fsstate->conn);
-	fsstate->cursor_exists = false;
-
-	/* Get private info created by planner functions. */
-	fsstate->query = strVal(list_nth(fsplan->fdw_private,
-									 FdwScanPrivateSelectSql));
-	fsstate->retrieved_attrs = (List *) list_nth(fsplan->fdw_private,
-											   FdwScanPrivateRetrievedAttrs);
-
-	/* Create contexts for batches of tuples and per-tuple temp workspace. */
-	fsstate->batch_cxt = AllocSetContextCreate(estate->es_query_cxt,
-											   "postgres_fdw tuple data",
-											   ALLOCSET_DEFAULT_MINSIZE,
-											   ALLOCSET_DEFAULT_INITSIZE,
-											   ALLOCSET_DEFAULT_MAXSIZE);
-	fsstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
-											  "postgres_fdw temporary data",
-											  ALLOCSET_SMALL_MINSIZE,
-											  ALLOCSET_SMALL_INITSIZE,
-											  ALLOCSET_SMALL_MAXSIZE);
-
-	/* Get info we'll need for input data conversion. */
-	fsstate->attinmeta = TupleDescGetAttInMetadata(RelationGetDescr(fsstate->rel));
-
-	/* Prepare for output conversion of parameters used in remote query. */
-	numParams = list_length(fsplan->fdw_exprs);
-	fsstate->numParams = numParams;
-	fsstate->param_flinfo = (FmgrInfo *) palloc0(sizeof(FmgrInfo) * numParams);
-
-	i = 0;
-	foreach(lc, fsplan->fdw_exprs)
-	{
-		Node	   *param_expr = (Node *) lfirst(lc);
-		Oid			typefnoid;
-		bool		isvarlena;
-
-		getTypeOutputInfo(exprType(param_expr), &typefnoid, &isvarlena);
-		fmgr_info(typefnoid, &fsstate->param_flinfo[i]);
-		i++;
-	}
-
-	/*
-	 * Prepare remote-parameter expressions for evaluation.  (Note: in
-	 * practice, we expect that all these expressions will be just Params, so
-	 * we could possibly do something more efficient than using the full
-	 * expression-eval machinery for this.  But probably there would be little
-	 * benefit, and it'd require postgres_fdw to know more than is desirable
-	 * about Param evaluation.)
-	 */
-	fsstate->param_exprs = (List *)
-		ExecInitExpr((Expr *) fsplan->fdw_exprs,
-					 (PlanState *) node);
-
-	/*
-	 * Allocate buffer for text form of query parameters, if any.
-	 */
-	if (numParams > 0)
-		fsstate->param_values = (const char **) palloc0(numParams * sizeof(char *));
-	else
-		fsstate->param_values = NULL;
-
-	if (!fsstate->cursor_exists)
-		create_and_execute_parallel_cursor(node);
-
-	// TODO: Add fsstate->conn to QD's listen set
-	wait_endpoints_ready(server, user, fsstate->token);
-}
-
 /*
  * postgresIterateForeignScan
  *		Retrieve next row from the result set, or clear tuple slot to indicate
@@ -1319,6 +1184,12 @@ postgresReScanForeignScan(ForeignScanState *node)
 static void
 postgresEndForeignScan(ForeignScanState *node)
 {
+	ForeignTable *table = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
+	if (table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
+	{
+		greenplumEndMppForeignScan(node);
+		return;
+	}
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
 
 	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
@@ -1328,53 +1199,6 @@ postgresEndForeignScan(ForeignScanState *node)
 	/* Close the cursor if open, to prevent accumulation of cursors */
 	if (fsstate->cursor_exists)
 		close_cursor(fsstate->conn, fsstate->cursor_number);
-
-	/* Release remote connection */
-	ReleaseConnection(fsstate->conn);
-	fsstate->conn = NULL;
-
-	/* MemoryContexts will be deleted automatically. */
-}
-
-/*
- * postgresEndForeignScan
- *		Finish scanning foreign table and dispose objects used for this scan
- */
-static void
-greenplumEndMppForeignScan(ForeignScanState *node)
-{
-	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
-	PGresult *res;
-	StringInfoData buf;
-
-	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
-	if (fsstate == NULL)
-		return;
-
-	/* Close the cursor if open, to prevent accumulation of cursors */
-	if (fsstate->cursor_exists)
-	{
-		if (PQisBusy(fsstate->conn))
-		{
-			char errbuf[256];
-			memset(errbuf, 0, sizeof(errbuf));
-
-			PGcancel *cn = PQgetCancel(fsstate->conn);
-			PQcancel(cn, errbuf, 256);
-		}
-		else
-		{
-			initStringInfo(&buf);
-			appendStringInfo(&buf, "EXECUTE PARALLEL CURSOR c%u;",
-							 fsstate->cursor_number);
-			res = PQgetResult(fsstate->conn);
-
-			if (PQresultStatus(res) != PGRES_COMMAND_OK)
-				pgfdw_report_error(ERROR, res, fsstate->conn, true, buf.data);
-
-			close_cursor(fsstate->conn, fsstate->cursor_number);
-		}
-	}
 
 	/* Release remote connection */
 	ReleaseConnection(fsstate->conn);
@@ -3031,4 +2855,190 @@ conversion_error_callback(void *arg)
 		errcontext("column \"%s\" of foreign table \"%s\"",
 				   NameStr(tupdesc->attrs[errpos->cur_attno - 1]->attname),
 				   RelationGetRelationName(errpos->rel));
+}
+
+static void
+set_foreignpath_qe_num(ForeignServer *server, UserMapping *user)
+{
+	PGconn	   *conn;
+	PGresult   *res;
+
+	char *query =  "SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0";
+
+	/* Get the remote estimate */
+	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
+
+	res = pgfdw_exec_query(conn, query);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		pgfdw_report_error(ERROR, res, conn, true, query);
+
+	if (PQntuples(res) == 0)
+		pgfdw_report_error(ERROR, res, conn, true, query);
+
+	override_foreignpath_qe_num = pg_atoi(PQgetvalue(res, 0, 0), sizeof(int), 0);
+
+	PQclear(res);
+	ReleaseConnection(conn);
+}
+
+void
+greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
+{
+	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
+	EState	   *estate = node->ss.ps.state;
+	PgFdwScanState *fsstate;
+	RangeTblEntry *rte;
+	Oid			userid;
+	ForeignTable *table;
+	ForeignServer *server;
+	UserMapping *user;
+	int			numParams;
+	int			i;
+	ListCell   *lc;
+
+	/*
+	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
+	 */
+	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
+		return;
+
+	/*
+	 * We'll save private state in node->fdw_state.
+	 */
+	fsstate = (PgFdwScanState *) palloc0(sizeof(PgFdwScanState));
+	node->fdw_state = (void *) fsstate;
+
+	/*
+	 * Identify which user to do the remote access as.  This should match what
+	 * ExecCheckRTEPerms() does.
+	 */
+	rte = rt_fetch(fsplan->scan.scanrelid, estate->es_range_table);
+	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
+
+	/* Get info about foreign table. */
+	fsstate->rel = node->ss.ss_currentRelation;
+	table = GetForeignTable(RelationGetRelid(fsstate->rel));
+	server = GetForeignServer(table->serverid);
+	user = GetUserMapping(userid, server->serverid);
+
+	/*
+	 * Get connection to the foreign server.  Connection manager will
+	 * establish new connection if necessary.
+	 */
+	fsstate->conn = GetConnection(server, user, DBID_OUTER_CONN, true, false, true);
+
+	/* Assign a unique ID for my cursor */
+	fsstate->cursor_number = GetCursorNumber(fsstate->conn);
+	fsstate->cursor_exists = false;
+
+	/* Get private info created by planner functions. */
+	fsstate->query = strVal(list_nth(fsplan->fdw_private,
+									 FdwScanPrivateSelectSql));
+	fsstate->retrieved_attrs = (List *) list_nth(fsplan->fdw_private,
+											   FdwScanPrivateRetrievedAttrs);
+
+	/* Create contexts for batches of tuples and per-tuple temp workspace. */
+	fsstate->batch_cxt = AllocSetContextCreate(estate->es_query_cxt,
+											   "postgres_fdw tuple data",
+											   ALLOCSET_DEFAULT_MINSIZE,
+											   ALLOCSET_DEFAULT_INITSIZE,
+											   ALLOCSET_DEFAULT_MAXSIZE);
+	fsstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
+											  "postgres_fdw temporary data",
+											  ALLOCSET_SMALL_MINSIZE,
+											  ALLOCSET_SMALL_INITSIZE,
+											  ALLOCSET_SMALL_MAXSIZE);
+
+	/* Get info we'll need for input data conversion. */
+	fsstate->attinmeta = TupleDescGetAttInMetadata(RelationGetDescr(fsstate->rel));
+
+	/* Prepare for output conversion of parameters used in remote query. */
+	numParams = list_length(fsplan->fdw_exprs);
+	fsstate->numParams = numParams;
+	fsstate->param_flinfo = (FmgrInfo *) palloc0(sizeof(FmgrInfo) * numParams);
+
+	i = 0;
+	foreach(lc, fsplan->fdw_exprs)
+	{
+		Node	   *param_expr = (Node *) lfirst(lc);
+		Oid			typefnoid;
+		bool		isvarlena;
+
+		getTypeOutputInfo(exprType(param_expr), &typefnoid, &isvarlena);
+		fmgr_info(typefnoid, &fsstate->param_flinfo[i]);
+		i++;
+	}
+
+	/*
+	 * Prepare remote-parameter expressions for evaluation.  (Note: in
+	 * practice, we expect that all these expressions will be just Params, so
+	 * we could possibly do something more efficient than using the full
+	 * expression-eval machinery for this.  But probably there would be little
+	 * benefit, and it'd require postgres_fdw to know more than is desirable
+	 * about Param evaluation.)
+	 */
+	fsstate->param_exprs = (List *)
+		ExecInitExpr((Expr *) fsplan->fdw_exprs,
+					 (PlanState *) node);
+
+	/*
+	 * Allocate buffer for text form of query parameters, if any.
+	 */
+	if (numParams > 0)
+		fsstate->param_values = (const char **) palloc0(numParams * sizeof(char *));
+	else
+		fsstate->param_values = NULL;
+
+	if (!fsstate->cursor_exists)
+		create_and_execute_parallel_cursor(node);
+
+	// TODO: Add fsstate->conn to QD's listen set
+	wait_endpoints_ready(server, user, fsstate->token);
+}
+
+/*
+ * postgresEndForeignScan
+ *		Finish scanning foreign table and dispose objects used for this scan
+ */
+void
+greenplumEndMppForeignScan(ForeignScanState *node)
+{
+	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
+	PGresult *res;
+	StringInfoData buf;
+
+	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
+	if (fsstate == NULL)
+		return;
+
+	/* Close the cursor if open, to prevent accumulation of cursors */
+	if (fsstate->cursor_exists)
+	{
+		if (PQisBusy(fsstate->conn))
+		{
+			char errbuf[256];
+			memset(errbuf, 0, sizeof(errbuf));
+
+			PGcancel *cn = PQgetCancel(fsstate->conn);
+			PQcancel(cn, errbuf, 256);
+		}
+		else
+		{
+			initStringInfo(&buf);
+			appendStringInfo(&buf, "EXECUTE PARALLEL CURSOR c%u;",
+							 fsstate->cursor_number);
+			res = PQgetResult(fsstate->conn);
+
+			if (PQresultStatus(res) != PGRES_COMMAND_OK)
+				pgfdw_report_error(ERROR, res, fsstate->conn, true, buf.data);
+
+			close_cursor(fsstate->conn, fsstate->cursor_number);
+		}
+	}
+
+	/* Release remote connection */
+	ReleaseConnection(fsstate->conn);
+	fsstate->conn = NULL;
+
+	/* MemoryContexts will be deleted automatically. */
 }

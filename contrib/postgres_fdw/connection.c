@@ -333,12 +333,6 @@ connect_pg_server(ForeignServer *server, UserMapping *user)
 	return conn;
 }
 
-PGconn *
-ConnectPgServer(ForeignServer *server, UserMapping *user)
-{
-	return connect_pg_server(server, user);
-}
-
 /*
  * Disconnect any open connection for a connection cache entry.
  */
@@ -1232,4 +1226,10 @@ exit:	;
 	else
 		*result = last_res;
 	return timed_out;
+}
+
+PGconn *
+ConnectPgServer(ForeignServer *server, UserMapping *user)
+{
+	return connect_pg_server(server, user);
 }
