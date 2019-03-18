@@ -89,7 +89,7 @@ static void send_slot_to_endpoint_receiver(TupleTableSlot *slot, DestReceiver *s
 static void shutdown_endpoint_fifo(DestReceiver *self);
 static void destroy_endpoint_fifo(DestReceiver *self);
 
-static void cancel_pending_action(void);
+static void retrieve_cancel_pending_action(void);
 
 int32
 GetUniqueGpToken()
@@ -600,7 +600,7 @@ ResetEndPointRecvPid(volatile EndPointDesc * endPointDesc)
 	bool		is_attached;
 
 	if (!endPointDesc && !endPointDesc->empty)
-		ep_log(ERROR, "Not an valid endpoint");
+		return;
 
 	while (true)
 	{
@@ -612,7 +612,7 @@ ResetEndPointRecvPid(volatile EndPointDesc * endPointDesc)
 		receiver_pid = endPointDesc->receiver_pid;
 		is_attached = endPointDesc->attached == Status_Attached;
 
-		if (receiver_pid == InvalidPid || !is_attached)
+		if (receiver_pid == MyProcPid)
 		{
 			endPointDesc->receiver_pid = InvalidPid;
 			endPointDesc->attached = Status_NotAttached;
@@ -626,11 +626,13 @@ ResetEndPointRecvPid(volatile EndPointDesc * endPointDesc)
 			 * other receiver to join.
 			 */
 			if (kill(receiver_pid, SIGINT) < 0)
-				elog(WARNING, "failed to kill receiver process(pid:%d): %m", (int) receiver_pid);
-
-			/* no permission or non-existing */
-			if (errno == EPERM || errno == ESRCH)
-				break;
+			{
+				/* no permission or non-existing */
+				if (errno == EPERM || errno == ESRCH)
+					break;
+				else
+					elog(WARNING, "failed to kill sender process(pid:%d): %m", (int) receiver_pid);
+			}
 		}
 		else
 			break;
@@ -643,7 +645,7 @@ ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
 	pid_t		pid;
 
 	if (!endPointDesc && !endPointDesc->empty)
-		ep_log(ERROR, "Not an valid endpoint");
+		return;
 
 	/* Since the receiver is not in the session, sender has the duty to cancel it */
 	ResetEndPointRecvPid(endPointDesc);
@@ -657,7 +659,7 @@ ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
 		pid = endPointDesc->sender_pid;
 
 		/*
-		 * Only reset by this process itself, other process just send kill to
+		 * Only reset by this process itself, other process just send signal to
 		 * sendpid
 		 */
 		if (pid == MyProcPid)
@@ -669,16 +671,14 @@ ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
 		SpinLockRelease(shared_end_points_lock);
 		if (pid != InvalidPid && pid != MyProcPid)
 		{
-			/*
-			 * TODO: Kill receiver process and wait again to check if any
-			 * other receiver to join.
-			 */
 			if (kill(pid, SIGINT) < 0)
-				elog(WARNING, "failed to kill receiver process(pid:%d): %m", (int) pid);
-
-			/* no permission or non-existing */
-			if (errno == EPERM || errno == ESRCH)
-				break;
+			{
+				/* no permission or non-existing */
+				if (errno == EPERM || errno == ESRCH)
+					break;
+				else
+					elog(WARNING, "failed to kill sender process(pid:%d): %m", (int) pid);
+			}
 		}
 		else
 			break;
@@ -869,7 +869,7 @@ AttachEndPoint()
 	}
 
 	/* cleanup and sigterm QEs while cancelling */
-	cancel_pending_hook = *cancel_pending_action;
+	cancel_pending_hook = *retrieve_cancel_pending_action;
 }
 
 /* When detach endpoint, if this process have not yet finish this fifo reading, then don't reset it's pid,
@@ -2029,26 +2029,20 @@ CreateEndpointReceiver()
 	return (DestReceiver *) self;
 }
 
-static void cancel_pending_action(void)
+static void retrieve_cancel_pending_action(void)
 {
-	volatile EndPointDesc *endPointDesc;
-
-	if (Gp_endpoint_role == EPR_RECEIVER)
-	{
-		endPointDesc = FindEndPointByToken(Gp_token.token);
-		ResetEndPointRecvPid(endPointDesc);
-	}
-
-	pid_t sender_pid = -1;
+	if (Gp_endpoint_role != EPR_RECEIVER)
+		ep_log(ERROR, "cancel hook is triggered by accident");
 
 	SpinLockAcquire(shared_end_points_lock);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedEndPoints[i].token == Gp_token.token)
+		if (SharedEndPoints[i].token == Gp_token.token && SharedEndPoints[i].receiver_pid == MyProcPid)
 		{
-			sender_pid = SharedEndPoints[i].sender_pid;
-			pg_signal_backend(sender_pid, SIGINT, NULL);
+			SharedEndPoints[i].receiver_pid = InvalidPid;
+			SharedEndPoints[i].attached = Status_NotAttached;
+			pg_signal_backend(SharedEndPoints[i].sender_pid, SIGINT, NULL);
 			break;
 		}
 	}
