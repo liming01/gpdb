@@ -22,7 +22,6 @@
  */
 #include "postgres.h"
 
-#include "cdb/cdbvars.h"
 #include "executor/executor.h"
 #include "executor/nodeForeignscan.h"
 #include "foreign/fdwapi.h"
@@ -169,11 +168,7 @@ ExecInitForeignScan(ForeignScan *node, EState *estate, int eflags)
 	/*
 	 * Tell the FDW to initiate the scan.
 	 */
-	ForeignTable *table = GetForeignTable(RelationGetRelid(scanstate->ss.ss_currentRelation));
-	if (table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
-		fdwroutine->BeginMppForeignScan(scanstate, eflags);
-	else
-		fdwroutine->BeginForeignScan(scanstate, eflags);
+	fdwroutine->BeginForeignScan(scanstate, eflags);
 
 	return scanstate;
 }
@@ -188,11 +183,7 @@ void
 ExecEndForeignScan(ForeignScanState *node)
 {
 	/* Let the FDW shut down */
-	ForeignTable *table = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
-	if (table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
-		node->fdwroutine->EndMppForeignScan(node);
-	else
-		node->fdwroutine->EndForeignScan(node);
+	node->fdwroutine->EndForeignScan(node);
 
 	/* Free the exprcontext */
 	ExecFreeExprContext(&node->ss.ps);
