@@ -7,7 +7,11 @@ insert into t1 select generate_series(1,100);
 1: BEGIN;
 1: SELECT * FROM GP_ENDPOINTS;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: SELECT * FROM GP_ENDPOINTS;
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" ': SELECT * FROM GP_ENDPOINTS;
+1&: EXECUTE PARALLEL CURSOR c1;
 
-0R: SELECT * FROM GP_ENDPOINTS_STATUS_INFO(); 
-0R: SELECT * FROM GP_ENDPOINTS; 
+*R: SELECT * FROM GP_ENDPOINTS_STATUS_INFO();
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+
+1<:
+1: CLOSE c1;

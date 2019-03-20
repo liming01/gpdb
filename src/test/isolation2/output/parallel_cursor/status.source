@@ -1,0 +1,160 @@
+-- @Description Tests the status for pg_endpoints
+--
+DROP TABLE IF EXISTS t1;
+DROP
+CREATE TABLE t1 (a INT);
+CREATE
+insert into t1 select generate_series(1,100);
+INSERT 100
+
+1: BEGIN;
+BEGIN
+1: SELECT * FROM GP_ENDPOINTS;
+ token | cursorname | sessionid | hostname | port | dbid | userid | status 
+-------+------------+-----------+----------+------+------+--------+--------
+(0 rows)
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+1:  SELECT * FROM GP_ENDPOINTS;
+ token      | cursorname | sessionid | hostname    | port  | dbid | userid | status 
+------------+------------+-----------+-------------+-------+------+--------+--------
+ 1959177596 | c1         | 13431     | @hostname@ | 25432 | 2    | 10     | INIT   
+ 1959177596 | c1         | 13431     | @hostname@ | 25433 | 3    | 10     | INIT   
+ 1959177596 | c1         | 13431     | @hostname@ | 25434 | 4    | 10     | INIT   
+(3 rows)
+1&: EXECUTE PARALLEL CURSOR c1;
+ <waiting ...>
+
+*R: SELECT * FROM GP_ENDPOINTS_STATUS_INFO();
+ token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
+-------+------------+-----------+-------------+----------+------+-----------+--------
+(0 rows)
+ token      | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
+------------+------------+-----------+-------------+----------+------+-----------+--------
+ 1959177596 | 16565      | 96729     | -1          | 0        | 2    | 13431     | 10     
+(1 row)
+ token      | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
+------------+------------+-----------+-------------+----------+------+-----------+--------
+ 1959177596 | 16565      | 96730     | -1          | 0        | 3    | 13431     | 10     
+(1 row)
+ token      | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
+------------+------------+-----------+-------------+----------+------+-----------+--------
+ 1959177596 | 16565      | 96731     | -1          | 0        | 4    | 13431     | 10     
+(1 row)
+*R:  RETRIEVE ALL FROM "1959177596";
+ERROR:  failed to attach non exist end point 1959177596 (cdbendpoint.c:844)
+ a  
+----
+ 2  
+ 3  
+ 4  
+ 7  
+ 8  
+ 16 
+ 18 
+ 19 
+ 22 
+ 24 
+ 27 
+ 29 
+ 34 
+ 37 
+ 39 
+ 41 
+ 42 
+ 45 
+ 51 
+ 53 
+ 54 
+ 55 
+ 59 
+ 60 
+ 65 
+ 66 
+ 70 
+ 75 
+ 77 
+ 80 
+ 81 
+ 84 
+ 90 
+ 92 
+ 93 
+ 94 
+ 97 
+ 99 
+(38 rows)
+ a  
+----
+ 1  
+ 12 
+ 15 
+ 20 
+ 23 
+ 26 
+ 30 
+ 31 
+ 35 
+ 36 
+ 38 
+ 40 
+ 44 
+ 46 
+ 47 
+ 48 
+ 49 
+ 50 
+ 57 
+ 61 
+ 64 
+ 68 
+ 69 
+ 71 
+ 72 
+ 74 
+ 76 
+ 78 
+ 79 
+ 83 
+ 86 
+ 87 
+ 88 
+ 89 
+ 91 
+ 95 
+ 98 
+(37 rows)
+ a   
+-----
+ 5   
+ 6   
+ 9   
+ 10  
+ 11  
+ 13  
+ 14  
+ 17  
+ 21  
+ 25  
+ 28  
+ 32  
+ 33  
+ 43  
+ 52  
+ 56  
+ 58  
+ 62  
+ 63  
+ 67  
+ 73  
+ 82  
+ 85  
+ 96  
+ 100 
+(25 rows)
+
+1<:
+ <... completed>
+EXECUTE
+1: CLOSE c1;
+CLOSE
