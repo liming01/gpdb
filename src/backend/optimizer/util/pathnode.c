@@ -37,8 +37,6 @@
 #include "cdb/cdbvars.h"
 #include "executor/nodeHash.h"
 
-int override_foreignpath_qe_num = -1;
-
 typedef enum
 {
 	COSTS_EQUAL,				/* path costs are fuzzily equal */
@@ -2896,8 +2894,8 @@ create_foreignscan_path(PlannerInfo *root, RelOptInfo *rel,
 			CdbPathLocus_MakeGeneral(&(pathnode->path.locus), getgpsegmentCount());
 			break;
 		case FTEXECLOCATION_ALL_SEGMENTS:
-			if (override_foreignpath_qe_num > 0)
-				CdbPathLocus_MakeStrewn(&(pathnode->path.locus), override_foreignpath_qe_num);
+			if (rel->ftEntry->mpp_size > 0)
+				CdbPathLocus_MakeStrewn(&(pathnode->path.locus), rel->ftEntry->mpp_size);
 			else
 				CdbPathLocus_MakeStrewn(&(pathnode->path.locus), getgpsegmentCount());
 			break;
