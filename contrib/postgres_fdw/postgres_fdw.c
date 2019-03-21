@@ -310,7 +310,6 @@ static HeapTuple make_tuple_from_result_row(PGresult *res,
 static void conversion_error_callback(void *arg);
 static void greenplumBeginMppForeignScan(ForeignScanState *node, int eflags);
 static void greenplumEndMppForeignScan(ForeignScanState *node);
-static void set_foreignpath_qe_num(ForeignServer *server, UserMapping *user);
 
 
 /*
@@ -413,8 +412,7 @@ postgresGetForeignRelSize(PlannerInfo *root,
 	 * should match what ExecCheckRTEPerms() does.  If we fail due to lack of
 	 * permissions, the query would have failed at runtime anyway.
 	 */
-	/* if (fpinfo->use_remote_estimate) */
-	if (1)
+	if (fpinfo->use_remote_estimate)
 	{
 		RangeTblEntry *rte = planner_rt_fetch(baserel->relid, root);
 		Oid			userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
@@ -512,9 +510,6 @@ postgresGetForeignRelSize(PlannerInfo *root,
 								&fpinfo->rows, &fpinfo->width,
 								&fpinfo->startup_cost, &fpinfo->total_cost);
 	}
-
-	// override the foreignpath qe num
-	set_foreignpath_qe_num(fpinfo->server, fpinfo->user);
 }
 
 /*
@@ -2855,30 +2850,6 @@ conversion_error_callback(void *arg)
 		errcontext("column \"%s\" of foreign table \"%s\"",
 				   NameStr(tupdesc->attrs[errpos->cur_attno - 1]->attname),
 				   RelationGetRelationName(errpos->rel));
-}
-
-static void
-set_foreignpath_qe_num(ForeignServer *server, UserMapping *user)
-{
-	PGconn	   *conn;
-	PGresult   *res;
-
-	char *query =  "SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0";
-
-	/* Get the remote estimate */
-	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
-
-	res = pgfdw_exec_query(conn, query);
-	if (PQresultStatus(res) != PGRES_TUPLES_OK)
-		pgfdw_report_error(ERROR, res, conn, true, query);
-
-	if (PQntuples(res) == 0)
-		pgfdw_report_error(ERROR, res, conn, true, query);
-
-	override_foreignpath_qe_num = pg_atoi(PQgetvalue(res, 0, 0), sizeof(int), 0);
-
-	PQclear(res);
-	ReleaseConnection(conn);
 }
 
 void
