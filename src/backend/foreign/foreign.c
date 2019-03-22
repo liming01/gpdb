@@ -68,7 +68,6 @@ SeparateOutCustomForeignOptions(List **options)
 			}
 
 			*options = list_delete_cell(*options, lc, prev);
-			break;
 		}
 
 		if (strcmp(def->defname, "mpp_size") == 0)
@@ -85,7 +84,6 @@ SeparateOutCustomForeignOptions(List **options)
 			}
 
 			*options = list_delete_cell(*options, lc, prev);
-			break;
 		}
 		prev = lc;
 	}

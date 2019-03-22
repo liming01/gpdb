@@ -7,7 +7,7 @@ COMMENT ON FOREIGN DATA WRAPPER dummy IS 'useless';
 CREATE SERVER s0 FOREIGN DATA WRAPPER dummy OPTIONS (mpp_size '0'); --ERROR
 ERROR:  "0" is not a valid mpp_size value
 CREATE SERVER s0 FOREIGN DATA WRAPPER dummy;
-CREATE SERVER s1 FOREIGN DATA WRAPPER dummy OPTIONS (mpp_size '6');
+CREATE SERVER s1 FOREIGN DATA WRAPPER dummy OPTIONS (mpp_execute 'all segments', mpp_size '6');
 -- CREATE FOREIGN TABLE
 CREATE FOREIGN TABLE ft2 (
 	c1 int
