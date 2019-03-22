@@ -310,6 +310,7 @@ static HeapTuple make_tuple_from_result_row(PGresult *res,
 static void conversion_error_callback(void *arg);
 static void greenplumBeginMppForeignScan(ForeignScanState *node, int eflags);
 static void greenplumEndMppForeignScan(ForeignScanState *node);
+static int greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user);
 
 
 /*
@@ -914,7 +915,13 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	if (fsstate->is_parallel)
+	if (!fsstate->is_parallel)
+	{
+		fsstate->conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
+		/* Assign a unique ID for my cursor */
+		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
+	}
+	else
 	{
 		DefElem    *dbnameDE = NULL;
 		ListCell   *cell;
@@ -1005,12 +1012,6 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 			pfree(segUser);
 			pfree(segServer);
 		}
-	}
-	else
-	{
-		fsstate->conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
-		/* Assign a unique ID for my cursor */
-		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
 	}
 
 	fsstate->cursor_exists = false;
@@ -2852,6 +2853,33 @@ conversion_error_callback(void *arg)
 				   RelationGetRelationName(errpos->rel));
 }
 
+static int
+greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user)
+{
+	PGconn	   *conn;
+	PGresult   *res;
+	int			size;
+
+	char *query =  "SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0";
+
+	/* Get the remote estimate */
+	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
+
+	res = pgfdw_exec_query(conn, query);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		pgfdw_report_error(ERROR, res, conn, true, query);
+
+	if (PQntuples(res) == 0)
+		pgfdw_report_error(ERROR, res, conn, true, query);
+
+	size = pg_atoi(PQgetvalue(res, 0, 0), sizeof(int), 0);
+
+	PQclear(res);
+	ReleaseConnection(conn);
+
+	return size;
+}
+
 void
 greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 {
@@ -2891,6 +2919,9 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 	table = GetForeignTable(RelationGetRelid(fsstate->rel));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(userid, server->serverid);
+
+	if (greenplumGetRemoteMppSize(server, user) != table->mpp_size)
+		ereport(ERROR, (errmsg("MPP size doesn't match")));
 
 	/*
 	 * Get connection to the foreign server.  Connection manager will
@@ -2987,6 +3018,8 @@ greenplumEndMppForeignScan(ForeignScanState *node)
 	{
 		if (PQisBusy(fsstate->conn))
 		{
+			/* Limit nodes need to end the query. NOTE: avoid cancelling by
+			 * mistake, for instance, not all endpoints are retrieved */
 			char errbuf[256];
 			memset(errbuf, 0, sizeof(errbuf));
 
