@@ -54,7 +54,7 @@ wait_endpoints_ready(ForeignServer *server,
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "SELECT status FROM gp_endpoints WHERE token = %d", token);
 
-	conn = ConnectPgServer(server, user);
+	conn = GetConnection(server, user, false, true);
 
 	while (true)
 	{
@@ -84,8 +84,6 @@ wait_endpoints_ready(ForeignServer *server,
 		if (all_endpoints_ready)
 			break;
 	}
-
-	PQfinish(conn);
 }
 
 void

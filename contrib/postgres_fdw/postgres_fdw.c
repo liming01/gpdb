@@ -197,16 +197,6 @@ typedef struct
 	List	   *already_used;	/* expressions already dealt with */
 } ec_member_foreign_arg;
 
-typedef struct EndPoint
-{
-	int32		token;
-	char*		cursor_name;
-	int32 		session_id;
-	char*		hostname;
-	int32 		port;
-	char*		status;
-} EndPoint;
-
 /*
  * SQL functions
  */
@@ -2115,7 +2105,7 @@ fetch_more_data(ForeignScanState *node)
 		int			numrows;
 		int			i;
 
-		if (conn == NULL){
+		if (conn == NULL) {
 			fsstate->eof_reached = true;
 			return;
 		}
@@ -2834,7 +2824,7 @@ greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user)
 	return size;
 }
 
-void
+static void
 greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 {
 	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
@@ -2954,11 +2944,7 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 	wait_endpoints_ready(server, user, fsstate->token);
 }
 
-/*
- * postgresEndForeignScan
- *		Finish scanning foreign table and dispose objects used for this scan
- */
-void
+static void
 greenplumEndMppForeignScan(ForeignScanState *node)
 {
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;

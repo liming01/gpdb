@@ -55,6 +55,7 @@ typedef struct PgFdwScanState
 	MemoryContext batch_cxt;	/* context holding current batch of tuples */
 	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
 
+	/* parallel retrieving */
 	bool 		  is_parallel;
 	int32		  token;
 	List		  *endpoints_list;
@@ -115,26 +116,12 @@ extern void deparseDeleteSql(StringInfo buf, PlannerInfo *root,
 extern void deparseAnalyzeSizeSql(StringInfo buf, Relation rel);
 extern void deparseAnalyzeSql(StringInfo buf, Relation rel,
 				  List **retrieved_attrs);
+
 extern void create_cursor_helper(ForeignScanState *node, const char *cursor_sql);
-
-extern void wait_endpoints_ready(ForeignServer	*server,
-					 UserMapping 	*user,
-					 int32			token);
-
-extern void
-get_endpoints_info(PGconn 	*conn,
-				   int 		cursor_number,
-				   int 		session_id,
-				   List 	**endpoints_list,
-				   int32 	*token);
-
-extern void
-create_and_execute_parallel_cursor(ForeignScanState *node);
-
+extern void wait_endpoints_ready(ForeignServer *server, UserMapping *user, int32 token);
+extern void get_endpoints_info(PGconn *conn, int cursor_number, int session_id, List **endpoints_list, int32 *token);
+extern void create_and_execute_parallel_cursor(ForeignScanState *node);
 extern void execute_parallel_cursor(ForeignScanState *node);
-
 extern void create_parallel_cursor(ForeignScanState *node);
 
-
-extern PGconn *ConnectPgServer(ForeignServer *server, UserMapping *user);
 #endif   /* POSTGRES_FDW_H */

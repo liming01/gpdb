@@ -708,6 +708,7 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 			{
 				case XACT_EVENT_PRE_COMMIT:
 
+					/* TODO: why it works before merging */
 					pgfdw_get_result(entry->conn, NULL);
 
 					/*
@@ -1219,10 +1220,4 @@ exit:	;
 	else
 		*result = last_res;
 	return timed_out;
-}
-
-PGconn *
-ConnectPgServer(ForeignServer *server, UserMapping *user)
-{
-	return connect_pg_server(server, user);
 }
