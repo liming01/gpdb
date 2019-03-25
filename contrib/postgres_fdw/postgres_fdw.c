@@ -877,7 +877,6 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	int			numParams;
 	int			i;
 	ListCell   *lc;
-	List		*fdw_private;
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
@@ -890,13 +889,6 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 */
 	fsstate = (PgFdwScanState *) palloc0(sizeof(PgFdwScanState));
 	node->fdw_state = (void *) fsstate;
-
-	fdw_private = ((ForeignScan *) node->ss.ps.plan)->fdw_private;
-
-	if (list_length(fdw_private) == FdwScanPrivateMaxSize)
-		fsstate->is_parallel = true;
-	else
-		fsstate->is_parallel = false;
 
 	/*
 	 * Identify which user to do the remote access as.  This should match what
@@ -911,6 +903,11 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(userid, server->serverid);
 
+	if (list_length(fsplan->fdw_private) == FdwScanPrivateMaxSize)
+		fsstate->is_parallel = true;
+	else
+		fsstate->is_parallel = false;
+
 	/*
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
@@ -923,94 +920,50 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	}
 	else
 	{
-		DefElem    *dbnameDE = NULL;
-		ListCell   *cell;
-		#define SVR_OPT_DBNAME "dbname"
-		#define MAX_TOKEN_STR_LEN 16
-		char    token_str[MAX_TOKEN_STR_LEN];
 		Value	*host;
 		Value	*port;
-		int32   dbid;
 		Value   *foreign_username;
+		#define MAX_TOKEN_STR_LEN 16
+		char    token_str[MAX_TOKEN_STR_LEN];
 		int     slice_no = -1;
-		Slice   *slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
+		Slice   *current_slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
 
-		if (!slice || !IsA(slice, Slice))
+		if (!current_slice || !IsA(current_slice, Slice))
 			ereport(ERROR, (errmsg("No valid slice %d", currentSliceId)));
 
 		int num = -1;
-		while ((num = bms_next_member(slice->processesMap, num)) >= 0)
+		while ((num = bms_next_member(current_slice->processesMap, num)) >= 0)
 		{
 			slice_no++;
 			if (qe_identifier == num)
 				break;
 		}
 
-		/* find foreign sever option "dbname" */
-		foreach(cell, server->options)
-		{
-			DefElem    *defel = (DefElem *) lfirst(cell);
-
-			if (strcmp(defel->defname, SVR_OPT_DBNAME) == 0)
-			{
-				dbnameDE = defel;
-				break;
-			}
-		}
-
-		foreign_username = linitial(list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, FdwScanPrivateUserName));
-		fsstate->token = linitial_int(list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, FdwScanPrivateToken));
-		fsstate->endpoints_list = list_nth(((ForeignScan *) node->ss.ps.plan)->fdw_private, FdwScanPrivateEndpoints);
-
-		snprintf(token_str, MAX_TOKEN_STR_LEN, "%d", fsstate->token);
+		foreign_username = linitial(list_nth(fsplan->fdw_private, FdwScanPrivateUserName));
+		fsstate->token = linitial_int(list_nth(fsplan->fdw_private, FdwScanPrivateToken));
+		fsstate->endpoints_list = list_nth(fsplan->fdw_private, FdwScanPrivateEndpoints);
 
 		if (slice_no < 0)
 			ereport(ERROR, (errmsg("No valid slice number")));
 
-		/* FIXME if slice_no >= list_length(fsstate->endpoints_list), too much useless routines */
+		/* FIXME: if slice_no >= list_length(fsstate->endpoints_list), too much useless routines */
 		if (slice_no < list_length(fsstate->endpoints_list))
 		{
-			List 	*endpoint = list_nth(fsstate->endpoints_list, slice_no);
-
+			List *endpoint = list_nth(fsstate->endpoints_list, slice_no);
 			host = list_nth(endpoint, 0);
 			port = list_nth(endpoint, 1);
-			char *dbid_str = strVal(list_nth(endpoint, 2));
-			dbid = atoi(dbid_str);
 
-			/* duplicate foreign server without any option */
-			ForeignServer *segServer;
-			segServer = (ForeignServer *) palloc(sizeof(ForeignServer));
-			segServer->serverid = server->serverid;
-			segServer->fdwid = server->fdwid;
-			segServer->owner = server->owner;
-			segServer->servername = server->servername;
-			segServer->servertype = server->servertype;
-			segServer->serverversion = server->serverversion;
+			server->options = NIL;
+			server->options = lappend(server->options, makeDefElem(pstrdup("host"), (Node *)host));
+			server->options = lappend(server->options, makeDefElem(pstrdup("port"), (Node *)port));
+			server->options = lappend(server->options, makeDefElem(pstrdup("options"), (Node *)makeString("-c gp_session_role=retrieve")));
 
-			segServer->options = NIL;
-			segServer->options = lappend(segServer->options, makeDefElem(pstrdup("host"), (Node *) host));
-			segServer->options = lappend(segServer->options, makeDefElem(pstrdup("port"), (Node *) port));
-			if(dbnameDE!=NULL)
-			{
-				segServer->options = lappend(segServer->options, makeDefElem(pstrdup(SVR_OPT_DBNAME), dbnameDE->arg));
-			}
-			segServer->options = lappend(segServer->options, makeDefElem(pstrdup("options"), (Node *) makeString("-c gp_session_role=retrieve")));
+			user->options = NIL;
+			user->options = lappend(user->options, makeDefElem(pstrdup("user"), (Node *)foreign_username));
+			snprintf(token_str, MAX_TOKEN_STR_LEN, "%d", fsstate->token);
+			user->options = lappend(user->options, makeDefElem(pstrdup("password"), (Node *)makeString(pstrdup(token_str))));
 
-			/* duplicate user mapping without any option */
-			UserMapping *segUser;
-			segUser = (UserMapping *) palloc(sizeof(UserMapping));
-			segUser->userid = user->userid;
-			segUser->serverid = user->serverid;
-
-			segUser->options = NIL;
-			segUser->options = lappend(segUser->options, makeDefElem(pstrdup("user"), (Node *)foreign_username));
-			segUser->options = lappend(segUser->options, makeDefElem(pstrdup("password"), (Node *)makeString(pstrdup(token_str))));
-
-
-			fsstate->conn = GetConnection(segServer, segUser, false, false);
-
-			pfree(segUser);
-			pfree(segServer);
+			fsstate->conn = GetConnection(server, user, false, false);
 		}
 	}
 
@@ -1186,6 +1139,7 @@ postgresEndForeignScan(ForeignScanState *node)
 		greenplumEndMppForeignScan(node);
 		return;
 	}
+
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
 
 	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
