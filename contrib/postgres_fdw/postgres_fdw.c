@@ -101,7 +101,7 @@ enum FdwScanPrivateIndex
 	FdwScanPrivateSelectSql,
 	/* Integer list of attribute numbers retrieved by the SELECT */
 	FdwScanPrivateRetrievedAttrs,
-	/* endpoints info for parallel cursor */
+	/* Greenplum: below are info for parallel retrieving */
 	FdwScanPrivateEndpoints,
 	FdwScanPrivateToken,
 	FdwScanPrivateUserName,
@@ -917,7 +917,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 */
 	if (!fsstate->is_parallel)
 	{
-		fsstate->conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
+		fsstate->conn = GetConnection(server, user, false, false);
 		/* Assign a unique ID for my cursor */
 		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
 	}
@@ -1007,7 +1007,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 			segUser->options = lappend(segUser->options, makeDefElem(pstrdup("password"), (Node *)makeString(pstrdup(token_str))));
 
 
-			fsstate->conn = GetConnection(segServer, segUser, dbid, false, true, false);
+			fsstate->conn = GetConnection(segServer, segUser, false, false);
 
 			pfree(segUser);
 			pfree(segServer);
@@ -1399,7 +1399,7 @@ postgresBeginForeignModify(ModifyTableState *mtstate,
 	user = GetUserMapping(userid, server->serverid);
 
 	/* Open connection; report that we'll create a prepared statement. */
-	fmstate->conn = GetConnection(server, user, DBID_OUTER_CONN, true, false, false);
+	fmstate->conn = GetConnection(server, user, true, false);
 	fmstate->p_name = NULL;		/* prepared statement not made yet */
 
 	/* Deconstruct fdw_private data. */
@@ -1867,7 +1867,7 @@ estimate_path_cost_size(PlannerInfo *root,
 							  (fpinfo->remote_conds == NIL), NULL);
 
 		/* Get the remote estimate */
-		conn = GetConnection(fpinfo->server, fpinfo->user, DBID_OUTER_CONN, false, false, false);
+		conn = GetConnection(fpinfo->server, fpinfo->user, false, false);
 		get_remote_estimate(sql.data, conn, &rows, &width,
 							&startup_cost, &total_cost);
 		ReleaseConnection(conn);
@@ -2464,7 +2464,7 @@ postgresAnalyzeForeignTable(Relation relation,
 	table = GetForeignTable(RelationGetRelid(relation));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(relation->rd_rel->relowner, server->serverid);
-	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
+	conn = GetConnection(server, user, false, false);
 
 	/*
 	 * Construct command to get page count for relation.
@@ -2556,7 +2556,7 @@ postgresAcquireSampleRowsFunc(Relation relation, int elevel,
 	table = GetForeignTable(RelationGetRelid(relation));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(relation->rd_rel->relowner, server->serverid);
-	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
+	conn = GetConnection(server, user, false, false);
 
 	/*
 	 * Construct cursor that retrieves whole rows from remote.
@@ -2860,10 +2860,10 @@ greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user)
 	PGresult   *res;
 	int			size;
 
-	char *query =  "SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0";
+	char *query =  "SELECT count(DISTINCT content) FROM pg_catalog.gp_segment_configuration WHERE content >= 0";
 
 	/* Get the remote estimate */
-	conn = GetConnection(server, user, DBID_OUTER_CONN, false, false, false);
+	conn = GetConnection(server, user, false, false);
 
 	res = pgfdw_exec_query(conn, query);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
@@ -2894,6 +2894,7 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 	int			numParams;
 	int			i;
 	ListCell   *lc;
+	int			remoteSize;
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
@@ -2920,14 +2921,15 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(userid, server->serverid);
 
-	if (greenplumGetRemoteMppSize(server, user) != table->mpp_size)
-		ereport(ERROR, (errmsg("MPP size doesn't match")));
+	remoteSize = greenplumGetRemoteMppSize(server, user);
+	if (remoteSize != table->mpp_size)
+		ereport(ERROR, (errmsg("Option mpp_size %d doesn't match remote size %d", table->mpp_size, remoteSize)));
 
 	/*
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(server, user, DBID_OUTER_CONN, true, false, true);
+	fsstate->conn = GetConnection(server, user, true, true);
 
 	/* Assign a unique ID for my cursor */
 	fsstate->cursor_number = GetCursorNumber(fsstate->conn);
