@@ -16,8 +16,6 @@
 
 #include "access/htup_details.h"
 #include "access/sysattr.h"
-#include "cdb/cdbvars.h"
-#include "cdb/cdbgang.h"
 #include "commands/defrem.h"
 #include "commands/explain.h"
 #include "commands/vacuum.h"
@@ -39,6 +37,9 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 
+#include "cdb/cdbendpoint.h"
+#include "cdb/cdbvars.h"
+#include "cdb/cdbgang.h"
 
 PG_MODULE_MAGIC;
 
@@ -129,6 +130,46 @@ enum FdwModifyPrivateIndex
 	/* Integer list of attribute numbers retrieved by RETURNING */
 	FdwModifyPrivateRetrievedAttrs
 };
+
+/*
+ * Execution state of a foreign scan using postgres_fdw.
+ */
+typedef struct PgFdwScanState
+{
+	Relation	rel;			/* relcache entry for the foreign table */
+	AttInMetadata *attinmeta;	/* attribute datatype conversion metadata */
+
+	/* extracted fdw_private data */
+	char	   *query;			/* text of SELECT command */
+	List	   *retrieved_attrs;	/* list of retrieved attribute numbers */
+
+	/* for remote query execution */
+	PGconn	   *conn;			/* connection for the scan */
+	unsigned int cursor_number; /* quasi-unique ID for my cursor */
+	bool		cursor_exists;	/* have we created the cursor? */
+	int			numParams;		/* number of parameters passed to query */
+	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
+	List	   *param_exprs;	/* executable expressions for param values */
+	const char **param_values;	/* textual values of query parameters */
+
+	/* for storing result tuples */
+	HeapTuple  *tuples;			/* array of currently-retrieved tuples */
+	int			num_tuples;		/* # of tuples in array */
+	int			next_tuple;		/* index of next one to return */
+
+	/* batch-level state, for optimizing rewinds and avoiding useless fetch */
+	int			fetch_ct_2;		/* Min(# of fetches done, 2) */
+	bool		eof_reached;	/* true if last fetch reached EOF */
+
+	/* working memory contexts */
+	MemoryContext batch_cxt;	/* context holding current batch of tuples */
+	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
+
+	/* parallel retrieving */
+	bool 		  is_parallel;
+	int32		  token;
+	List		  *endpoints_list;
+} PgFdwScanState;
 
 /*
  * Execution state of a foreign insert/update/delete operation.
@@ -298,10 +339,16 @@ static HeapTuple make_tuple_from_result_row(PGresult *res,
 						   List *retrieved_attrs,
 						   MemoryContext temp_context);
 static void conversion_error_callback(void *arg);
+
 static void greenplumBeginMppForeignScan(ForeignScanState *node, int eflags);
 static void greenplumEndMppForeignScan(ForeignScanState *node);
 static int greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user);
-
+static void create_cursor_helper(ForeignScanState *node, const char *cursor_sql);
+static void wait_endpoints_ready(ForeignServer *server, UserMapping *user, int32 token);
+static void get_endpoints_info(PGconn *conn, int cursor_number, int session_id, List **endpoints_list, int32 *token);
+static void create_and_execute_parallel_cursor(ForeignScanState *node);
+static void execute_parallel_cursor(ForeignScanState *node);
+static void create_parallel_cursor(ForeignScanState *node);
 
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
@@ -1974,7 +2021,7 @@ ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
 /*
  * Create cursor for node's query with current parameter values.
  */
-void
+static void
 create_cursor_helper(ForeignScanState *node, const char *cursor_sql)
 {
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
@@ -2987,4 +3034,174 @@ greenplumEndMppForeignScan(ForeignScanState *node)
 	fsstate->conn = NULL;
 
 	/* MemoryContexts will be deleted automatically. */
+}
+
+static void
+get_session_id(PGconn *conn, int *session_id)
+{
+	PGresult   *res;
+
+	res = pgfdw_exec_query(conn, "show gp_session_id");
+	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+	{
+		pgfdw_report_error(ERROR, res, conn, true, "show gp_session_id");
+	}
+
+	*session_id = atoi(PQgetvalue(res, 0, 0));
+	PQclear(res);
+}
+
+static void
+wait_endpoints_ready(ForeignServer *server,
+					 UserMapping *user,
+					 int32 token)
+{
+	StringInfoData buf;
+	PGconn	   *conn;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "SELECT status FROM gp_endpoints WHERE token = %d", token);
+
+	conn = GetConnection(server, user, false, true);
+
+	while (true)
+	{
+		bool		all_endpoints_ready = true;
+		PGresult   *res;
+
+		CHECK_FOR_INTERRUPTS();
+
+		res = pgfdw_exec_query(conn, buf.data);
+		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+			pgfdw_report_error(ERROR, res, conn, true, buf.data);
+
+		if (PQntuples(res) == 0)
+			pgfdw_report_error(ERROR, res, conn, true, buf.data);
+
+		for (int row = 0; row < PQntuples(res); ++row)
+		{
+			if (strcmp(PQgetvalue(res, row, 0), "READY") != 0)
+			{
+				all_endpoints_ready = false;
+				break;
+			}
+		}
+
+		PQclear(res);
+
+		if (all_endpoints_ready)
+			break;
+	}
+}
+
+static void
+get_endpoints_info(PGconn *conn,
+				   int cursor_number,
+				   int session_id,
+				   List **fdw_private,
+				   int32 *token)
+{
+	StringInfoData sql_buf;
+	PGresult   *res;
+	List	   *endpoints_list;
+	char	   *foreign_username = NULL;
+
+	initStringInfo(&sql_buf);
+	appendStringInfo(&sql_buf,
+					 "SELECT hostname, port, dbid, token, pg_get_userbyid(userid) FROM gp_endpoints "
+					 "WHERE sessionid=%d AND cursorname = 'c%d'",
+					 session_id, cursor_number);
+
+	*token = InvalidToken;
+	endpoints_list = NIL;
+
+	res = pgfdw_exec_query(conn, sql_buf.data);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		pgfdw_report_error(ERROR, res, conn, true, sql_buf.data);
+
+	if (PQntuples(res) == 0)
+		pgfdw_report_error(ERROR, res, conn, true, sql_buf.data);
+
+	for (int row = 0; row < PQntuples(res); ++row)
+	{
+		char	   *host;
+		char	   *port;
+		char	   *dbid;
+		List	   *endpoint = NIL;
+
+		if (PQnfields(res) != 5)
+			pgfdw_report_error(ERROR, res, conn, true, sql_buf.data);
+
+		host = pstrdup(PQgetvalue(res, row, 0));
+		port = pstrdup(PQgetvalue(res, row, 1));
+		dbid = pstrdup(PQgetvalue(res, row, 2));
+		endpoint = list_make3(makeString(host), makeString(port), makeString(dbid));
+
+		endpoints_list = lappend(endpoints_list, endpoint);
+
+		if (*token == InvalidToken)
+			*token = atoi(PQgetvalue(res, row, 3));
+		else if (*token != atoi(PQgetvalue(res, row, 3)))
+			pgfdw_report_error(ERROR, res, conn, true, sql_buf.data);
+
+		if (row == 0)
+			foreign_username = pstrdup(PQgetvalue(res, row, 4));
+	}
+
+	/* The order should be same as enum FdwScanPrivateIndex definition */
+	*fdw_private = lappend(*fdw_private, endpoints_list);
+	*fdw_private = lappend(*fdw_private, list_make1_int(*token));
+	*fdw_private = lappend(*fdw_private, list_make1(makeString(foreign_username)));
+
+	PQclear(res);
+}
+
+static void
+create_parallel_cursor(ForeignScanState *node)
+{
+	StringInfoData buf;
+	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "DECLARE c%u PARALLEL CURSOR FOR\n%s",
+					 fsstate->cursor_number, fsstate->query);
+
+	create_cursor_helper(node, buf.data);
+}
+
+static void
+execute_parallel_cursor(ForeignScanState *node)
+{
+	StringInfoData buf;
+	PGconn	   *conn;
+	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
+
+	conn = fsstate->conn;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "EXECUTE PARALLEL CURSOR c%u", fsstate->cursor_number);
+
+	/* We don't want to block main thread, so we don't use PQexec for results. */
+	if (!PQsendQuery(conn, buf.data))
+		pgfdw_report_error(ERROR, NULL, conn, false, buf.data);
+}
+
+static void
+create_and_execute_parallel_cursor(ForeignScanState *node)
+{
+	int			session_id;
+	int32		token;
+	ForeignScan *foreign_scan;
+
+	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
+
+	foreign_scan = (ForeignScan *) node->ss.ps.plan;
+
+	/* get session id for fetching endpoints info of parallel cursor */
+	get_session_id(fsstate->conn, &session_id);
+	create_parallel_cursor(node);
+	get_endpoints_info(fsstate->conn, fsstate->cursor_number, session_id,
+					   &(foreign_scan->fdw_private), &token);
+	execute_parallel_cursor(node);
+	fsstate->token = token;
 }
