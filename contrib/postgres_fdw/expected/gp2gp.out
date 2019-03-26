@@ -1,0 +1,807 @@
+-- ===================================================================
+-- create FDW objects
+-- ===================================================================
+DROP DATABASE IF EXISTS testdb;
+CREATE DATABASE testdb;
+DROP DATABASE IF EXISTS contrib_regression2;
+CREATE DATABASE contrib_regression2;
+\c contrib_regression2
+CREATE EXTENSION postgres_fdw;
+CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw 
+	OPTIONS (host 'localhost', dbname 'testdb', mpp_execute 'all segments');
+ -- CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw
+ -- OPTIONS (dbname 'contrib_regression', mpp_execute 'all segments');
+CREATE USER MAPPING FOR CURRENT_USER SERVER testserver1;
+-- OPTIONS (user 'linw', password '');
+-- CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
+\c testdb;
+-- ===================================================================
+-- create objects used through FDW server
+-- ===================================================================
+CREATE TYPE user_enum AS ENUM ('foo', 'bar', 'buz');
+CREATE TABLE t1 (
+	c1 int NOT NULL,
+	c2 int NOT NULL,
+	c3 text,
+	c4 timestamptz,
+	c5 timestamp,
+	c6 varchar(10),
+	c7 char(10),
+	c8 user_enum,
+	CONSTRAINT t1_pkey PRIMARY KEY (c1)
+);
+CREATE TABLE t2 (
+	c1 int NOT NULL,
+	c2 text,
+	CONSTRAINT t2_pkey PRIMARY KEY (c1)
+) DISTRIBUTED BY (c1);
+INSERT INTO t1
+	SELECT id,
+	       id % 10,
+	       to_char(id, 'FM00000'),
+	       '1970-01-01'::timestamptz + ((id % 100) || ' days')::interval,
+	       '1970-01-01'::timestamp + ((id % 100) || ' days')::interval,
+	       id % 10,
+	       id % 10,
+	       'foo'::user_enum
+	FROM generate_series(1, 1000) id;
+INSERT INTO t2
+	SELECT id,
+	       'AAA' || to_char(id, 'FM000')
+	FROM generate_series(1, 100) id;
+-- ===================================================================
+-- create foreign tables
+-- ===================================================================
+\c contrib_regression2
+CREATE TYPE user_enum AS ENUM ('foo', 'bar', 'buz');
+CREATE FOREIGN TABLE ft1 (
+	c0 int,
+	c1 int NOT NULL,
+	c2 int NOT NULL,
+	c3 text,
+	c4 timestamptz,
+	c5 timestamp,
+	c6 varchar(10),
+	c7 char(10) default 'ft1',
+	c8 user_enum
+) SERVER testserver1 OPTIONS(schema_name 'public', table_name 't1');
+ALTER FOREIGN TABLE ft1 DROP COLUMN c0;
+CREATE FOREIGN TABLE ft2 (
+	c1 int NOT NULL,
+	c2 int NOT NULL,
+	cx int,
+	c3 text,
+	c4 timestamptz,
+	c5 timestamp,
+	c6 varchar(10),
+	c7 char(10) default 'ft2',
+	c8 user_enum
+) SERVER testserver1 OPTIONS(schema_name 'public', table_name 't1');
+ALTER FOREIGN TABLE ft2 DROP COLUMN cx;
+ALTER FOREIGN TABLE ft2 OPTIONS (schema_name 'public', table_name 't1');
+ERROR:  option "schema_name" provided more than once
+CREATE FOREIGN TABLE _ft2 (
+	c1 int NOT NULL,
+	c2 text
+) SERVER testserver1 OPTIONS(schema_name 'public', table_name 't2');
+-- test directly dispatch
+SELECT * FROM _ft2 WHERE c1 = 10;
+ c1 |   c2   
+----+--------
+ 10 | AAA010
+(1 row)
+
+SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  
+  c3   |              c4              
+-------+------------------------------
+ 00001 | Fri Jan 02 00:00:00 1970 PST
+(1 row)
+
+ALTER SERVER testserver1 OPTIONS (SET dbname 'no such database');
+SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
+ERROR:  could not connect to server "testserver1"
+DETAIL:  FATAL:  database "no such database" does not exist
+ALTER SERVER testserver1 OPTIONS (SET dbname 'testdb');
+SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
+  c3   |              c4              
+-------+------------------------------
+ 00001 | Fri Jan 02 00:00:00 1970 PST
+(1 row)
+
+EXPLAIN (COSTS false) SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
+                   QUERY PLAN                   
+------------------------------------------------
+ Limit
+   ->  Gather Motion 2:1  (slice1; segments: 2)
+         Merge Key: c3, c1
+         ->  Limit
+               ->  Sort
+                     Sort Key: c3, c1
+                     ->  Foreign Scan on ft1
+ Optimizer: legacy query optimizer
+(8 rows)
+
+SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
+ c1  | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+-----+----+-------+------------------------------+--------------------------+----+------------+-----
+ 101 |  1 | 00101 | Fri Jan 02 00:00:00 1970 PST | Fri Jan 02 00:00:00 1970 | 1  | 1          | foo
+ 102 |  2 | 00102 | Sat Jan 03 00:00:00 1970 PST | Sat Jan 03 00:00:00 1970 | 2  | 2          | foo
+ 103 |  3 | 00103 | Sun Jan 04 00:00:00 1970 PST | Sun Jan 04 00:00:00 1970 | 3  | 3          | foo
+ 104 |  4 | 00104 | Mon Jan 05 00:00:00 1970 PST | Mon Jan 05 00:00:00 1970 | 4  | 4          | foo
+ 105 |  5 | 00105 | Tue Jan 06 00:00:00 1970 PST | Tue Jan 06 00:00:00 1970 | 5  | 5          | foo
+ 106 |  6 | 00106 | Wed Jan 07 00:00:00 1970 PST | Wed Jan 07 00:00:00 1970 | 6  | 6          | foo
+ 107 |  7 | 00107 | Thu Jan 08 00:00:00 1970 PST | Thu Jan 08 00:00:00 1970 | 7  | 7          | foo
+ 108 |  8 | 00108 | Fri Jan 09 00:00:00 1970 PST | Fri Jan 09 00:00:00 1970 | 8  | 8          | foo
+ 109 |  9 | 00109 | Sat Jan 10 00:00:00 1970 PST | Sat Jan 10 00:00:00 1970 | 9  | 9          | foo
+ 110 |  0 | 00110 | Sun Jan 11 00:00:00 1970 PST | Sun Jan 11 00:00:00 1970 | 0  | 0          | foo
+(10 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Limit
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Gather Motion 2:1  (slice1; segments: 2)
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Merge Key: c3, c1
+         ->  Limit
+               Output: c1, c2, c3, c4, c5, c6, c7, c8
+               ->  Sort
+                     Output: c1, c2, c3, c4, c5, c6, c7, c8
+                     Sort Key: t1.c3, t1.c1
+                     ->  Foreign Scan on public.ft1 t1
+                           Output: c1, c2, c3, c4, c5, c6, c7, c8
+                           Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
+ Optimizer: legacy query optimizer
+(14 rows)
+
+SELECT * FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
+ c1  | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+-----+----+-------+------------------------------+--------------------------+----+------------+-----
+ 101 |  1 | 00101 | Fri Jan 02 00:00:00 1970 PST | Fri Jan 02 00:00:00 1970 | 1  | 1          | foo
+ 102 |  2 | 00102 | Sat Jan 03 00:00:00 1970 PST | Sat Jan 03 00:00:00 1970 | 2  | 2          | foo
+ 103 |  3 | 00103 | Sun Jan 04 00:00:00 1970 PST | Sun Jan 04 00:00:00 1970 | 3  | 3          | foo
+ 104 |  4 | 00104 | Mon Jan 05 00:00:00 1970 PST | Mon Jan 05 00:00:00 1970 | 4  | 4          | foo
+ 105 |  5 | 00105 | Tue Jan 06 00:00:00 1970 PST | Tue Jan 06 00:00:00 1970 | 5  | 5          | foo
+ 106 |  6 | 00106 | Wed Jan 07 00:00:00 1970 PST | Wed Jan 07 00:00:00 1970 | 6  | 6          | foo
+ 107 |  7 | 00107 | Thu Jan 08 00:00:00 1970 PST | Thu Jan 08 00:00:00 1970 | 7  | 7          | foo
+ 108 |  8 | 00108 | Fri Jan 09 00:00:00 1970 PST | Fri Jan 09 00:00:00 1970 | 8  | 8          | foo
+ 109 |  9 | 00109 | Sat Jan 10 00:00:00 1970 PST | Sat Jan 10 00:00:00 1970 | 9  | 9          | foo
+ 110 |  0 | 00110 | Sun Jan 11 00:00:00 1970 PST | Sun Jan 11 00:00:00 1970 | 0  | 0          | foo
+(10 rows)
+
+-- whole-row reference
+EXPLAIN (VERBOSE, COSTS false) SELECT t1 FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Limit
+   Output: t1.*, c3, c1
+   ->  Gather Motion 2:1  (slice1; segments: 2)
+         Output: t1.*, c3, c1
+         Merge Key: c3, c1
+         ->  Limit
+               Output: t1.*, c3, c1
+               ->  Sort
+                     Output: t1.*, c3, c1
+                     Sort Key: t1.c3, t1.c1
+                     ->  Foreign Scan on public.ft1 t1
+                           Output: t1.*, c3, c1
+                           Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
+ Optimizer: legacy query optimizer
+(14 rows)
+
+SELECT t1 FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
+                                             t1                                             
+--------------------------------------------------------------------------------------------
+ (101,1,00101,"Fri Jan 02 00:00:00 1970 PST","Fri Jan 02 00:00:00 1970",1,"1         ",foo)
+ (102,2,00102,"Sat Jan 03 00:00:00 1970 PST","Sat Jan 03 00:00:00 1970",2,"2         ",foo)
+ (103,3,00103,"Sun Jan 04 00:00:00 1970 PST","Sun Jan 04 00:00:00 1970",3,"3         ",foo)
+ (104,4,00104,"Mon Jan 05 00:00:00 1970 PST","Mon Jan 05 00:00:00 1970",4,"4         ",foo)
+ (105,5,00105,"Tue Jan 06 00:00:00 1970 PST","Tue Jan 06 00:00:00 1970",5,"5         ",foo)
+ (106,6,00106,"Wed Jan 07 00:00:00 1970 PST","Wed Jan 07 00:00:00 1970",6,"6         ",foo)
+ (107,7,00107,"Thu Jan 08 00:00:00 1970 PST","Thu Jan 08 00:00:00 1970",7,"7         ",foo)
+ (108,8,00108,"Fri Jan 09 00:00:00 1970 PST","Fri Jan 09 00:00:00 1970",8,"8         ",foo)
+ (109,9,00109,"Sat Jan 10 00:00:00 1970 PST","Sat Jan 10 00:00:00 1970",9,"9         ",foo)
+ (110,0,00110,"Sun Jan 11 00:00:00 1970 PST","Sun Jan 11 00:00:00 1970",0,"0         ",foo)
+(10 rows)
+
+-- empty result
+SELECT * FROM ft1 WHERE false;
+ c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 
+----+----+----+----+----+----+----+----
+(0 rows)
+
+-- with WHERE clause
+-- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1'; -- should work, but failed, report as a bug 
+-- SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
+-- with FOR UPDATE/SHARE
+-- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE; -- should work, but failed, report as a bug 
+-- SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;   -- should work, but failed, report as a bug 
+-- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;
+-- SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;    -- should work, but failed, report as a bug 
+-- aggregate
+SELECT COUNT(*) FROM ft1 t1;
+ count 
+-------
+  1000
+(1 row)
+
+-- join two tables
+SELECT t1.c1 FROM ft1 t1 JOIN ft2 t2 ON (t1.c1 = t2.c1) ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
+ERROR:  another command is already in progress
+CONTEXT:  Remote SQL command: SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0
+-- subquery
+SELECT * FROM ft1 t1 WHERE t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 <= 10) ORDER BY c1;
+ERROR:  another command is already in progress
+CONTEXT:  Remote SQL command: SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0
+-- subquery+MAX
+-- SELECT * FROM ft1 t1 WHERE t1.c3 = (SELECT MAX(c3) FROM ft2 t2) ORDER BY c1; -- should work, but failed, report as a bug 
+-- used in CTE
+WITH t1 AS (SELECT * FROM ft1 WHERE c1 <= 10) SELECT t2.c1, t2.c2, t2.c3, t2.c4 FROM t1, ft2 t2 WHERE t1.c1 = t2.c1 ORDER BY t1.c1;
+ERROR:  another command is already in progress
+CONTEXT:  Remote SQL command: SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0
+-- fixed values
+-- SELECT 'fixed', NULL FROM ft1 t1 WHERE c1 = 1; -- should work, but failed, report as a bug 
+-- user-defined operator/function
+CREATE FUNCTION postgres_fdw_abs(int) RETURNS int AS $$
+BEGIN
+RETURN abs($1);
+END
+$$ LANGUAGE plpgsql IMMUTABLE;
+CREATE OPERATOR === (
+    LEFTARG = int,
+    RIGHTARG = int,
+    PROCEDURE = int4eq,
+    COMMUTATOR = ===,
+    NEGATOR = !==
+);
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = postgres_fdw_abs(t1.c2);
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Filter: (t1.c1 = postgres_fdw_abs(t1.c2))
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
+ Optimizer: legacy query optimizer
+(7 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 === t1.c2;
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Filter: (t1.c1 === t1.c2)
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
+ Optimizer: legacy query optimizer
+(7 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = abs(t1.c2);
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = abs(c2)))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = t1.c2;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = c2))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+-- ===================================================================
+-- WHERE with remotely-executable conditions
+-- ===================================================================
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 1;         -- Var, OpExpr(b), Const
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 100 AND t1.c2 = 0; -- BoolExpr
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 100)) AND ((c2 = 0))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NULL;        -- NullTest
+                QUERY PLAN                
+------------------------------------------
+ Result
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   One-Time Filter: false
+ Optimizer: legacy query optimizer
+(4 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NOT NULL;    -- NullTest
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 IS NOT NULL))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE round(abs(c1), 0) = 1; -- FuncExpr
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((round(abs(c1), 0) = 1::numeric))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = -c1;          -- OpExpr(l)
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = (- c1)))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE 1 = c1!;           -- OpExpr(r)
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((1::numeric = (c1 !)))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE (c1 IS NOT NULL) IS DISTINCT FROM (c1 IS NOT NULL); -- DistinctExpr
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE (((c1 IS NOT NULL) IS DISTINCT FROM (c1 IS NOT NULL)))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = ANY(ARRAY[c2, 1, c1 + 0]); -- ScalarArrayOpExpr
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = ANY (ARRAY[c2, 1, (c1 + 0)])))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = (ARRAY[c1,c2,3])[1]; -- ArrayRef
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = ((ARRAY[c1, c2, 3])[1])))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  -- check special chars
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c6 = E'foo''s\\bar'::text))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Filter: (t1.c8 = 'foo'::user_enum)
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
+ Optimizer: legacy query optimizer
+(7 rows)
+
+-- parameterized remote path
+EXPLAIN (VERBOSE, COSTS false)
+  SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice2; segments: 2)
+   Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8, b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
+   ->  Hash Join
+         Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8, b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
+         Hash Cond: (b.c1 = a.c2)
+         ->  Foreign Scan on public.ft2 b
+               Output: b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
+               Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
+         ->  Hash
+               Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
+               ->  Broadcast Motion 2:2  (slice1; segments: 2)
+                     Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
+                     ->  Foreign Scan on public.ft2 a
+                           Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
+                           Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 47))
+ Optimizer: legacy query optimizer
+(16 rows)
+
+-- SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2; -- should work, but failed, report as a bug 
+EXPLAIN (VERBOSE, COSTS false)
+  SELECT * FROM ft2 a, ft2 b
+  WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice2; segments: 2)
+   Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8, b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
+   ->  Hash Join
+         Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8, b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
+         Hash Cond: ((b.c1 = a.c1) AND ((b.c7)::text = upper((a.c7)::text)))
+         ->  Foreign Scan on public.ft2 b
+               Output: b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
+               Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
+         ->  Hash
+               Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
+               ->  Broadcast Motion 2:2  (slice1; segments: 2)
+                     Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
+                     ->  Foreign Scan on public.ft2 a
+                           Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
+                           Filter: (a.c8 = 'foo'::user_enum)
+                           Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c2 = 6))
+ Optimizer: legacy query optimizer
+(17 rows)
+
+SELECT * FROM ft2 a, ft2 b
+WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);
+ERROR:  another command is already in progress
+CONTEXT:  Remote SQL command: SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0
+-- bug before 9.3.5 due to sloppy handling of remote-estimate parameters
+-- SELECT * FROM ft1 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft2 WHERE c1 < 5)); -- should work, but failed, report as a bug
+-- SELECT * FROM ft2 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft1 WHERE c1 < 5)); -- should work, but failed, report as a bug
+-- simple join
+PREPARE st1(int, int) AS SELECT t1.c3, t2.c3 FROM ft1 t1, ft2 t2 WHERE t1.c1 = $1 AND t2.c1 = $2;
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st1(1, 2);
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice2; segments: 2)
+   Output: t1.c3, t2.c3
+   ->  Nested Loop
+         Output: t1.c3, t2.c3
+         ->  Foreign Scan on public.ft1 t1
+               Output: t1.c3
+               Remote SQL: SELECT c3 FROM public.t1 WHERE ((c1 = 1))
+         ->  Materialize
+               Output: t2.c3
+               ->  Broadcast Motion 2:2  (slice1; segments: 2)
+                     Output: t2.c3
+                     ->  Foreign Scan on public.ft2 t2
+                           Output: t2.c3
+                           Remote SQL: SELECT c3 FROM public.t1 WHERE ((c1 = 2))
+ Optimizer: legacy query optimizer
+(15 rows)
+
+-- EXECUTE st1(1, 1);      -- should work, but failed, report as a bug
+-- EXECUTE st1(101, 101);  -- should work, but failed, report as a bug
+-- subquery using stable function (can't be sent to remote)
+PREPARE st2(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 > $1 AND date(c4) = '1970-01-17'::date) ORDER BY c1;
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st2(10, 20);
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice2; segments: 2)
+   Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
+   Merge Key: t1.c1
+   ->  Sort
+         Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
+         Sort Key: t1.c1
+         ->  Hash Semi Join
+               Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
+               Hash Cond: (t1.c3 = t2.c3)
+               ->  Foreign Scan on public.ft1 t1
+                     Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
+                     Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 < 20))
+               ->  Hash
+                     Output: t2.c3
+                     ->  Broadcast Motion 2:2  (slice1; segments: 2)
+                           Output: t2.c3
+                           ->  Foreign Scan on public.ft2 t2
+                                 Output: t2.c3
+                                 Filter: (date(t2.c4) = '01-17-1970'::date)
+                                 Remote SQL: SELECT c3, c4 FROM public.t1 WHERE ((c1 > 10))
+ Optimizer: legacy query optimizer
+(21 rows)
+
+EXECUTE st2(10, 20);
+ERROR:  another command is already in progress
+CONTEXT:  Remote SQL command: SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0
+EXECUTE st2(101, 121);
+ERROR:  another command is already in progress
+CONTEXT:  Remote SQL command: SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0
+-- subquery using immutable function (can be sent to remote)
+PREPARE st3(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 > $1 AND date(c5) = '1970-01-17'::date) ORDER BY c1;
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st3(10, 20);
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice2; segments: 2)
+   Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
+   Merge Key: t1.c1
+   ->  Sort
+         Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
+         Sort Key: t1.c1
+         ->  Hash Semi Join
+               Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
+               Hash Cond: (t1.c3 = t2.c3)
+               ->  Foreign Scan on public.ft1 t1
+                     Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
+                     Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 < 20))
+               ->  Hash
+                     Output: t2.c3
+                     ->  Broadcast Motion 2:2  (slice1; segments: 2)
+                           Output: t2.c3
+                           ->  Foreign Scan on public.ft2 t2
+                                 Output: t2.c3
+                                 Remote SQL: SELECT c3 FROM public.t1 WHERE ((c1 > 10)) AND ((date(c5) = '1970-01-17'::date))
+ Optimizer: legacy query optimizer
+(20 rows)
+
+EXECUTE st3(10, 20);
+ERROR:  another command is already in progress
+CONTEXT:  Remote SQL command: SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0
+EXECUTE st3(20, 30);
+ERROR:  another command is already in progress
+CONTEXT:  Remote SQL command: SELECT count(DISTINCT content) FROM gp_segment_configuration WHERE content >= 0
+-- custom plan should be chosen initially
+PREPARE st4(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 = $1;
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+-- once we try it enough times, should switch to generic plan
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = $1::integer))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+-- value of $1 should not be sent to remote
+PREPARE st5(user_enum,int) AS SELECT * FROM ft1 t1 WHERE c8 = $1 and c1 = $2;
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Filter: (t1.c8 = 'foo'::user_enum)
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(7 rows)
+
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Filter: (t1.c8 = 'foo'::user_enum)
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(7 rows)
+
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Filter: (t1.c8 = 'foo'::user_enum)
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(7 rows)
+
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Filter: (t1.c8 = 'foo'::user_enum)
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(7 rows)
+
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Filter: (t1.c8 = 'foo'::user_enum)
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
+ Optimizer: legacy query optimizer
+(7 rows)
+
+EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Filter: (t1.c8 = $1)
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = $1::integer))
+ Optimizer: legacy query optimizer
+(7 rows)
+
+EXECUTE st5('foo', 1);
+ c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+----+----+-------+------------------------------+--------------------------+----+------------+-----
+  1 |  1 | 00001 | Fri Jan 02 00:00:00 1970 PST | Fri Jan 02 00:00:00 1970 | 1  | 1          | foo
+(1 row)
+
+-- cleanup
+DEALLOCATE st1;
+DEALLOCATE st2;
+DEALLOCATE st3;
+DEALLOCATE st4;
+DEALLOCATE st5;
+-- System columns, except ctid, should not be sent to remote
+EXPLAIN (VERBOSE, COSTS false)
+SELECT * FROM ft1 t1 WHERE t1.tableoid = 'pg_class'::regclass LIMIT 1 WHERE c2 = 1;
+ERROR:  syntax error at or near "WHERE"
+LINE 2: ... WHERE t1.tableoid = 'pg_class'::regclass LIMIT 1 WHERE c2 =...
+                                                             ^
+SELECT * FROM ft1 t1 WHERE t1.tableoid = 'ft1'::regclass LIMIT 1  WHERE c2 = 1;
+ERROR:  syntax error at or near "WHERE"
+LINE 1: ...1 t1 WHERE t1.tableoid = 'ft1'::regclass LIMIT 1  WHERE c2 =...
+                                                             ^
+EXPLAIN (VERBOSE, COSTS false)
+SELECT tableoid::regclass, * FROM ft1 t1 LIMIT 1 WHERE c2 = 1;
+ERROR:  syntax error at or near "WHERE"
+LINE 2: SELECT tableoid::regclass, * FROM ft1 t1 LIMIT 1 WHERE c2 = ...
+                                                         ^
+SELECT tableoid::regclass, * FROM ft1 t1 LIMIT 1 WHERE c2 = 1;
+ERROR:  syntax error at or near "WHERE"
+LINE 1: SELECT tableoid::regclass, * FROM ft1 t1 LIMIT 1 WHERE c2 = ...
+                                                         ^
+EXPLAIN (VERBOSE, COSTS false)
+SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((ctid = '(0,2)'::tid))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
+ c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+----+----+-------+------------------------------+--------------------------+----+------------+-----
+  5 |  5 | 00005 | Tue Jan 06 00:00:00 1970 PST | Tue Jan 06 00:00:00 1970 | 5  | 5          | foo
+  3 |  3 | 00003 | Sun Jan 04 00:00:00 1970 PST | Sun Jan 04 00:00:00 1970 | 3  | 3          | foo
+(2 rows)
+
+EXPLAIN (VERBOSE, COSTS false)
+SELECT ctid, * FROM ft1 t1 LIMIT 1 WHERE c2 = 1;
+ERROR:  syntax error at or near "WHERE"
+LINE 2: SELECT ctid, * FROM ft1 t1 LIMIT 1 WHERE c2 = 1;
+                                           ^
+SELECT ctid, * FROM ft1 t1 LIMIT 1 WHERE c2 = 1;
+ERROR:  syntax error at or near "WHERE"
+LINE 1: SELECT ctid, * FROM ft1 t1 LIMIT 1 WHERE c2 = 1;
+                                           ^
+-- ===================================================================
+-- used in pl/pgsql function
+-- ===================================================================
+CREATE OR REPLACE FUNCTION f_test(p_c1 int) RETURNS int AS $$
+DECLARE
+	v_c1 int;
+BEGIN
+    SELECT c1 INTO v_c1 FROM ft1 WHERE c1 = p_c1 LIMIT 1;
+    PERFORM c1 FROM ft1 WHERE c1 = p_c1 AND p_c1 = v_c1 LIMIT 1;
+    RETURN v_c1;
+END;
+$$ LANGUAGE plpgsql;
+-- SELECT f_test(100); -- should work but failed, report as a bug
+DROP FUNCTION f_test(int);
+-- ===================================================================
+-- conversion error
+-- ===================================================================
+ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE int;
+SELECT * FROM ft1 WHERE c1 = 1;  -- ERROR
+ERROR:  invalid input syntax for integer: "foo"  (seg0 slice1 127.0.0.1:6000 pid=76002)
+CONTEXT:  column "c8" of foreign table "ft1"
+ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE user_enum;
