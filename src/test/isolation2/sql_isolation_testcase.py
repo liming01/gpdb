@@ -53,98 +53,127 @@ def parse_include_statement(sql):
     else:
         raise SyntaxError("expected 'include: %s' to end with a semicolon." % stripped_command)
 
-# nonblock read output of global shell process, if error, write info to err_log_file
-def readlines_nonblock(sh_cmd, err_log_file):
-    global poller,sh_proc
+class GlobalShellExecutor(object):
+    def __init__(self, output_file='', initfile_prefix=''):
+        self.output_file = output_file
+        self.initfile_prefix = initfile_prefix
+        self.v_cnt = 0
+        self.sh_proc = None
+    
+    def begin(self):
+        self.v_cnt = 0
+        self.sh_proc = subprocess.Popen(['/bin/bash', '-i'], stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Set env var ${NL} because "\n" can not be converted to new line for unknown escaping reason
+        cmd = ''' export NL='\n' \n'''
+        self.sh_proc.stdin.write(cmd)
+        self.sh_proc.stdin.flush()
 
-    lines = []
-    while True:
-        if poller.poll(1):
-            line = sh_proc.stdout.readline()
-            if ("<<quit0>>" in line):
-                break
-            elif ("<<quit" in line):
-                print  >>err_log_file, "Error to exec shell %s: %s" % (line.rstrip(), sh_cmd)
-                exit(1)
-            lines.append(line)
-        else:
-            time.sleep(1)
-    return lines
+        self.poller=select.poll()
+        self.poller.register(self.sh_proc.stdout,select.POLLIN)
 
-# execute gobal shell:
-# 1) set input stream -> $RAW_STR
-# 2) execute shell command from input
-# if error, write error message to err_log_file
-def exec_in_global_shell(input, sh_cmd, err_log_file, is_trip_end_blanklines):
-    global sh_proc, v_cnt
+    def terminate(self):
+        # If write the matchsubs section directly to the output, the generated token id will be compared by gpdiff.pl
+        # so here just write all matchsubs section into an auto generated init file when this test case file finished.
+        if self.initfile_prefix!=None and len(self.initfile_prefix)>1:
+            output_init_file = "%s.ini" % self.initfile_prefix
+            cmd = ''' [ ! -z "${MATCHSUBS}" ] && echo "-- start_matchsubs ${NL} ${MATCHSUBS} ${NL}-- end_matchsubs" > %s \n''' % output_init_file
+            # print >>self.output_file, "shell cmd: %s" % cmd
+            self.sh_proc.stdin.write(cmd)
+            self.sh_proc.stdin.flush() 
 
-    v_cnt = 1 + v_cnt
-    escape_in = input.replace('\'',"'\\''")
-    # replace env variable to specific one for not to effect each others
-    sh_cmd = sh_cmd.replace("$RAW_STR", "$RAW_STR%d"%v_cnt)
-    sh_cmd = sh_cmd.replace("${RAW_STR}", "${RAW_STR%d}"%v_cnt)
-    # send shell cmd
-    cmd = ''' export RAW_STR%d='%s' && %s; echo "\n<<quit$?>>";\n''' % (v_cnt, escape_in, sh_cmd)
-    sh_proc.stdin.write(cmd)
-    sh_proc.stdin.flush()
-    # print if need to debug this shell cmd
-    #print >>err_log_file, "shell cmd: %s" % cmd
+        self.sh_proc.terminate()
+        self.v_cnt = 0
 
-    # get the output of shell commmand
-    output=readlines_nonblock(cmd, err_log_file)
-    if is_trip_end_blanklines:
-        for i in range(len(output)-1, 0, -1):
-            if output[i]=='\n':
-                del output[i]
+    # nonblock read output of global shell process, if error, write info to err_log_file
+    def readlines_nonblock(self, sh_cmd):
+        lines = []
+        while True:
+            if self.poller.poll(1):
+                line = self.sh_proc.stdout.readline()
+                if ("<<quit0>>" in line):
+                    break
+                elif ("<<quit" in line):
+                    print  >>self.output_file, "Error to exec shell %s: %s" % (line.rstrip(), sh_cmd)
+                    exit(1)
+                lines.append(line)
             else:
-                break
+                time.sleep(1)
+        return lines
 
-    return output
+    # execute gobal shell:
+    # 1) set input stream -> $RAW_STR
+    # 2) execute shell command from input
+    # if error, write error message to err_log_file
+    def exec_in_global_shell(self, input, sh_cmd, is_trip_end_blanklines):
+        self.v_cnt = 1 + self.v_cnt
+        escape_in = input.replace('\'',"'\\''")
+        # replace env variable to specific one for not to effect each others
+        sh_cmd = sh_cmd.replace("$RAW_STR", "$RAW_STR%d"%self.v_cnt)
+        sh_cmd = sh_cmd.replace("${RAW_STR}", "${RAW_STR%d}"%self.v_cnt)
+        # send shell cmd
+        cmd = ''' export RAW_STR%d='%s' && %s; echo "\n<<quit$?>>";\n''' % (self.v_cnt, escape_in, sh_cmd)
+        self.sh_proc.stdin.write(cmd)
+        self.sh_proc.stdin.flush()
+        # print if need to debug this shell cmd
+        #print >>self.output_file, "shell cmd: %s" % cmd
 
-def extract_sh_cmd(header, input_str):
-    start=len(header)
-    is_start = False
-    end=0
-    is_trip_comma = False
-    res_cmd=""
-    res_sql=""
-
-    input_str = input_str.lstrip()
-    if not input_str.startswith(header):
-        return (False, None, None)
-
-    for i in range(start, len(input_str)):
-        if end==0 and input_str[i] == '\'':
-            if not is_start:
-                # find shell begin postion
-                is_start = True
-                start = i+1
-                continue
-            cnt = 0
-            for j in range(i-1, 0, -1):
-                if input_str[j] == '\\':
-                    cnt = 1 + cnt
+        # get the output of shell commmand
+        output=self.readlines_nonblock(cmd)
+        if is_trip_end_blanklines:
+            for i in range(len(output)-1, 0, -1):
+                if output[i]=='\n':
+                    del output[i]
                 else:
                     break
-            if cnt%2 == 1:
+
+        return output
+
+    def extract_sh_cmd(self, header, input_str):
+        start=len(header)
+        is_start = False
+        end=0
+        is_trip_comma = False
+        res_cmd=""
+        res_sql=""
+
+        input_str = input_str.lstrip()
+        if not input_str.startswith(header):
+            return (False, None, None)
+
+        for i in range(start, len(input_str)):
+            if end==0 and input_str[i] == '\'':
+                if not is_start:
+                    # find shell begin postion
+                    is_start = True
+                    start = i+1
+                    continue
+                cnt = 0
+                for j in range(i-1, 0, -1):
+                    if input_str[j] == '\\':
+                        cnt = 1 + cnt
+                    else:
+                        break
+                if cnt%2 == 1:
+                    continue
+                # find shell end postion
+                res_cmd = input_str[start: i]
+                end = i
                 continue
-            # find shell end postion
-            res_cmd = input_str[start: i]
-            end = i
-            continue
-        if end!=0:
-            # skip space until ':'
-            if input_str[i] == ' ':
-                continue
-            elif input_str[i] == ':':
-                is_trip_comma = True
-                res_sql =  input_str[i+1:]
-                break
-    if not is_start or end==0 or not is_trip_comma:
-        raise Exception("Invalid format: %v", input_str)
-    #unescape \' to '
-    res_cmd = res_cmd.replace('\\\'','\'')
-    return (True, res_cmd, res_sql)
+            if end!=0:
+                # skip space until ':'
+                if input_str[i] == ' ':
+                    continue
+                elif input_str[i] == ':':
+                    is_trip_comma = True
+                    res_sql =  input_str[i+1:]
+                    break
+        if not is_start or end==0 or not is_trip_comma:
+            raise Exception("Invalid format: %v", input_str)
+        #unescape \' to ' and \\ to '
+        res_cmd = res_cmd.replace('\\\'','\'')
+        res_cmd = res_cmd.replace('\\\\','\\')
+        return (True, res_cmd, res_sql)
 
 class SQLIsolationExecutor(object):
     # define enum value for connection_mode
@@ -185,7 +214,7 @@ class SQLIsolationExecutor(object):
                 self.connection_mode, pipe, self.dbname)
             sp.do()
 
-        def query(self, command, out_sh_cmd):
+        def query(self, command, out_sh_cmd, global_sh_executor):
             self.out_file.flush()
             if len(command.strip()) == 0:
                 return
@@ -198,7 +227,7 @@ class SQLIsolationExecutor(object):
                 raise Exception("Execution failed")
             
             if out_sh_cmd!=None:
-                new_out=exec_in_global_shell(r.rstrip(), out_sh_cmd, self.out_file, True)
+                new_out=global_sh_executor.exec_in_global_shell(r.rstrip(), out_sh_cmd,  True)
                 for line in new_out:
                     self.out_file.write(line)
                 self.out_file.flush()
@@ -449,7 +478,7 @@ class SQLIsolationExecutor(object):
             raise Exception("Invalid gp_segment_configuration contents")
         return [int(content[0]) for content in result]
 
-    def process_command(self, command, output_file):
+    def process_command(self, command, output_file, global_sh_executor):
         """
             Processes the given command.
             The command at this point still includes the isolation behavior
@@ -482,17 +511,17 @@ class SQLIsolationExecutor(object):
                     raise Exception("Invalid syntax with dbname, should be of the form 1:@db_name <db_name>: <sql>")
                 sql = sql_parts[1]
             else:
-                (found_hd, in_sh_cmd, ex_sql) =  extract_sh_cmd('@in_sh', sql)
+                (found_hd, in_sh_cmd, ex_sql) =  global_sh_executor.extract_sh_cmd('@in_sh', sql)
                 if found_hd:
                     sql = ex_sql
                 else:
-                    (found_hd, out_sh_cmd, ex_sql) =  extract_sh_cmd('@out_sh', sql)
+                    (found_hd, out_sh_cmd, ex_sql) = global_sh_executor.extract_sh_cmd('@out_sh', sql)
                     if found_hd:
                         sql = ex_sql
             
             # if set @in_sh or @out_sh
             if in_sh_cmd!=None:
-                sqls=exec_in_global_shell(sql, in_sh_cmd, output_file, True)
+                sqls=global_sh_executor.exec_in_global_shell(sql, in_sh_cmd, True)
                 if(len(sqls)!=1):
                     raise Exception("Invalid shell commmand: %v", sqls)
                 else:
@@ -539,10 +568,10 @@ class SQLIsolationExecutor(object):
                     process_name,
                     dbname=dbname
                 ).query(
-                    load_helper_file(helper_file), out_sh_cmd
+                    load_helper_file(helper_file), out_sh_cmd, global_sh_executor
                 )
             else:
-                self.get_process(output_file, process_name, dbname=dbname).query(sql.strip(), out_sh_cmd)
+                self.get_process(output_file, process_name, dbname=dbname).query(sql.strip(), out_sh_cmd, global_sh_executor)
         elif flag == "&":
             self.get_process(output_file, process_name, dbname=dbname).fork(sql.strip(), True)
         elif flag == ">":
@@ -580,7 +609,7 @@ class SQLIsolationExecutor(object):
                 process_names = [process_name]
 
             for name in process_names:
-                self.get_process(output_file, name, connection_mode=SQLIsolationExecutor.RETRIEVE_MODE, dbname=dbname).query(sql.strip(), out_sh_cmd)
+                self.get_process(output_file, name, connection_mode=SQLIsolationExecutor.RETRIEVE_MODE, dbname=dbname).query(sql.strip(), out_sh_cmd, global_sh_executor)
         elif flag == "R&":
             self.get_process(output_file, process_name, connection_mode=SQLIsolationExecutor.RETRIEVE_MODE, dbname=dbname).fork(sql.strip(), True)
         elif flag == "R<":
@@ -594,19 +623,15 @@ class SQLIsolationExecutor(object):
         else:
             raise Exception("Invalid isolation flag")
 
-    def process_isolation_file(self, sql_file, output_file):
+    def process_isolation_file(self, sql_file, output_file, initfile_prefix):
         """
             Processes the given sql file and writes the output
             to output file
         """
+        shell_executor = GlobalShellExecutor(output_file, initfile_prefix)
         try:
             command = ""
-            global sh_proc, v_cnt, poller
-            v_cnt = 0
-            sh_proc = subprocess.Popen(['/bin/bash', '-i'], stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            poller=select.poll()
-            poller.register(sh_proc.stdout,select.POLLIN)
+            shell_executor.begin()
 
             for line in sql_file:
                 #tinctest.logger.info("re.match: %s" %re.match(r"^\d+[q\\<]:$", line))
@@ -620,7 +645,7 @@ class SQLIsolationExecutor(object):
                 elif re.match(r".*;\s*$", line) or re.match(r"^\d+[q\\<]:\s*$", line) or re.match(r"^-?\d+[UR][q\\<]:\s*$", line):
                     command += command_part
                     try:
-                        self.process_command(command, output_file)
+                        self.process_command(command, output_file, shell_executor)
                     except Exception as e:
                         print >>output_file, "FAILED: ", e
                     command = ""
@@ -632,14 +657,12 @@ class SQLIsolationExecutor(object):
         except:
             for process in self.processes.values():
                 process.terminate()
-            sh_proc.terminate()
-            v_cnt = 0
+            shell_executor.terminate()
             raise
         finally:
             for process in self.processes.values():
                 process.terminate()
-            sh_proc.terminate()
-            v_cnt = 0
+            shell_executor.terminate()
 
 class SQLIsolationTestCase:
     """
@@ -756,12 +779,14 @@ class SQLIsolationTestCase:
         or get output info. Just use the env variable ${RAW_STR} to refer to the input/out stream before shell execution,
         and the output of the shell commmand will be used as the SQL exeucted or output printed into results file.
 
-        1:@in_sh ' echo "${RAW_STR}" | sed \'s#SELECT#select#\' ': <sql>
-        2:@out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" ': <sql
+        1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,hostname,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+        2R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
 
         These 2 sample is to:
-        - Sample 1: replaceing "SELECT" by "select" for <sql>
-        - Sample 2: set env variable ${TOKEN1} to the cell (row 3, col 1) of the result set, and print the raw result.
+        - Sample 1: set env variable ${TOKEN1} to the cell (row 3, col 1) of the result set, and print the raw result. 
+          The env var ${MATCHSUBS} is used to store the matchsubs section so that we can store it into initfile when 
+          this test case file is finished executing.
+        - Sample 2: replaceing "@TOKEN1" by generated token which is fetch in sample1
 
         Catalog Modification:
 
@@ -820,7 +845,7 @@ class SQLIsolationTestCase:
         self.test_artifacts.append(out_file)
         executor = SQLIsolationExecutor(dbname=self.db_name)
         with open(out_file, "w") as f:
-            executor.process_isolation_file(open(sql_file), f)
+            executor.process_isolation_file(open(sql_file), f, out_file)
             f.flush()   
         
         if out_file[-2:] == '.t':
@@ -833,8 +858,10 @@ if __name__ == "__main__":
     parser = OptionParser()
     parser.add_option("--dbname", dest="dbname",
                       help="connect to database DBNAME", metavar="DBNAME")
+    parser.add_option("--initfile_prefix", dest="initfile_prefix",
+                      help="The file path prefix for automatically generated initfile", metavar="INITFILE_PREFIX")
     (options, args) = parser.parse_args()
 
     executor = SQLIsolationExecutor(dbname=options.dbname)
 
-    executor.process_isolation_file(sys.stdin, sys.stdout)
+    executor.process_isolation_file(sys.stdin, sys.stdout, options.initfile_prefix)

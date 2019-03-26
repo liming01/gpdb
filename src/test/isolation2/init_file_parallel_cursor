@@ -19,10 +19,4 @@ s/with Oid \d+ \(.*\)/with Oid OID/
 m/^ERROR: .* (seg\d+ [0-9.]+:\d+ pid=\d+)/
 s/seg\d+ [0-9.]+:\d+ pid=\d+/SEG IP:PORT pid=PID/
 
-# message:
-# ERROR:  failed to attach non exist end point 1971228215 (cdbendpoint.c:844)
-
-m/^ERROR:  failed to attach non exist (end point \d+ \(cdbendpoint.c:\d+\))/
-s/end point \d+ \(cdbendpoint.c:\d+\) /end point TOKEN \(cdbendpoint.c: LINENO\)/
-
 -- end_matchsubs

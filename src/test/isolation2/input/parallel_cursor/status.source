@@ -5,13 +5,15 @@ CREATE TABLE t1 (a INT);
 insert into t1 select generate_series(1,100);
 
 1: BEGIN;
-1: SELECT * FROM GP_ENDPOINTS;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" ': SELECT * FROM GP_ENDPOINTS;
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,hostname,status FROM GP_ENDPOINTS WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
-*R: SELECT * FROM GP_ENDPOINTS_STATUS_INFO();
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token=@TOKEN1;
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
 
 1<:
 1: CLOSE c1;
+
+-- check no token info on QE after close parallel cursor
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token=@TOKEN1;
