@@ -18,6 +18,7 @@
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_foreign_table.h"
 #include "catalog/pg_user_mapping.h"
+#include "cdb/cdbutil.h"
 #include "commands/defrem.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
@@ -70,6 +71,13 @@ SeparateOutCustomForeignOptions(List **options)
 			*options = list_delete_cell(*options, lc, prev);
 		}
 
+		prev = lc;
+	}
+
+	foreach(lc, *options)
+	{
+		DefElem    *def = (DefElem *) lfirst(lc);
+
 		if (strcmp(def->defname, "mpp_size") == 0)
 		{
 			mpp_size_str = defGetString(def);
@@ -85,6 +93,7 @@ SeparateOutCustomForeignOptions(List **options)
 
 			*options = list_delete_cell(*options, lc, prev);
 		}
+
 		prev = lc;
 	}
 
@@ -216,6 +225,8 @@ GetForeignServer(Oid serverid)
 	}
 
 	server->mpp_size = cfo.mpp_size;
+	if (server->mpp_size <= 0)
+		server->mpp_size = getgpsegmentCount();
 
 	ReleaseSysCache(tp);
 
