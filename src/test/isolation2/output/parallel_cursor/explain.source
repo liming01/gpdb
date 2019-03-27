@@ -57,3 +57,26 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 W
  Endpoint: on segments: contentid [1, 0] 
  Optimizer: legacy query optimizer       
 (5 rows)
+
+-- Test: parallel cursor with other options (WITH HOLD/SCROLL/) is not support
+EXPLAIN (COSTS false) DECLARE c1 PARALLEL CURSOR WITHOUT HOLD FOR SELECT * FROM t1;
+ QUERY PLAN                        
+-----------------------------------
+ Seq Scan on t1                    
+ Endpoint: on all 3 segments       
+ Optimizer: legacy query optimizer 
+(3 rows)
+EXPLAIN (COSTS false) DECLARE c1 PARALLEL CURSOR WITH HOLD FOR SELECT * FROM t1;
+ERROR:  DECLARE PARALLEL CURSOR WITH HOLD ... is not supported
+DETAIL:  Holdable cursors can not be parallel
+
+EXPLAIN (COSTS false) DECLARE c1 NO SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
+ QUERY PLAN                        
+-----------------------------------
+ Seq Scan on t1                    
+ Endpoint: on all 3 segments       
+ Optimizer: legacy query optimizer 
+(3 rows)
+EXPLAIN (COSTS false) DECLARE c1 SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
+ERROR:  SCROLL is not allowed for the PARALLEL cursors
+DETAIL:  Scrollable cursors can not be parallel

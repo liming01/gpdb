@@ -1084,13 +1084,6 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 	AssignGangs(ds, queryDesc);
 
 	/*
-	 * For PARALLEL CURSOR, we should set unique token to QE shared memory,
-	 * so that libpq RETRIEVE mode connection can be established afterwards.
-	 */
-	if (portal->cursorOptions & CURSOR_OPT_PARALLEL) {
-
-	}
-	/*
 	 * Traverse the slice tree in sliceTbl rooted at rootIdx and build a
 	 * vector of slice indexes specifying the order of [potential] dispatch.
 	 */

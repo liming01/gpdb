@@ -61,11 +61,6 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	Portal		portal;
 	MemoryContext oldContext;
 
-	if ((cstmt->options & CURSOR_OPT_SCROLL) && (cstmt->options & CURSOR_OPT_PARALLEL))
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("SCROLL is not allowed for PARALLEL cursors")));
-
 	if (cstmt == NULL || !IsA(cstmt, DeclareCursorStmt))
 		elog(ERROR, "PerformCursorOpen called for non-cursor query");
 
