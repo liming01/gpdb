@@ -624,13 +624,32 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 
 	if (cursorOptions & CURSOR_OPT_PARALLEL)
 	{
+		char endpoint_info[1024];
+
 		ExplainOpenGroup("Cursor", "Cursor", true, es);
 
 		if (!(queryDesc->plannedstmt->planTree->flow->flotype == FLOW_SINGLETON &&
 			queryDesc->plannedstmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
 		{
-			char endpoint_info[24];
-			snprintf(endpoint_info, 24, "on segments: %d", getgpsegmentCount());
+			if (queryDesc->plannedstmt->planTree->directDispatch.isDirectDispatch &&
+				queryDesc->plannedstmt->planTree->directDispatch.contentIds != NULL)
+			{
+				/* Direct dispatch to some segments, so end-points only exist
+				 * on these segments
+				 */
+				ListCell *cell;
+				bool isFirst = true;
+				size_t len = 0;
+				len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, "on segments: contentid [");
+				foreach(cell, queryDesc->plannedstmt->planTree->directDispatch.contentIds)
+				{
+					len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, (isFirst)?"%d":", %d", lfirst_int(cell));
+				}
+				len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, "]");
+
+			}else{
+				snprintf(endpoint_info, sizeof(endpoint_info), "on all %d segments", getgpsegmentCount());
+			}
 			ExplainProperty("Endpoint", endpoint_info, false, es);
 		}
 		else

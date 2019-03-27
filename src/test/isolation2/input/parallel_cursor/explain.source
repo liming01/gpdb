@@ -1,0 +1,11 @@
+-- @Description Tests "EXPLAIN" statement for the parallel cursor
+-- 
+DROP TABLE IF EXISTS t1;
+CREATE TABLE t1 (a INT);
+insert into t1 select generate_series(1,100);
+
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM t1;
+-- Test: explain output: Endpoint info (on master/on some segments/on all segments)
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1; 
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 ORDER BY a; 
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 WHERE a=1; 

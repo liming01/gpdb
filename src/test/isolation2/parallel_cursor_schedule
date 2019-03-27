@@ -1,3 +1,4 @@
+test: parallel_cursor/explain
 test: parallel_cursor/status
 
 
