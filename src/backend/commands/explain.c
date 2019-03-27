@@ -644,6 +644,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 				foreach(cell, queryDesc->plannedstmt->planTree->directDispatch.contentIds)
 				{
 					len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, (isFirst)?"%d":", %d", lfirst_int(cell));
+					isFirst = false;
 				}
 				len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, "]");
 

@@ -48,3 +48,12 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 W
  Endpoint: on segments: contentid [1] 
  Optimizer: legacy query optimizer    
 (5 rows)
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 WHERE a=1 OR a=2;
+ QUERY PLAN                              
+-----------------------------------------
+ Seq Scan on public.t1                   
+   Output: a, ctid, gp_segment_id        
+   Filter: ((t1.a = 1) OR (t1.a = 2))    
+ Endpoint: on segments: contentid [1, 0] 
+ Optimizer: legacy query optimizer       
+(5 rows)
