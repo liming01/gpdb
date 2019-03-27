@@ -272,3 +272,21 @@ DROP FUNCTION f_test(int);
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE int;
 SELECT * FROM ft1 WHERE c1 = 1;  -- ERROR
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE user_enum;
+
+-- ===================================================================
+-- subtransaction
+--  + local/remote error doesn't break cursor
+-- ===================================================================
+BEGIN;
+DECLARE c CURSOR FOR SELECT * FROM ft1 ORDER BY c1;
+FETCH c;
+SAVEPOINT s;
+ERROR OUT;          -- ERROR
+ROLLBACK TO s;
+FETCH c;
+SAVEPOINT s;
+-- SELECT * FROM ft1 WHERE 1 / (c1 - 1) > 0;  -- ERROR TODO: not an expected error, another command is already in progress
+ROLLBACK TO s;
+FETCH c;
+-- SELECT * FROM ft1 ORDER BY c1 LIMIT 1;  -- should work but failed, report as a bug
+COMMIT;

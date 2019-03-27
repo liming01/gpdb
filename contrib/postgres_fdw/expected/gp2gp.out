@@ -770,8 +770,8 @@ SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
 SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
  c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
 ----+----+-------+------------------------------+--------------------------+----+------------+-----
-  5 |  5 | 00005 | Tue Jan 06 00:00:00 1970 PST | Tue Jan 06 00:00:00 1970 | 5  | 5          | foo
   3 |  3 | 00003 | Sun Jan 04 00:00:00 1970 PST | Sun Jan 04 00:00:00 1970 | 3  | 3          | foo
+  5 |  5 | 00005 | Tue Jan 06 00:00:00 1970 PST | Tue Jan 06 00:00:00 1970 | 5  | 5          | foo
 (2 rows)
 
 EXPLAIN (VERBOSE, COSTS false)
@@ -802,6 +802,41 @@ DROP FUNCTION f_test(int);
 -- ===================================================================
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE int;
 SELECT * FROM ft1 WHERE c1 = 1;  -- ERROR
-ERROR:  invalid input syntax for integer: "foo"  (seg0 slice1 127.0.0.1:6000 pid=76002)
+ERROR:  invalid input syntax for integer: "foo"  (seg0 slice1 127.0.0.1:6000 pid=6541)
 CONTEXT:  column "c8" of foreign table "ft1"
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE user_enum;
+-- ===================================================================
+-- subtransaction
+--  + local/remote error doesn't break cursor
+-- ===================================================================
+BEGIN;
+DECLARE c CURSOR FOR SELECT * FROM ft1 ORDER BY c1;
+FETCH c;
+ c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+----+----+-------+------------------------------+--------------------------+----+------------+-----
+  1 |  1 | 00001 | Fri Jan 02 00:00:00 1970 PST | Fri Jan 02 00:00:00 1970 | 1  | 1          | foo
+(1 row)
+
+SAVEPOINT s;
+ERROR OUT;          -- ERROR
+ERROR:  syntax error at or near "ERROR"
+LINE 1: ERROR OUT;
+        ^
+ROLLBACK TO s;
+FETCH c;
+ c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+----+----+-------+------------------------------+--------------------------+----+------------+-----
+  2 |  2 | 00002 | Sat Jan 03 00:00:00 1970 PST | Sat Jan 03 00:00:00 1970 | 2  | 2          | foo
+(1 row)
+
+SAVEPOINT s;
+-- SELECT * FROM ft1 WHERE 1 / (c1 - 1) > 0;  -- ERROR TODO: not an expected error, another command is already in progress
+ROLLBACK TO s;
+FETCH c;
+ c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+----+----+-------+------------------------------+--------------------------+----+------------+-----
+  3 |  3 | 00003 | Sun Jan 04 00:00:00 1970 PST | Sun Jan 04 00:00:00 1970 | 3  | 3          | foo
+(1 row)
+
+-- SELECT * FROM ft1 ORDER BY c1 LIMIT 1;  -- should work but failed, report as a bug
+COMMIT;
