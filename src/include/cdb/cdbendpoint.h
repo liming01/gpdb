@@ -18,6 +18,7 @@
 #include "storage/latch.h"
 #include "tcop/dest.h"
 
+
 enum EndPointRole
 {
 	EPR_SENDER = 1,
@@ -64,6 +65,7 @@ typedef struct token
 #define INVALID_SESSION_ID -1
 
 #define SHAREDTOKEN_DBID_NUM 64
+#define TOKEN_NAME_FORMAT_STR "TK%010d"
 /*
  * SharedTokenDesc is a entry to store the information of a token, includes:
  * token: token number
@@ -94,6 +96,8 @@ extern void EndPoint_ShmemInit(void);
 extern void Token_ShmemInit(void);
 
 extern int32 GetUniqueGpToken(void);
+extern int32 parseToken(char *token);
+extern char* printToken(int32 token_id);
 extern void SetGpToken(int32, int, Oid);
 extern void ClearGpToken(void);
 extern void DismissGpToken(void);

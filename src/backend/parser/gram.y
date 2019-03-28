@@ -69,6 +69,7 @@
 #include "cdb/cdbutil.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbpartition.h"
+#include "cdb/cdbendpoint.h"
 
 #include "utils/guc.h"
 
@@ -11907,14 +11908,14 @@ RetrieveStmt:
 			RETRIEVE SignedIconst FROM name
 				{
 					RetrieveStmt *n = makeNode(RetrieveStmt);
-					n->token = atol($4);
+					n->token = parseToken($4);
 					n->count = $2;
 					$$ = (Node *)n;
 				}
 			| RETRIEVE ALL FROM name
 				{
 					RetrieveStmt *n = makeNode(RetrieveStmt);
-					n->token = atol($4);
+					n->token = parseToken($4);
 					n->count = -1;
 					n->is_all = true;
 					$$ = (Node *)n;

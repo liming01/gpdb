@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <poll.h>
@@ -249,11 +250,40 @@ ClearParallelCursorToken(int32 token)
 	}
 }
 
+int32
+parseToken(char *token)
+{
+	int32 token_id = InvalidToken;
+
+	if(token[0]=='T' && token[1]=='K')
+	{
+		token_id = atol(token+2);
+	}
+	else{
+		ep_log(ERROR, "Invalid token \"%s\"", token);
+	}
+
+	return token_id;
+}
+
+/* Need to pfree() the result */
+char*
+printToken(int32 token_id)
+{
+	Insist(token_id!=InvalidToken);
+
+	char* res = palloc(13);  //2 ('TK') + 10(max value length of int32) + 1 ('\0')
+
+	sprintf(res, TOKEN_NAME_FORMAT_STR, token_id);
+
+	return res;
+}
+
 void
 SetGpToken(int32 token, int session_id, Oid user_id)
 {
 	if (Gp_token.token != InvalidToken)
-		ep_log(ERROR, "end point token %d already set", Gp_token.token);
+		ep_log(ERROR, "end point token "TOKEN_NAME_FORMAT_STR" already set", Gp_token.token);
 
 	ep_log(DEBUG3, "end point token is set to %d", token);
 	Gp_token.token = token;
@@ -264,7 +294,7 @@ SetGpToken(int32 token, int session_id, Oid user_id)
 void
 ClearGpToken(void)
 {
-	ep_log(LOG, "end point token %d unset", Gp_token.token);
+	ep_log(LOG, "end point token "TOKEN_NAME_FORMAT_STR" unset", Gp_token.token);
 	Gp_token.token = InvalidToken;
 	Gp_token.session_id = INVALID_SESSION_ID;
 	Gp_token.user_id = InvalidOid;
@@ -707,9 +737,7 @@ ResetEndPointToken(volatile EndPointDesc * endPointDesc)
 bool
 FindEndPointTokenByUser(Oid user_id, const char *token_str)
 {
-#define MAX_TOKEN_STR_LEN 16
 	bool		isFound = false;
-	char		token[MAX_TOKEN_STR_LEN];
 
 	SpinLockAcquire(shared_end_points_lock);
 
@@ -723,13 +751,15 @@ FindEndPointTokenByUser(Oid user_id, const char *token_str)
 			 * that even if the password can not be parsed to int32, there is
 			 * no crash.
 			 */
-			snprintf(token, MAX_TOKEN_STR_LEN, "%d", SharedEndPoints[i].token);
+			char* token = printToken(SharedEndPoints[i].token);
 
 			if (strcmp(token, token_str) == 0)
 			{
 				isFound = true;
+				pfree(token);
 				break;
 			}
+			pfree(token);
 		}
 	}
 
@@ -841,7 +871,7 @@ AttachEndPoint()
 			   Gp_token.token, attached_pid);
 
 	if (!mySharedEndPoint)
-		ep_log(ERROR, "failed to attach non exist end point %d", Gp_token.token);
+		ep_log(ERROR, "failed to attach non exist end point for token "TOKEN_NAME_FORMAT_STR, Gp_token.token);
 
 	s_needAck = false;
 
@@ -1002,7 +1032,7 @@ check_end_point_allocated()
 			   endpoint_role_to_string(Gp_endpoint_role));
 
 	if (!mySharedEndPoint)
-		ep_log(ERROR, "end point slot for token %d not allocated", Gp_token.token);
+		ep_log(ERROR, "end point slot for token "TOKEN_NAME_FORMAT_STR" not allocated", Gp_token.token);
 
 	check_gp_token_valid();
 
@@ -1011,7 +1041,7 @@ check_end_point_allocated()
 	if (mySharedEndPoint->token != Gp_token.token)
 	{
 		SpinLockRelease(shared_end_points_lock);
-		ep_log(ERROR, "end point slot for token %d not allocated", Gp_token.token);
+		ep_log(ERROR, "end point slot for token "TOKEN_NAME_FORMAT_STR" not allocated", Gp_token.token);
 	}
 
 	SpinLockRelease(shared_end_points_lock);
@@ -1535,7 +1565,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		TupleDesc	tupdesc = CreateTemplateTupleDesc(GP_ENDPOINTS_INFO_ATTRNUM, false);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
-						   INT4OID, -1, 0);
+		                   TEXTOID, -1, 0);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "cursorname",
 						   TEXTOID, -1, 0);
@@ -1600,7 +1630,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 				for (int j = 0; j < PQntuples(result); j++)
 				{
-					mystatus->status[idx].token = atoi(PQgetvalue(result, j, 0));
+					mystatus->status[idx].token = parseToken(PQgetvalue(result, j, 0));
 					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 1));
 					mystatus->status[idx].attached = atoi(PQgetvalue(result, j, 2));
 					mystatus->status[idx].sender_pid= atoi(PQgetvalue(result, j, 3));
@@ -1678,8 +1708,12 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 			{
 				/* one end-point on master */
 				dbinfo = dbid_get_dbinfo(MASTER_DBID);
-				values[0] = Int32GetDatum(entry->token);
+
+				char *token = printToken(entry->token);
+				values[0] = CStringGetTextDatum(token);
+
 				nulls[0] = false;
+
 				values[1] = CStringGetTextDatum(entry->cursor_name);
 				nulls[1] = false;
 				values[2] = Int32GetDatum(entry->session_id);
@@ -1729,6 +1763,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				mystatus->curTokenIdx++;
 				SpinLockRelease(shared_tokens_lock);
 				SRF_RETURN_NEXT(funcctx, result);
+				pfree(token);
 			}
 			else
 			{
@@ -1750,7 +1785,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						 && mystatus->curSegIdx < mystatus->segment_num)
 				{
 					/* get a primary segment and return this token and segment */
-					values[0] = Int32GetDatum(entry->token);
+					char *token = printToken(entry->token);
+					values[0] = CStringGetTextDatum(token);
+
 					nulls[0] = false;
 					values[1] = CStringGetTextDatum(entry->cursor_name);
 					nulls[1] = false;
@@ -1808,6 +1845,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					result = HeapTupleGetDatum(tuple);
 					SpinLockRelease(shared_tokens_lock);
 					SRF_RETURN_NEXT(funcctx, result);
+					pfree(token);
 				}
 			}
 		}
@@ -1854,7 +1892,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		TupleDesc	tupdesc = CreateTemplateTupleDesc(8, false);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
-						   INT4OID, -1, 0);
+		                   TEXTOID, -1, 0);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "databaseid",
 						   INT4OID, -1, 0);
@@ -1903,7 +1941,9 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 
 		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
 		{
-			values[0] = Int32GetDatum(entry->token);
+			char *token = printToken(entry->token);
+			values[0] = CStringGetTextDatum(token);
+
 			nulls[0] = false;
 			values[1] = Int32GetDatum(entry->database_id);
 			nulls[1] = false;
@@ -1924,6 +1964,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			mystatus->current_idx++;
 			SpinLockRelease(shared_end_points_lock);
 			SRF_RETURN_NEXT(funcctx, result);
+			pfree(token);
 		}
 		mystatus->current_idx++;
 	}

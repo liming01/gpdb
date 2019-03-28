@@ -11,17 +11,17 @@ INSERT 100
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1:  SELECT token,hostname,status FROM GP_ENDPOINTS WHERE cursorname='c1';
- token    | hostname    | status 
-----------+-------------+--------
- token_id1 | Mrmbp.local | INIT   
- token_id1 | Mrmbp.local | INIT   
- token_id1 | Mrmbp.local | INIT   
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | INIT   
+ token_id1 | INIT   
+ token_id1 | INIT   
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c1;
  <waiting ...>
 
-*R:  SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token=token_id1;
+*R:  SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id1';
  attached 
 ----------
 (0 rows)
@@ -38,7 +38,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point token_id1 (cdbendpoint.c:844)
+ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
  a  
 ----
  2  
@@ -156,7 +156,7 @@ EXECUTE
 CLOSE
 
 -- check no token info on QE after close parallel cursor
-*R:  SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token=token_id1;
+*R:  SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id1';
  token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
 -------+------------+-----------+-------------+----------+------+-----------+--------
 (0 rows)
