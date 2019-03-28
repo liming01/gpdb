@@ -957,6 +957,9 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	}
 	else
 	{
+		ListCell   *cell;
+		DefElem    *dbname = NULL;
+		#define SVR_OPT_DBNAME "dbname"
 		Value	*host;
 		Value	*port;
 		Value   *foreign_username;
@@ -976,6 +979,18 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 				break;
 		}
 
+		/* Find the value of foreign sever option "dbname" */
+		foreach(cell, server->options)
+		{
+			DefElem    *defel = (DefElem *) lfirst(cell);
+
+			if (strcmp(defel->defname, SVR_OPT_DBNAME) == 0)
+			{
+				dbname = defel;
+				break;
+			}
+		}
+
 		foreign_username = linitial(list_nth(fsplan->fdw_private, FdwScanPrivateUserName));
 		fsstate->token = linitial_int(list_nth(fsplan->fdw_private, FdwScanPrivateToken));
 		fsstate->endpoints_list = list_nth(fsplan->fdw_private, FdwScanPrivateEndpoints);
@@ -993,6 +1008,10 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 			server->options = NIL;
 			server->options = lappend(server->options, makeDefElem(pstrdup("host"), (Node *)host));
 			server->options = lappend(server->options, makeDefElem(pstrdup("port"), (Node *)port));
+			if (dbname != NULL)
+			{
+				server->options = lappend(server->options, makeDefElem(pstrdup(SVR_OPT_DBNAME), dbname->arg));
+			}
 			server->options = lappend(server->options, makeDefElem(pstrdup("options"), (Node *)makeString("-c gp_session_role=retrieve")));
 
 			user->options = NIL;
