@@ -58,7 +58,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 W
  Optimizer: legacy query optimizer       
 (5 rows)
 
--- Test: parallel cursor with other options (WITH HOLD/SCROLL/) is not support
+-- Parallel cursor with other options (WITH HOLD/SCROLL) is not supported
 EXPLAIN (COSTS false) DECLARE c1 PARALLEL CURSOR WITHOUT HOLD FOR SELECT * FROM t1;
  QUERY PLAN                        
 -----------------------------------

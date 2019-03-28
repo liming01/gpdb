@@ -3177,14 +3177,14 @@ transformDeclareCursorStmt(ParseState *pstate, DeclareCursorStmt *stmt)
 	if ((stmt->options & CURSOR_OPT_HOLD) && (stmt->options & CURSOR_OPT_PARALLEL))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("DECLARE PARALLEL CURSOR WITH HOLD ... is not supported"),
-					errdetail("Holdable cursors can not be parallel")));
+				 errmsg("DECLARE PARALLEL CURSOR WITH HOLD ... is not supported"),
+				 errdetail("Holdable cursors can not be parallel")));
 
 	if ((stmt->options & CURSOR_OPT_SCROLL) && (stmt->options & CURSOR_OPT_PARALLEL))
 		ereport(ERROR,
-		        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			        errmsg("SCROLL is not allowed for the PARALLEL cursors"),
-			        errdetail("Scrollable cursors can not be parallel")));
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("SCROLL is not allowed for the PARALLEL cursors"),
+				 errdetail("Scrollable cursors can not be parallel")));
 	/*
 	 * We also disallow data-modifying WITH in a cursor.  (This could be
 	 * allowed, but the semantics of when the updates occur might be
