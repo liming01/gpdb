@@ -46,6 +46,7 @@ typedef struct ConnCacheKey
 {
 	Oid			serverid;		/* OID of foreign server */
 	Oid			userid;			/* OID of local user whose mapping we use */
+	int			dbid;           /* the database id of the foreign Greenplum cluster*/
 } ConnCacheKey;
 
 typedef struct ConnCacheEntry
@@ -109,7 +110,7 @@ static bool pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime,
  */
 PGconn *
 GetConnection(ForeignServer *server, UserMapping *user,
-			  bool will_prep_stmt, bool is_parallel)
+			  bool will_prep_stmt, int dbid, bool is_parallel)
 {
 	bool		found;
 	ConnCacheEntry *entry;
@@ -148,6 +149,7 @@ GetConnection(ForeignServer *server, UserMapping *user,
 	/* Create hash key for the entry.  Assume no pad bytes in key struct */
 	key.serverid = server->serverid;
 	key.userid = user->userid;
+	key.dbid = dbid;
 
 	/*
 	 * Find or create cached entry for requested connection.

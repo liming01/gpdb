@@ -951,7 +951,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 */
 	if (!fsstate->is_parallel)
 	{
-		fsstate->conn = GetConnection(server, user, false, false);
+		fsstate->conn = GetConnection(server, user, false, 0, false);
 		/* Assign a unique ID for my cursor */
 		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
 	}
@@ -962,6 +962,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		#define SVR_OPT_DBNAME "dbname"
 		Value	*host;
 		Value	*port;
+		int32   dbid;
 		Value   *foreign_username;
 		#define MAX_TOKEN_STR_LEN 16
 		char    token_str[MAX_TOKEN_STR_LEN];
@@ -1004,6 +1005,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 			List *endpoint = list_nth(fsstate->endpoints_list, slice_no);
 			host = list_nth(endpoint, 0);
 			port = list_nth(endpoint, 1);
+			dbid = atoi(strVal(list_nth(endpoint, 2)));
 
 			server->options = NIL;
 			server->options = lappend(server->options, makeDefElem(pstrdup("host"), (Node *)host));
@@ -1019,7 +1021,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 			snprintf(token_str, MAX_TOKEN_STR_LEN, "%d", fsstate->token);
 			user->options = lappend(user->options, makeDefElem(pstrdup("password"), (Node *)makeString(pstrdup(token_str))));
 
-			fsstate->conn = GetConnection(server, user, false, false);
+			fsstate->conn = GetConnection(server, user, false, dbid, false);
 		}
 	}
 
@@ -1409,7 +1411,7 @@ postgresBeginForeignModify(ModifyTableState *mtstate,
 	user = GetUserMapping(userid, server->serverid);
 
 	/* Open connection; report that we'll create a prepared statement. */
-	fmstate->conn = GetConnection(server, user, true, false);
+	fmstate->conn = GetConnection(server, user, true, 0, false);
 	fmstate->p_name = NULL;		/* prepared statement not made yet */
 
 	/* Deconstruct fdw_private data. */
@@ -1877,7 +1879,7 @@ estimate_path_cost_size(PlannerInfo *root,
 							  (fpinfo->remote_conds == NIL), NULL);
 
 		/* Get the remote estimate */
-		conn = GetConnection(fpinfo->server, fpinfo->user, false, false);
+		conn = GetConnection(fpinfo->server, fpinfo->user, false, 0, false);
 		get_remote_estimate(sql.data, conn, &rows, &width,
 							&startup_cost, &total_cost);
 		ReleaseConnection(conn);
@@ -2474,7 +2476,7 @@ postgresAnalyzeForeignTable(Relation relation,
 	table = GetForeignTable(RelationGetRelid(relation));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(relation->rd_rel->relowner, server->serverid);
-	conn = GetConnection(server, user, false, false);
+	conn = GetConnection(server, user, false, 0, false);
 
 	/*
 	 * Construct command to get page count for relation.
@@ -2566,7 +2568,7 @@ postgresAcquireSampleRowsFunc(Relation relation, int elevel,
 	table = GetForeignTable(RelationGetRelid(relation));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(relation->rd_rel->relowner, server->serverid);
-	conn = GetConnection(server, user, false, false);
+	conn = GetConnection(server, user, false, 0, false);
 
 	/*
 	 * Construct cursor that retrieves whole rows from remote.
@@ -2873,7 +2875,7 @@ greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user)
 	char *query =  "SELECT count(DISTINCT content) FROM pg_catalog.gp_segment_configuration WHERE content >= 0";
 
 	/* Get the remote estimate */
-	conn = GetConnection(server, user, false, false);
+	conn = GetConnection(server, user, false, 0, false);
 
 	res = pgfdw_exec_query(conn, query);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
@@ -2939,7 +2941,7 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(server, user, true, true);
+	fsstate->conn = GetConnection(server, user, true, 0, true);
 
 	/* Assign a unique ID for my cursor */
 	fsstate->cursor_number = GetCursorNumber(fsstate->conn);
@@ -3081,7 +3083,7 @@ wait_endpoints_ready(ForeignServer *server,
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "SELECT status FROM gp_endpoints WHERE token = %d", token);
 
-	conn = GetConnection(server, user, false, true);
+	conn = GetConnection(server, user, false, 0, true);
 
 	while (true)
 	{
