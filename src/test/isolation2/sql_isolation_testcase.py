@@ -73,6 +73,8 @@ class GlobalShellExecutor(object):
         self.poller.register(self.sh_proc.stdout,select.POLLIN)
 
     def terminate(self):
+        if self.sh_proc == None:
+            return;
         # If write the matchsubs section directly to the output, the generated token id will be compared by gpdiff.pl
         # so here just write all matchsubs section into an auto generated init file when this test case file finished.
         if self.initfile_prefix!=None and len(self.initfile_prefix)>1:
@@ -84,6 +86,7 @@ class GlobalShellExecutor(object):
 
         self.sh_proc.terminate()
         self.v_cnt = 0
+        self.sh_proc = None
 
     # nonblock read output of global shell process, if error, write info to err_log_file
     def readlines_nonblock(self, sh_cmd):
@@ -106,6 +109,9 @@ class GlobalShellExecutor(object):
     # 2) execute shell command from input
     # if error, write error message to err_log_file
     def exec_in_global_shell(self, input, sh_cmd, is_trip_end_blanklines):
+        if self.sh_proc == None:
+            self.begin();
+
         self.v_cnt = 1 + self.v_cnt
         escape_in = input.replace('\'',"'\\''")
         # replace env variable to specific one for not to effect each others
@@ -631,7 +637,6 @@ class SQLIsolationExecutor(object):
         shell_executor = GlobalShellExecutor(output_file, initfile_prefix)
         try:
             command = ""
-            shell_executor.begin()
 
             for line in sql_file:
                 #tinctest.logger.info("re.match: %s" %re.match(r"^\d+[q\\<]:$", line))
