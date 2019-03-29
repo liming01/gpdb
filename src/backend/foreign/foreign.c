@@ -69,6 +69,7 @@ SeparateOutCustomForeignOptions(List **options)
 			}
 
 			*options = list_delete_cell(*options, lc, prev);
+			break;
 		}
 
 		prev = lc;
@@ -92,6 +93,7 @@ SeparateOutCustomForeignOptions(List **options)
 			}
 
 			*options = list_delete_cell(*options, lc, prev);
+			break;
 		}
 
 		prev = lc;
