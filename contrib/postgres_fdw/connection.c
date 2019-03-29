@@ -62,7 +62,7 @@ typedef struct ConnCacheEntry
 	bool		invalidated;	/* true if reconnect is pending */
 	uint32		server_hashvalue;	/* hash value of foreign server OID */
 	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
-	bool 		is_parallel;		/* is the control connection for parallel retrieving (execute parallel cursor) */
+	bool 		reusable;			/* if the connection reusable */
 } ConnCacheEntry;
 
 /*
@@ -110,7 +110,22 @@ static bool pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime,
  */
 PGconn *
 GetConnection(ForeignServer *server, UserMapping *user,
-			  bool will_prep_stmt, int dbid, bool is_parallel)
+			  bool will_prep_stmt)
+{
+	return GetCustomConnection(server, user, will_prep_stmt, 0, true);
+}
+
+/*
+ * Same as GetConnection, except:
+ *
+ * If dbid is not 0, the connection should be gp2gp RETRIEVE connection to an
+ * endpoint, only same dbid connections could reuse each other.
+ *
+ * The connection which runs `EXECUTE PARALLEL CURSOR` is not reusable.
+ */
+PGconn *
+GetCustomConnection(ForeignServer *server, UserMapping *user,
+			  bool will_prep_stmt, int dbid, bool reusable)
 {
 	bool		found;
 	ConnCacheEntry *entry;
@@ -155,14 +170,14 @@ GetConnection(ForeignServer *server, UserMapping *user,
 	 * Find or create cached entry for requested connection.
 	 */
 	entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
-	if (!found || entry->is_parallel || is_parallel)
+	if (!found || !entry->reusable || !reusable)
 	{
 		/*
 		 * We need only clear "conn" here; remaining fields will be filled
 		 * later when "conn" is set.
 		 */
 		entry->conn = NULL;
-		entry->is_parallel = is_parallel;
+		entry->reusable = reusable;
 	}
 
 	/* Reject further use of connections which failed abort cleanup. */
@@ -749,7 +764,8 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					break;
 				case XACT_EVENT_PRE_PREPARE:
 
-					if (entry->is_parallel)
+					/* TODO: why */
+					if (!entry->reusable)
 						break;
 
 					/*
@@ -850,8 +866,9 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 			disconnect_pg_server(entry);
 		}
 
-		/* Close the connection, we don't leave it there for sharing */
-		if (entry->is_parallel) {
+		/* Close the not reusable connection, we don't leave it there for
+		 * sharing */
+		if (!entry->reusable) {
 			elog(DEBUG3, "discarding connection %p", entry->conn);
 			disconnect_pg_server(entry);
 		}

@@ -343,7 +343,7 @@ static void conversion_error_callback(void *arg);
 static void greenplumBeginMppForeignScan(ForeignScanState *node, int eflags);
 static void greenplumEndMppForeignScan(ForeignScanState *node);
 static int greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user);
-static void create_cursor_helper(ForeignScanState *node, const char *cursor_sql);
+static void create_custom_cursor(ForeignScanState *node, const char *cursor_sql);
 static void wait_endpoints_ready(ForeignServer *server, UserMapping *user, int32 token);
 static void get_endpoints_info(PGconn *conn, int cursor_number, int session_id, List **endpoints_list, int32 *token);
 static void create_and_execute_parallel_cursor(ForeignScanState *node);
@@ -951,7 +951,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 */
 	if (!fsstate->is_parallel)
 	{
-		fsstate->conn = GetConnection(server, user, false, 0, false);
+		fsstate->conn = GetConnection(server, user, false);
 		/* Assign a unique ID for my cursor */
 		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
 	}
@@ -1021,7 +1021,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 			snprintf(token_str, MAX_TOKEN_STR_LEN, "%d", fsstate->token);
 			user->options = lappend(user->options, makeDefElem(pstrdup("password"), (Node *)makeString(pstrdup(token_str))));
 
-			fsstate->conn = GetConnection(server, user, false, dbid, false);
+			fsstate->conn = GetCustomConnection(server, user, false, dbid, true);
 		}
 	}
 
@@ -1411,7 +1411,7 @@ postgresBeginForeignModify(ModifyTableState *mtstate,
 	user = GetUserMapping(userid, server->serverid);
 
 	/* Open connection; report that we'll create a prepared statement. */
-	fmstate->conn = GetConnection(server, user, true, 0, false);
+	fmstate->conn = GetConnection(server, user, true);
 	fmstate->p_name = NULL;		/* prepared statement not made yet */
 
 	/* Deconstruct fdw_private data. */
@@ -1879,7 +1879,7 @@ estimate_path_cost_size(PlannerInfo *root,
 							  (fpinfo->remote_conds == NIL), NULL);
 
 		/* Get the remote estimate */
-		conn = GetConnection(fpinfo->server, fpinfo->user, false, 0, false);
+		conn = GetConnection(fpinfo->server, fpinfo->user, false);
 		get_remote_estimate(sql.data, conn, &rows, &width,
 							&startup_cost, &total_cost);
 		ReleaseConnection(conn);
@@ -2043,7 +2043,26 @@ ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
  * Create cursor for node's query with current parameter values.
  */
 static void
-create_cursor_helper(ForeignScanState *node, const char *cursor_sql)
+create_cursor(ForeignScanState *node)
+{
+	StringInfoData	buf;
+	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
+	ForeignScan    *foreign_scan;
+
+	foreign_scan = (ForeignScan *) node->ss.ps.plan;
+
+	/* single node case */
+	if (list_length(foreign_scan->fdw_private) == FdwScanPrivateRetrievedAttrs+1)
+	{
+		initStringInfo(&buf);
+		appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",
+						 fsstate->cursor_number, fsstate->query);
+		create_custom_cursor(node, buf.data);
+	};
+}
+
+static void
+create_custom_cursor(ForeignScanState *node, const char *cursor_sql)
 {
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
 	ExprContext *econtext = node->ss.ps.ps_ExprContext;
@@ -2125,25 +2144,6 @@ create_cursor_helper(ForeignScanState *node, const char *cursor_sql)
 	fsstate->next_tuple = 0;
 	fsstate->fetch_ct_2 = 0;
 	fsstate->eof_reached = false;
-}
-
-static void
-create_cursor(ForeignScanState *node)
-{
-	StringInfoData	buf;
-	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
-	ForeignScan    *foreign_scan;
-
-	foreign_scan = (ForeignScan *) node->ss.ps.plan;
-
-	/* single node case */
-	if (list_length(foreign_scan->fdw_private) == FdwScanPrivateRetrievedAttrs+1)
-	{
-		initStringInfo(&buf);
-		appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",
-						 fsstate->cursor_number, fsstate->query);
-		create_cursor_helper(node, buf.data);
-	};
 }
 
 /*
@@ -2476,7 +2476,7 @@ postgresAnalyzeForeignTable(Relation relation,
 	table = GetForeignTable(RelationGetRelid(relation));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(relation->rd_rel->relowner, server->serverid);
-	conn = GetConnection(server, user, false, 0, false);
+	conn = GetConnection(server, user, false);
 
 	/*
 	 * Construct command to get page count for relation.
@@ -2568,7 +2568,7 @@ postgresAcquireSampleRowsFunc(Relation relation, int elevel,
 	table = GetForeignTable(RelationGetRelid(relation));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(relation->rd_rel->relowner, server->serverid);
-	conn = GetConnection(server, user, false, 0, false);
+	conn = GetConnection(server, user, false);
 
 	/*
 	 * Construct cursor that retrieves whole rows from remote.
@@ -2875,7 +2875,7 @@ greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user)
 	char *query =  "SELECT count(DISTINCT content) FROM pg_catalog.gp_segment_configuration WHERE content >= 0";
 
 	/* Get the remote estimate */
-	conn = GetConnection(server, user, false, 0, false);
+	conn = GetConnection(server, user, false);
 
 	res = pgfdw_exec_query(conn, query);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
@@ -2941,7 +2941,7 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(server, user, true, 0, true);
+	fsstate->conn = GetCustomConnection(server, user, false, 0, false);
 
 	/* Assign a unique ID for my cursor */
 	fsstate->cursor_number = GetCursorNumber(fsstate->conn);
@@ -3083,7 +3083,7 @@ wait_endpoints_ready(ForeignServer *server,
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "SELECT status FROM gp_endpoints WHERE token = '"TOKEN_NAME_FORMAT_STR"'", token);
 
-	conn = GetConnection(server, user, false, 0, true);
+	conn = GetConnection(server, user, false);
 
 	while (true)
 	{
@@ -3187,7 +3187,7 @@ create_parallel_cursor(ForeignScanState *node)
 	appendStringInfo(&buf, "DECLARE c%u PARALLEL CURSOR FOR\n%s",
 					 fsstate->cursor_number, fsstate->query);
 
-	create_cursor_helper(node, buf.data);
+	create_custom_cursor(node, buf.data);
 }
 
 static void
