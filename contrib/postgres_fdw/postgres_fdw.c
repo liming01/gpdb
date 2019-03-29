@@ -2182,7 +2182,7 @@ fetch_more_data(ForeignScanState *node)
 		fetch_size = 100;
 
 		if (fsstate->is_parallel)
-			snprintf(sql, sizeof(sql), "RETRIEVE %d FROM \"%d\"",
+			snprintf(sql, sizeof(sql), "RETRIEVE %d FROM \""TOKEN_NAME_FORMAT_STR"\"",
 				fetch_size, fsstate->token);
 		else
 			snprintf(sql, sizeof(sql), "FETCH %d FROM c%u",
@@ -3081,7 +3081,7 @@ wait_endpoints_ready(ForeignServer *server,
 	PGconn	   *conn;
 
 	initStringInfo(&buf);
-	appendStringInfo(&buf, "SELECT status FROM gp_endpoints WHERE token = %d", token);
+	appendStringInfo(&buf, "SELECT status FROM gp_endpoints WHERE token = '"TOKEN_NAME_FORMAT_STR"'", token);
 
 	conn = GetConnection(server, user, false, 0, true);
 
@@ -3161,8 +3161,8 @@ get_endpoints_info(PGconn *conn,
 		endpoints_list = lappend(endpoints_list, endpoint);
 
 		if (*token == InvalidToken)
-			*token = atoi(PQgetvalue(res, row, 3));
-		else if (*token != atoi(PQgetvalue(res, row, 3)))
+			*token = parseToken(PQgetvalue(res, row, 3));
+		else if (*token != parseToken(PQgetvalue(res, row, 3)))
 			pgfdw_report_error(ERROR, res, conn, true, sql_buf.data);
 
 		if (row == 0)
