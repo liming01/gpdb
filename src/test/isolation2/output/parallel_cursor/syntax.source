@@ -1,0 +1,61 @@
+-- @Description Tests syntax for the parallel cursor statement
+--
+DROP TABLE IF EXISTS t1;
+DROP
+CREATE TABLE t1 (a INT);
+CREATE
+insert into t1 select generate_series(1,100);
+INSERT 100
+
+-- Test: Parallel cursor with other options (WITH HOLD/SCROLL) is not supported
+BEGIN;
+BEGIN
+DECLARE c1 PARALLEL CURSOR WITHOUT HOLD FOR SELECT * FROM t1;
+DECLARE
+DECLARE c2 PARALLEL CURSOR WITH HOLD FOR SELECT * FROM t1;
+ERROR:  DECLARE PARALLEL CURSOR WITH HOLD ... is not supported
+DETAIL:  Holdable cursors can not be parallel
+ROLLBACK;
+ROLLBACK
+
+BEGIN;
+BEGIN
+DECLARE c1 NO SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+DECLARE c2 SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
+ERROR:  SCROLL is not allowed for the PARALLEL cursors
+DETAIL:  Scrollable cursors can not be parallel
+ROLLBACK;
+ROLLBACK
+
+-- Test: Parallel cursor can not support FETCH/MOVE statement
+BEGIN;
+BEGIN
+DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+FETCH ALL FROM c1;
+ERROR:  Cannot specify 'FETCH' for parallel cursor.
+HINT:  Using 'EXECUTE PARALLEL CURSOR' statement instead.
+ROLLBACK;
+ROLLBACK
+
+BEGIN;
+BEGIN
+DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+MOVE 10 FROM c1;
+ERROR:  The 'MOVE' statement for parallel cursor is not supported.
+HINT:  Using 'EXECUTE PARALLEL CURSOR' statement instead.
+ROLLBACK;
+ROLLBACK
+
+-- Test: non-parallel cursor can not support the "EXECUTE PARALLEL CURSOR" statement
+BEGIN;
+BEGIN
+DECLARE c1 CURSOR FOR SELECT * FROM t1;
+DECLARE
+EXECUTE PARALLEL CURSOR c1;
+ERROR:  Cannot specify 'EXECUTE PARALLEL CURSOR' for non-parallel cursor.
+HINT:  Using 'FETCH' statement instead.
+ROLLBACK;
+ROLLBACK

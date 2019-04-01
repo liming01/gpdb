@@ -277,9 +277,36 @@ PerformPortalFetch(FetchStmt *stmt,
 		return;					/* keep compiler happy */
 	}
 
+	bool is_parallel = (portal->cursorOptions & CURSOR_OPT_PARALLEL) > 0 ;
+	if (is_parallel != stmt->isParallelCursor)
+	{
+		if (stmt->isParallelCursor)
+		{
+			ereport(ERROR,
+			        (errcode(ERRCODE_SYNTAX_ERROR),
+				        errmsg("Cannot specify 'EXECUTE PARALLEL CURSOR' for non-parallel cursor."),
+				        errhint("Using 'FETCH' statement instead.")));
+		}
+		else if(stmt->ismove)
+		{
+			ereport(ERROR,
+			        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				        errmsg("The 'MOVE' statement for parallel cursor is not supported."),
+				        errhint("Using 'EXECUTE PARALLEL CURSOR' statement instead.")));
+		}
+		else
+		{
+			ereport(ERROR,
+			        (errcode(ERRCODE_SYNTAX_ERROR),
+				        errmsg("Cannot specify 'FETCH' for parallel cursor."),
+				        errhint("Using 'EXECUTE PARALLEL CURSOR' statement instead.")));
+		}
+	}
+
 	/* Adjust dest if needed.  MOVE wants destination DestNone */
 	if (stmt->ismove)
 		dest = None_Receiver;
+
 
 	/* Do it */
 	nprocessed = PortalRunFetch(portal,
