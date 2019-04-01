@@ -964,8 +964,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		Value	*port;
 		int32   dbid;
 		Value   *foreign_username;
-		#define MAX_TOKEN_STR_LEN 16
-		char    token_str[MAX_TOKEN_STR_LEN];
+		char    *token_str;
 		int     slice_no = -1;
 		Slice   *current_slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
 
@@ -1018,8 +1017,8 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 
 			user->options = NIL;
 			user->options = lappend(user->options, makeDefElem(pstrdup("user"), (Node *)foreign_username));
-			snprintf(token_str, MAX_TOKEN_STR_LEN, "%d", fsstate->token);
-			user->options = lappend(user->options, makeDefElem(pstrdup("password"), (Node *)makeString(pstrdup(token_str))));
+			token_str = printToken(fsstate->token);
+			user->options = lappend(user->options, makeDefElem(pstrdup("password"), (Node *)makeString(token_str)));
 
 			fsstate->conn = GetCustomConnection(server, user, false, dbid, true);
 		}
