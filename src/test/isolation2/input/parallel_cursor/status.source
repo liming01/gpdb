@@ -1,9 +1,10 @@
--- @Description Tests the status for pg_endpoints
+-- @Description Tests the status for pg_endpoints AND GP_ENDPOINTS_STATUS_INFO()
 -- 
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (a INT);
 insert into t1 select generate_series(1,100);
 
+--------- Test1: Basic test for parallel retrieve interface & close cursor
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
@@ -14,6 +15,46 @@ insert into t1 select generate_series(1,100);
 
 1<:
 1: CLOSE c1;
-
+-- check no endpoint info
+1: SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
 -- check no token info on QE after close parallel cursor
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+
+-- error out for closed cursor
+1: EXECUTE PARALLEL CURSOR c1;
+1: ROLLBACK;
+
+---------- Test2: enhanced test for parallel retrieve interface status & cursor auto closed when transaction closed
+1: BEGIN;
+1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN2=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN2}/${NL}s/${TOKEN2}/token_id2/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+-- test RETRIEVE report error if parallel cursor not executed
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE 10 FROM "@TOKEN2";
+1&: EXECUTE PARALLEL CURSOR c2;
+
+-- check initial status after "EXECUTE PARALLEL CURSOR"
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
+-- check status if some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE 10 FROM "@TOKEN2";
+1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE ALL FROM "@TOKEN2";
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
+-- return 0 row instead of reporting error if finished retrieving data from this endpoint, while other endpoint have not finished retrieving.
+1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE ALL FROM "@TOKEN2";
+-- finished retrieving all endpoints and check status
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE ALL FROM "@TOKEN2";
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
+
+1<:
+1: COMMIT;
+-- check the cursor auto closed when transaction closed
+-- check no endpoint info
+1: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+-- check no token info on QE after close parallel cursor
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
+
+-- error out for closed cursor
+1: EXECUTE PARALLEL CURSOR c2;
+1: ROLLBACK;

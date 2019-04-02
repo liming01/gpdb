@@ -862,7 +862,7 @@ AttachEndPoint()
 
 	if (is_invalid_sendpid)
 	{
-		ep_log(ERROR, "The PARALLEL CURSOR related to the end point token %d is not EXECUTED.",
+		ep_log(ERROR, "The PARALLEL CURSOR related to the end point token "TOKEN_NAME_FORMAT_STR" is not EXECUTED.",
 			   Gp_token.token);
 	}
 

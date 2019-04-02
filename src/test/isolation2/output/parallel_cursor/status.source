@@ -1,4 +1,4 @@
--- @Description Tests the status for pg_endpoints
+-- @Description Tests the status for pg_endpoints AND GP_ENDPOINTS_STATUS_INFO()
 --
 DROP TABLE IF EXISTS t1;
 DROP
@@ -7,6 +7,7 @@ CREATE
 insert into t1 select generate_series(1,100);
 INSERT 100
 
+--------- Test1: Basic test for parallel retrieve interface & close cursor
 1: BEGIN;
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
@@ -154,7 +155,11 @@ ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:
 EXECUTE
 1: CLOSE c1;
 CLOSE
-
+-- check no endpoint info
+1: SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token | status 
+-------+--------
+(0 rows)
 -- check no token info on QE after close parallel cursor
 *R:  SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id1';
  token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
@@ -169,3 +174,256 @@ CLOSE
  token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
 -------+------------+-----------+-------------+----------+------+-----------+--------
 (0 rows)
+
+-- error out for closed cursor
+1: EXECUTE PARALLEL CURSOR c1;
+ERROR:  cursor "c1" does not exist
+1: ROLLBACK;
+ROLLBACK
+
+---------- Test2: enhanced test for parallel retrieve interface status & cursor auto closed when transaction closed
+1: BEGIN;
+BEGIN
+1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+ token        | status 
+--------------+--------
+ token_id2 | INIT   
+ token_id2 | INIT   
+ token_id2 | INIT   
+(3 rows)
+-- test RETRIEVE report error if parallel cursor not executed
+0R:  RETRIEVE 10 FROM "token_id2";
+ERROR:  The PARALLEL CURSOR related to the end point token token_id2 is not EXECUTED. (cdbendpoint.c:866)
+1&: EXECUTE PARALLEL CURSOR c2;
+ <waiting ...>
+
+-- check initial status after "EXECUTE PARALLEL CURSOR"
+2:  SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='token_id2';
+ status 
+--------
+ READY  
+ READY  
+ READY  
+(3 rows)
+*R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id2';
+ ?column? | ?column? | attached 
+----------+----------+----------
+(0 rows)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ t        | f        | 0        
+(1 row)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ t        | f        | 0        
+(1 row)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ t        | f        | 0        
+(1 row)
+-- check status if some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
+0R:  RETRIEVE 10 FROM "token_id2";
+ a  
+----
+ 2  
+ 3  
+ 4  
+ 7  
+ 8  
+ 16 
+ 18 
+ 19 
+ 22 
+ 24 
+(10 rows)
+1R:  RETRIEVE ALL FROM "token_id2";
+ a  
+----
+ 1  
+ 12 
+ 15 
+ 20 
+ 23 
+ 26 
+ 30 
+ 31 
+ 35 
+ 36 
+ 38 
+ 40 
+ 44 
+ 46 
+ 47 
+ 48 
+ 49 
+ 50 
+ 57 
+ 61 
+ 64 
+ 68 
+ 69 
+ 71 
+ 72 
+ 74 
+ 76 
+ 78 
+ 79 
+ 83 
+ 86 
+ 87 
+ 88 
+ 89 
+ 91 
+ 95 
+ 98 
+(37 rows)
+2:  SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='token_id2';
+ status 
+--------
+ READY  
+ FINISH 
+ READY  
+(3 rows)
+*R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id2';
+ ?column? | ?column? | attached 
+----------+----------+----------
+(0 rows)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ t        | t        | 0        
+(1 row)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ t        | t        | 2        
+(1 row)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ t        | f        | 0        
+(1 row)
+-- return 0 row instead of reporting error if finished retrieving data from this endpoint, while other endpoint have not finished retrieving.
+1R:  RETRIEVE ALL FROM "token_id2";
+ a 
+---
+(0 rows)
+-- finished retrieving all endpoints and check status
+*R:  RETRIEVE ALL FROM "token_id2";
+ERROR:  failed to attach non exist end point for token token_id2 (cdbendpoint.c:874)
+ a  
+----
+ 27 
+ 29 
+ 34 
+ 37 
+ 39 
+ 41 
+ 42 
+ 45 
+ 51 
+ 53 
+ 54 
+ 55 
+ 59 
+ 60 
+ 65 
+ 66 
+ 70 
+ 75 
+ 77 
+ 80 
+ 81 
+ 84 
+ 90 
+ 92 
+ 93 
+ 94 
+ 97 
+ 99 
+(28 rows)
+ a 
+---
+(0 rows)
+ a   
+-----
+ 5   
+ 6   
+ 9   
+ 10  
+ 11  
+ 13  
+ 14  
+ 17  
+ 21  
+ 25  
+ 28  
+ 32  
+ 33  
+ 43  
+ 52  
+ 56  
+ 58  
+ 62  
+ 63  
+ 67  
+ 73  
+ 82  
+ 85  
+ 96  
+ 100 
+(25 rows)
+2:  SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='token_id2';
+ status 
+--------
+ FINISH 
+ FINISH 
+ FINISH 
+(3 rows)
+*R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id2';
+ ?column? | ?column? | attached 
+----------+----------+----------
+(0 rows)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ f        | t        | 2        
+(1 row)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ f        | t        | 2        
+(1 row)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ f        | t        | 2        
+(1 row)
+
+1<:
+ <... completed>
+EXECUTE
+1: COMMIT;
+COMMIT
+-- check the cursor auto closed when transaction closed
+-- check no endpoint info
+1:  SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='token_id2';
+ status 
+--------
+(0 rows)
+-- check no token info on QE after close parallel cursor
+*R:  SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id2';
+ token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
+-------+------------+-----------+-------------+----------+------+-----------+--------
+(0 rows)
+ token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
+-------+------------+-----------+-------------+----------+------+-----------+--------
+(0 rows)
+ token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
+-------+------------+-----------+-------------+----------+------+-----------+--------
+(0 rows)
+ token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
+-------+------------+-----------+-------------+----------+------+-----------+--------
+(0 rows)
+
+-- error out for closed cursor
+1: EXECUTE PARALLEL CURSOR c2;
+ERROR:  cursor "c2" does not exist
+1: ROLLBACK;
+ROLLBACK
