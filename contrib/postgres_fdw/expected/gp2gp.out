@@ -212,8 +212,23 @@ SELECT * FROM ft1 WHERE false;
 (0 rows)
 
 -- with WHERE clause
--- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1'; -- should work, but failed, report as a bug 
--- SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   Output: c1, c2, c3, c4, c5, c6, c7, c8
+   ->  Foreign Scan on public.ft1 t1
+         Output: c1, c2, c3, c4, c5, c6, c7, c8
+         Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c7 >= '1'::bpchar)) AND ((c1 = 101)) AND ((c6 = '1'::text))
+ Optimizer: legacy query optimizer
+(6 rows)
+
+SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
+ c1  | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+-----+----+-------+------------------------------+--------------------------+----+------------+-----
+ 101 |  1 | 00101 | Fri Jan 02 00:00:00 1970 PST | Fri Jan 02 00:00:00 1970 | 1  | 1          | foo
+(1 row)
+
 -- with FOR UPDATE/SHARE
 -- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE; -- should work, but failed, report as a bug 
 -- SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;   -- should work, but failed, report as a bug 
@@ -259,7 +274,12 @@ SELECT * FROM ft1 t1 WHERE t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 <= 10) ORDER
 (10 rows)
 
 -- subquery+MAX
--- SELECT * FROM ft1 t1 WHERE t1.c3 = (SELECT MAX(c3) FROM ft2 t2) ORDER BY c1; -- should work, but failed, report as a bug 
+SELECT * FROM ft1 t1 WHERE t1.c3 = (SELECT MAX(c3) FROM ft2 t2) ORDER BY c1;
+  c1  | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+------+----+-------+------------------------------+--------------------------+----+------------+-----
+ 1000 |  0 | 01000 | Thu Jan 01 00:00:00 1970 PST | Thu Jan 01 00:00:00 1970 | 0  | 0          | foo
+(1 row)
+
 -- used in CTE
 WITH t1 AS (SELECT * FROM ft1 WHERE c1 <= 10) SELECT t2.c1, t2.c2, t2.c3, t2.c4 FROM t1, ft2 t2 WHERE t1.c1 = t2.c1 ORDER BY t1.c1;
  c1 | c2 |  c3   |              c4              
@@ -277,7 +297,12 @@ WITH t1 AS (SELECT * FROM ft1 WHERE c1 <= 10) SELECT t2.c1, t2.c2, t2.c3, t2.c4 
 (10 rows)
 
 -- fixed values
--- SELECT 'fixed', NULL FROM ft1 t1 WHERE c1 = 1; -- should work, but failed, report as a bug 
+SELECT 'fixed', NULL FROM ft1 t1 WHERE c1 = 1;
+ ?column? | ?column? 
+----------+----------
+ fixed    | 
+(1 row)
+
 -- user-defined operator/function
 CREATE FUNCTION postgres_fdw_abs(int) RETURNS int AS $$
 BEGIN
@@ -494,7 +519,12 @@ EXPLAIN (VERBOSE, COSTS false)
  Optimizer: legacy query optimizer
 (16 rows)
 
--- SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2; -- should work, but failed, report as a bug 
+SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
+ c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  | c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+----+----+-------+------------------------------+--------------------------+----+------------+-----+----+----+-------+------------------------------+--------------------------+----+------------+-----
+ 47 |  7 | 00047 | Tue Feb 17 00:00:00 1970 PST | Tue Feb 17 00:00:00 1970 | 7  | 7          | foo |  7 |  7 | 00007 | Thu Jan 08 00:00:00 1970 PST | Thu Jan 08 00:00:00 1970 | 7  | 7          | foo
+(1 row)
+
 EXPLAIN (VERBOSE, COSTS false)
   SELECT * FROM ft2 a, ft2 b
   WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);
@@ -626,8 +656,24 @@ WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);
 (100 rows)
 
 -- bug before 9.3.5 due to sloppy handling of remote-estimate parameters
--- SELECT * FROM ft1 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft2 WHERE c1 < 5)); -- should work, but failed, report as a bug
--- SELECT * FROM ft2 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft1 WHERE c1 < 5)); -- should work, but failed, report as a bug
+SELECT * FROM ft1 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft2 WHERE c1 < 5));
+ c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+----+----+-------+------------------------------+--------------------------+----+------------+-----
+  2 |  2 | 00002 | Sat Jan 03 00:00:00 1970 PST | Sat Jan 03 00:00:00 1970 | 2  | 2          | foo
+  3 |  3 | 00003 | Sun Jan 04 00:00:00 1970 PST | Sun Jan 04 00:00:00 1970 | 3  | 3          | foo
+  4 |  4 | 00004 | Mon Jan 05 00:00:00 1970 PST | Mon Jan 05 00:00:00 1970 | 4  | 4          | foo
+  1 |  1 | 00001 | Fri Jan 02 00:00:00 1970 PST | Fri Jan 02 00:00:00 1970 | 1  | 1          | foo
+(4 rows)
+
+SELECT * FROM ft2 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft1 WHERE c1 < 5));
+ c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+----+----+-------+------------------------------+--------------------------+----+------------+-----
+  1 |  1 | 00001 | Fri Jan 02 00:00:00 1970 PST | Fri Jan 02 00:00:00 1970 | 1  | 1          | foo
+  2 |  2 | 00002 | Sat Jan 03 00:00:00 1970 PST | Sat Jan 03 00:00:00 1970 | 2  | 2          | foo
+  3 |  3 | 00003 | Sun Jan 04 00:00:00 1970 PST | Sun Jan 04 00:00:00 1970 | 3  | 3          | foo
+  4 |  4 | 00004 | Mon Jan 05 00:00:00 1970 PST | Mon Jan 05 00:00:00 1970 | 4  | 4          | foo
+(4 rows)
+
 -- simple join
 PREPARE st1(int, int) AS SELECT t1.c3, t2.c3 FROM ft1 t1, ft2 t2 WHERE t1.c1 = $1 AND t2.c1 = $2;
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st1(1, 2);
@@ -650,8 +696,18 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st1(1, 2);
  Optimizer: legacy query optimizer
 (15 rows)
 
--- EXECUTE st1(1, 1);      -- should work, but failed, report as a bug
--- EXECUTE st1(101, 101);  -- should work, but failed, report as a bug
+EXECUTE st1(1, 1);
+  c3   |  c3   
+-------+-------
+ 00001 | 00001
+(1 row)
+
+EXECUTE st1(101, 101);
+  c3   |  c3   
+-------+-------
+ 00101 | 00101
+(1 row)
+
 -- subquery using stable function (can't be sent to remote)
 PREPARE st2(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 > $1 AND date(c4) = '1970-01-17'::date) ORDER BY c1;
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st2(10, 20);
@@ -944,7 +1000,12 @@ BEGIN
     RETURN v_c1;
 END;
 $$ LANGUAGE plpgsql;
--- SELECT f_test(100); -- should work but failed, report as a bug
+SELECT f_test(100);
+ f_test 
+--------
+    100
+(1 row)
+
 DROP FUNCTION f_test(int);
 -- ===================================================================
 -- conversion error

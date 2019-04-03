@@ -122,8 +122,8 @@ SELECT t1 FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
 -- empty result
 SELECT * FROM ft1 WHERE false;
 -- with WHERE clause
--- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1'; -- should work, but failed, report as a bug 
--- SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
+SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
 -- with FOR UPDATE/SHARE
 -- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE; -- should work, but failed, report as a bug 
 -- SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;   -- should work, but failed, report as a bug 
@@ -136,11 +136,11 @@ SELECT t1.c1 FROM ft1 t1 JOIN ft2 t2 ON (t1.c1 = t2.c1) ORDER BY t1.c3, t1.c1 OF
 -- subquery
 SELECT * FROM ft1 t1 WHERE t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 <= 10) ORDER BY c1;
 -- subquery+MAX
--- SELECT * FROM ft1 t1 WHERE t1.c3 = (SELECT MAX(c3) FROM ft2 t2) ORDER BY c1; -- should work, but failed, report as a bug 
+SELECT * FROM ft1 t1 WHERE t1.c3 = (SELECT MAX(c3) FROM ft2 t2) ORDER BY c1;
 -- used in CTE
 WITH t1 AS (SELECT * FROM ft1 WHERE c1 <= 10) SELECT t2.c1, t2.c2, t2.c3, t2.c4 FROM t1, ft2 t2 WHERE t1.c1 = t2.c1 ORDER BY t1.c1;
 -- fixed values
--- SELECT 'fixed', NULL FROM ft1 t1 WHERE c1 = 1; -- should work, but failed, report as a bug 
+SELECT 'fixed', NULL FROM ft1 t1 WHERE c1 = 1;
 -- user-defined operator/function
 CREATE FUNCTION postgres_fdw_abs(int) RETURNS int AS $$
 BEGIN
@@ -178,7 +178,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't 
 -- parameterized remote path
 EXPLAIN (VERBOSE, COSTS false)
   SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
--- SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2; -- should work, but failed, report as a bug 
+SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
 
 EXPLAIN (VERBOSE, COSTS false)
   SELECT * FROM ft2 a, ft2 b
@@ -187,14 +187,14 @@ SELECT * FROM ft2 a, ft2 b
 WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);
 
 -- bug before 9.3.5 due to sloppy handling of remote-estimate parameters
--- SELECT * FROM ft1 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft2 WHERE c1 < 5)); -- should work, but failed, report as a bug
--- SELECT * FROM ft2 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft1 WHERE c1 < 5)); -- should work, but failed, report as a bug
+SELECT * FROM ft1 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft2 WHERE c1 < 5));
+SELECT * FROM ft2 WHERE c1 = ANY (ARRAY(SELECT c1 FROM ft1 WHERE c1 < 5));
 
 -- simple join
 PREPARE st1(int, int) AS SELECT t1.c3, t2.c3 FROM ft1 t1, ft2 t2 WHERE t1.c1 = $1 AND t2.c1 = $2;
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st1(1, 2);
--- EXECUTE st1(1, 1);      -- should work, but failed, report as a bug
--- EXECUTE st1(101, 101);  -- should work, but failed, report as a bug
+EXECUTE st1(1, 1);
+EXECUTE st1(101, 101);
 
 -- subquery using stable function (can't be sent to remote)
 PREPARE st2(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 > $1 AND date(c4) = '1970-01-17'::date) ORDER BY c1;
@@ -263,7 +263,7 @@ BEGIN
     RETURN v_c1;
 END;
 $$ LANGUAGE plpgsql;
--- SELECT f_test(100); -- should work but failed, report as a bug
+SELECT f_test(100);
 DROP FUNCTION f_test(int);
 
 -- ===================================================================
