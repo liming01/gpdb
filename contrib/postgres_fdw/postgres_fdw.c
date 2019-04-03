@@ -166,9 +166,10 @@ typedef struct PgFdwScanState
 	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
 
 	/* parallel retrieving */
-	bool 		  is_parallel;
-	int32		  token;
-	List		  *endpoints_list;
+	bool		is_parallel;
+	bool		fallback_to_single;
+	int32		token;
+	List		*endpoints_list;
 } PgFdwScanState;
 
 /*
@@ -896,14 +897,20 @@ postgresGetForeignPlan(PlannerInfo *root,
 static void
 postgresBeginForeignScan(ForeignScanState *node, int eflags)
 {
+	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
+	int numParams = list_length(fsplan->fdw_exprs);
+	bool fallback_to_single = false;
+
+	if (numParams != 0)
+		fallback_to_single = true;
+
 	ForeignTable *rel = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
-	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
+	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH && !fallback_to_single)
 	{
 		greenplumBeginMppForeignScan(node, eflags);
 		return;
 	}
 
-	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
 	EState	   *estate = node->ss.ps.state;
 	PgFdwScanState *fsstate;
 	RangeTblEntry *rte;
@@ -911,9 +918,9 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	ForeignTable *table;
 	ForeignServer *server;
 	UserMapping *user;
-	int			numParams;
 	int			i;
 	ListCell   *lc;
+	int     slice_no = -1;
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
@@ -945,15 +952,34 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	else
 		fsstate->is_parallel = false;
 
+	fsstate->fallback_to_single = fallback_to_single;
+
+	/* Get the slice nth number in current gang */
+	Slice   *current_slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
+
+	if (!current_slice || !IsA(current_slice, Slice))
+		ereport(ERROR, (errmsg("No valid slice %d", currentSliceId)));
+
+	int num = -1;
+	while ((num = bms_next_member(current_slice->processesMap, num)) >= 0)
+	{
+		slice_no++;
+		if (qe_identifier == num)
+			break;
+	}
+
 	/*
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
 	if (!fsstate->is_parallel)
 	{
-		fsstate->conn = GetConnection(server, user, false);
-		/* Assign a unique ID for my cursor */
-		fsstate->cursor_number = GetCursorNumber(fsstate->conn);
+		if (slice_no == 0)
+		{
+			fsstate->conn = GetConnection(server, user, false);
+			/* Assign a unique ID for my cursor */
+			fsstate->cursor_number = GetCursorNumber(fsstate->conn);
+		}
 	}
 	else
 	{
@@ -965,19 +991,6 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		int32   dbid;
 		Value   *foreign_username;
 		char    *token_str;
-		int     slice_no = -1;
-		Slice   *current_slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
-
-		if (!current_slice || !IsA(current_slice, Slice))
-			ereport(ERROR, (errmsg("No valid slice %d", currentSliceId)));
-
-		int num = -1;
-		while ((num = bms_next_member(current_slice->processesMap, num)) >= 0)
-		{
-			slice_no++;
-			if (qe_identifier == num)
-				break;
-		}
 
 		/* Find the value of foreign sever option "dbname" */
 		foreach(cell, server->options)
@@ -1048,7 +1061,6 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	fsstate->attinmeta = TupleDescGetAttInMetadata(RelationGetDescr(fsstate->rel));
 
 	/* Prepare for output conversion of parameters used in remote query. */
-	numParams = list_length(fsplan->fdw_exprs);
 	fsstate->numParams = numParams;
 	fsstate->param_flinfo = (FmgrInfo *) palloc0(sizeof(FmgrInfo) * numParams);
 
@@ -1190,18 +1202,18 @@ postgresReScanForeignScan(ForeignScanState *node)
 static void
 postgresEndForeignScan(ForeignScanState *node)
 {
-	ForeignTable *table = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
-	if (table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
-	{
-		greenplumEndMppForeignScan(node);
-		return;
-	}
-
 	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
 
 	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
 	if (fsstate == NULL)
 		return;
+
+	ForeignTable *table = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
+	if (table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH && !fsstate->fallback_to_single)
+	{
+		greenplumEndMppForeignScan(node);
+		return;
+	}
 
 	/* Close the cursor if open, to prevent accumulation of cursors */
 	if (fsstate->cursor_exists)
@@ -2051,7 +2063,7 @@ create_cursor(ForeignScanState *node)
 	foreign_scan = (ForeignScan *) node->ss.ps.plan;
 
 	/* single node case */
-	if (list_length(foreign_scan->fdw_private) == FdwScanPrivateRetrievedAttrs+1)
+	if (list_length(foreign_scan->fdw_private) == FdwScanPrivateRetrievedAttrs+1 && fsstate->conn)
 	{
 		initStringInfo(&buf);
 		appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",
