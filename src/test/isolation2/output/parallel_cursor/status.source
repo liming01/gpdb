@@ -427,3 +427,101 @@ COMMIT
 ERROR:  cursor "c2" does not exist
 1: ROLLBACK;
 ROLLBACK
+
+---------- Test3: 2 retrieving sessions connect to the same endpoint report error & cancel QE exec backend
+1: BEGIN;
+BEGIN
+1: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c3';
+ token        | status 
+--------------+--------
+ token_id3 | INIT   
+ token_id3 | INIT   
+ token_id3 | INIT   
+(3 rows)
+1&: EXECUTE PARALLEL CURSOR c3;
+ <waiting ...>
+0R:  RETRIEVE 10 FROM "token_id3";
+ a  
+----
+ 2  
+ 3  
+ 4  
+ 7  
+ 8  
+ 16 
+ 18 
+ 19 
+ 22 
+ 24 
+(10 rows)
+-- quit this retrieve session
+0Rq:
+... <quitting>
+-- a new retrieve session should report error
+0R:  RETRIEVE 10 FROM "token_id3";
+ERROR:  end point token_id3 already attached by receiver(pid:50938) (cdbendpoint.c:871)
+-- get senderpid which is endpoint execution backend
+0R:  SELECT senderpid, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO();
+ senderpid | ?column? | attached 
+-----------+----------+----------
+ senderpid31     | t        | 0        
+(1 row)
+-- run 'kill INT senderpid' to cancel the endpoint execution backend
+0R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id3';
+ ?column? | ?column? | attached 
+----------+----------+----------
+ f        | t        | 0        
+(1 row)
+-- check it can cancel the "EXECUTE PARALLEL CURSOR"
+1<:
+ <... completed>
+ERROR:  terminating connection due to administrator command  (seg0 10.34.50.67:25432 pid=50864)
+-- check no endpoint info left
+2:  SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='token_id3';
+ status 
+--------
+ INIT   
+ INIT   
+ INIT   
+(3 rows)
+*R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id3';
+ ?column? | ?column? | attached 
+----------+----------+----------
+(0 rows)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ f        | t        | 0        
+(1 row)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ f        | f        | 0        
+(1 row)
+ ?column? | ?column? | attached 
+----------+----------+----------
+ f        | f        | 0        
+(1 row)
+-- report error for EXECUTE canceled PARALLEL CURSOR
+1: EXECUTE PARALLEL CURSOR c3;
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+1: ROLLBACK;
+ROLLBACK
+-- check no endpoint info
+2:  SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='token_id3';
+ status 
+--------
+(0 rows)
+*R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id3';
+ ?column? | ?column? | attached 
+----------+----------+----------
+(0 rows)
+ ?column? | ?column? | attached 
+----------+----------+----------
+(0 rows)
+ ?column? | ?column? | attached 
+----------+----------+----------
+(0 rows)
+ ?column? | ?column? | attached 
+----------+----------+----------
+(0 rows)

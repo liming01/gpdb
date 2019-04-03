@@ -58,3 +58,29 @@ insert into t1 select generate_series(1,100);
 -- error out for closed cursor
 1: EXECUTE PARALLEL CURSOR c2;
 1: ROLLBACK;
+
+---------- Test3: 2 retrieving sessions connect to the same endpoint report error & cancel QE exec backend
+1: BEGIN;
+1: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN3=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN3}/${NL}s/${TOKEN3}/token_id3/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c3';
+1&: EXECUTE PARALLEL CURSOR c3;
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
+-- quit this retrieve session
+0Rq:
+-- a new retrieve session should report error
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
+-- get senderpid which is endpoint execution backend
+0R: @out_sh ' PID31=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" | sed "s#${PID31}#senderpid31#" ': SELECT senderpid, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO();
+-- run 'kill INT senderpid' to cancel the endpoint execution backend
+0R: @in_sh 'kill INT ${PID31} && echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
+-- check it can cancel the "EXECUTE PARALLEL CURSOR"
+1<:
+-- check no endpoint info left
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='@TOKEN3';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
+-- report error for EXECUTE canceled PARALLEL CURSOR
+1: EXECUTE PARALLEL CURSOR c3;
+1: ROLLBACK;
+-- check no endpoint info 
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='@TOKEN3';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';

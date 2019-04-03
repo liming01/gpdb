@@ -568,9 +568,7 @@ FreeEndPoint4token(int token)
 	volatile EndPointDesc *endPointDesc = FindEndPointByToken(token);
 
 	if (!endPointDesc)
-	{
-		ep_log(ERROR, "No valid endpoint info for token %d", token);
-	}
+		return;
 
 	ResetEndPointToken(endPointDesc);
 }
@@ -867,7 +865,7 @@ AttachEndPoint()
 	}
 
 	if (already_attached || is_other_pid)
-		ep_log(ERROR, "end point %d already attached by receiver(pid:%d)",
+		ep_log(ERROR, "end point "TOKEN_NAME_FORMAT_STR" already attached by receiver(pid:%d)",
 			   Gp_token.token, attached_pid);
 
 	if (!mySharedEndPoint)
