@@ -1,0 +1,82 @@
+-- @Description Tests "EXPLAIN" statement for the parallel cursor
+--
+DROP TABLE IF EXISTS t1;
+DROP
+CREATE TABLE t1 (a INT);
+CREATE
+insert into t1 select generate_series(1,100);
+INSERT 100
+
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM t1;
+ QUERY PLAN                               
+------------------------------------------
+ Gather Motion 3:1  (slice1; segments: 3) 
+   Output: a, ctid, gp_segment_id         
+   ->  Seq Scan on public.t1              
+         Output: a, ctid, gp_segment_id   
+ Optimizer: legacy query optimizer        
+(5 rows)
+-- Test: explain output: Endpoint info (on master/on some segments/on all segments)
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+ QUERY PLAN                        
+-----------------------------------
+ Seq Scan on public.t1             
+   Output: a, ctid, gp_segment_id  
+ Endpoint: on all 3 segments       
+ Optimizer: legacy query optimizer 
+(4 rows)
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 ORDER BY a;
+ QUERY PLAN                               
+------------------------------------------
+ Gather Motion 3:1  (slice1; segments: 3) 
+   Output: a                              
+   Merge Key: a                           
+   ->  Sort                               
+         Output: a                        
+         Sort Key: t1.a                   
+         ->  Seq Scan on public.t1        
+               Output: a                  
+ Endpoint: on master                      
+ Optimizer: legacy query optimizer        
+(10 rows)
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 WHERE a=1;
+ QUERY PLAN                           
+--------------------------------------
+ Seq Scan on public.t1                
+   Output: a, ctid, gp_segment_id     
+   Filter: (t1.a = 1)                 
+ Endpoint: on segments: contentid [1] 
+ Optimizer: legacy query optimizer    
+(5 rows)
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 WHERE a=1 OR a=2;
+ QUERY PLAN                              
+-----------------------------------------
+ Seq Scan on public.t1                   
+   Output: a, ctid, gp_segment_id        
+   Filter: ((t1.a = 1) OR (t1.a = 2))    
+ Endpoint: on segments: contentid [1, 0] 
+ Optimizer: legacy query optimizer       
+(5 rows)
+
+-- Parallel cursor with other options (WITH HOLD/SCROLL) is not supported
+EXPLAIN (COSTS false) DECLARE c1 PARALLEL CURSOR WITHOUT HOLD FOR SELECT * FROM t1;
+ QUERY PLAN                        
+-----------------------------------
+ Seq Scan on t1                    
+ Endpoint: on all 3 segments       
+ Optimizer: legacy query optimizer 
+(3 rows)
+EXPLAIN (COSTS false) DECLARE c1 PARALLEL CURSOR WITH HOLD FOR SELECT * FROM t1;
+ERROR:  DECLARE PARALLEL CURSOR WITH HOLD ... is not supported
+DETAIL:  Holdable cursors can not be parallel
+
+EXPLAIN (COSTS false) DECLARE c1 NO SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
+ QUERY PLAN                        
+-----------------------------------
+ Seq Scan on t1                    
+ Endpoint: on all 3 segments       
+ Optimizer: legacy query optimizer 
+(3 rows)
+EXPLAIN (COSTS false) DECLARE c1 SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
+ERROR:  SCROLL is not allowed for the PARALLEL cursors
+DETAIL:  Scrollable cursors can not be parallel

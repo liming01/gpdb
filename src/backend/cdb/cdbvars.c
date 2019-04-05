@@ -91,6 +91,8 @@ int			gp_cached_gang_threshold;	/* How many gangs to keep around from
 bool		Gp_write_shared_snapshot;	/* tell the writer QE to write the
 										 * shared snapshot */
 
+char		*Gp_endpoints_token_operation; /* do endpoint token operation in shared memory on QEs */
+
 bool		gp_reraise_signal = false;	/* try to dump core when we get
 										 * SIGABRT & SIGSEGV */
 
@@ -372,6 +374,10 @@ string_to_role(const char *string)
 	{
 		role = GP_ROLE_UTILITY;
 	}
+	else if (pg_strcasecmp(string, "retrieve") == 0)
+	{
+		role = GP_ROLE_RETRIEVE;
+	}
 
 	return role;
 }
@@ -392,6 +398,8 @@ role_to_string(GpRoleValue role)
 			return "execute";
 		case GP_ROLE_UTILITY:
 			return "utility";
+		case GP_ROLE_RETRIEVE:
+			return "retrieve";
 		case GP_ROLE_UNDEFINED:
 		default:
 			return "*undefined*";
@@ -482,6 +490,12 @@ assign_gp_role(const char *newval, void *extra)
 	GpRoleValue oldrole = Gp_role;
 
 	Assert(newrole != GP_ROLE_UNDEFINED);
+
+	/* Retrieve role can not be reset to other mode */
+	if (oldrole == GP_ROLE_RETRIEVE && newrole != GP_ROLE_RETRIEVE)
+		ereport(ERROR,
+				(errcode(ERRCODE_CANT_CHANGE_RUNTIME_PARAM),
+					errmsg("\"gp_role\" could not be changed from retrieve role")));
 
 	/*
 	 * When changing between roles, we must call cdb_cleanup and then

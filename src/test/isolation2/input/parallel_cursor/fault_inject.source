@@ -1,0 +1,73 @@
+-- @Description Tests with faut inject
+--
+DROP TABLE IF EXISTS t1;
+CREATE TABLE t1 (a INT);
+insert into t1 select generate_series(1,100);
+
+CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
+
+--------- Test1: fault injection end-point shared memory slot full on QE
+2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 2);
+2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'full_memory_slot', 2);
+
+1: BEGIN;
+-- should report error on seg0
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: ROLLBACK;
+-- test same error on another session
+3: BEGIN;
+3: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+3: ROLLBACK;
+-- reset the fault injection
+2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 2);
+2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'revert_memory_slot', 2);
+--should work as normal
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1&: EXECUTE PARALLEL CURSOR c1;
+
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+
+1<:
+1: CLOSE c1;
+-- check no endpoint info
+1: SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1' or cursorname = 'FAULT_INJECTION_CURSOR';
+-- check no token info on QE after close parallel cursor
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
+
+1: ROLLBACK;
+
+--------- Test2: fault injection end-point shared memory slot full on QD
+2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 1);
+2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'full_memory_slot', 1);
+
+1: BEGIN;
+-- should report error on QD
+1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: ROLLBACK;
+-- test same error on another session
+3: BEGIN;
+3: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+3: ROLLBACK;
+-- reset the fault injection
+2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 1);
+2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'revert_memory_slot', 1);
+--should work as normal
+1: BEGIN;
+1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN2=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN2}/${NL}s/${TOKEN2}/token_id2/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1&: EXECUTE PARALLEL CURSOR c2;
+
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE ALL FROM "@TOKEN2";
+
+1<:
+1: CLOSE c2;
+-- check no endpoint info
+1: SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2' or cursorname = 'FAULT_INJECTION_CURSOR';
+-- check no token info on QE after close parallel cursor
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
+
+1: ROLLBACK;

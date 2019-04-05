@@ -506,6 +506,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	double		totaltime = 0;
 	int			eflags;
 	int			instrument_option = 0;
+	int			cursorOptions = 0;
 
 	if (es->analyze && es->timing)
 		instrument_option |= INSTRUMENT_TIMER;
@@ -615,6 +616,50 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	/* Create textual dump of plan tree */
 	ExplainPrintPlan(es, queryDesc);
 
+	if (queryDesc->utilitystmt && IsA(queryDesc->utilitystmt, DeclareCursorStmt))
+		cursorOptions |= ((DeclareCursorStmt *) queryDesc->utilitystmt)->options;
+
+	if (cursorOptions & CURSOR_OPT_PARALLEL)
+	{
+		char endpoint_info[1024];
+
+		ExplainOpenGroup("Cursor", "Cursor", true, es);
+
+		if (!(queryDesc->plannedstmt->planTree->flow->flotype == FLOW_SINGLETON &&
+			queryDesc->plannedstmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
+		{
+			if (queryDesc->plannedstmt->planTree->directDispatch.isDirectDispatch &&
+				queryDesc->plannedstmt->planTree->directDispatch.contentIds != NULL)
+			{
+				/*
+				 * Direct dispatch to some segments, so end-points only exist
+				 * on these segments
+				 */
+				ListCell *cell;
+				bool isFirst = true;
+				size_t len = 0;
+				len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, "on segments: contentid [");
+				foreach(cell, queryDesc->plannedstmt->planTree->directDispatch.contentIds)
+				{
+					len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, (isFirst)?"%d":", %d", lfirst_int(cell));
+					isFirst = false;
+				}
+				len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, "]");
+
+			}else{
+				snprintf(endpoint_info, sizeof(endpoint_info), "on all %d segments", getgpsegmentCount());
+			}
+			ExplainProperty("Endpoint", endpoint_info, false, es);
+		}
+		else
+		{
+			ExplainProperty("Endpoint", "on master", false, es);
+		}
+
+		ExplainOpenGroup("Cursor", "Cursor", true, es);
+	}
+
+	/* Print info about runtime of triggers */
 	if (es->summary && planduration)
 	{
 		double		plantime = INSTR_TIME_GET_DOUBLE(*planduration);
@@ -642,7 +687,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	 * as optimizer settings etc.
      */
 	ExplainOpenGroup("Settings", "Settings", true, es);
-	
+
 	if (queryDesc->plannedstmt->planGen == PLANGEN_PLANNER)
 		ExplainProperty("Optimizer", "Postgres query optimizer", false, es);
 #ifdef USE_ORCA
