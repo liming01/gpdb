@@ -1,0 +1,33 @@
+-- @Description Tests syntax for the parallel cursor statement
+-- 
+DROP TABLE IF EXISTS t1;
+CREATE TABLE t1 (a INT);
+insert into t1 select generate_series(1,100);
+
+-- Test: Parallel cursor with other options (WITH HOLD/SCROLL) is not supported
+BEGIN;
+DECLARE c1 PARALLEL CURSOR WITHOUT HOLD FOR SELECT * FROM t1;
+DECLARE c2 PARALLEL CURSOR WITH HOLD FOR SELECT * FROM t1;
+ROLLBACK;
+
+BEGIN;
+DECLARE c1 NO SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE c2 SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
+ROLLBACK;
+
+-- Test: Parallel cursor can not support FETCH/MOVE statement
+BEGIN;
+DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+FETCH ALL FROM c1;
+ROLLBACK;
+
+BEGIN;
+DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+MOVE 10 FROM c1;
+ROLLBACK;
+
+-- Test: non-parallel cursor can not support the "EXECUTE PARALLEL CURSOR" statement
+BEGIN;
+DECLARE c1 CURSOR FOR SELECT * FROM t1;
+EXECUTE PARALLEL CURSOR c1;
+ROLLBACK;

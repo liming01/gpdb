@@ -261,6 +261,10 @@ FI_IDENT(InsideMoveDbTransaction, "inside_move_db_transaction")
 FI_IDENT(CheckpointAfterRedoCalculated, "checkpoint_after_redo_calculated")
 /* inject fault at the beginning of heap insert */
 FI_IDENT(HeapInsert, "heap_insert")
+/* inject fault when retrieving tuples from endpoint */
+FI_IDENT(FetchTuplesFromEndpoint, "fetch_tuples_from_endpoint")
+/* inject fault "skip" to set end-point shared momeory slot full */
+FI_IDENT(EndpointSharedMemorySlotFull, "endpoint_shared_memory_slot_full")
 #endif
 
 /*
@@ -283,6 +287,8 @@ FI_TYPE(FaultInjectorTypeSegv, "segv")
 FI_TYPE(FaultInjectorTypeInterrupt, "interrupt")
 FI_TYPE(FaultInjectorTypeFinishPending, "finish_pending")
 FI_TYPE(FaultInjectorTypeWaitUntilTriggered, "wait_until_triggered")
+FI_TYPE(FaultInjectorTypeFullMemorySlot, "full_memory_slot")
+FI_TYPE(FaultInjectorTypeRevertMemorySlot, "revert_memory_slot")
 #endif
 
 /*

@@ -505,6 +505,8 @@ extern Datum pg_file_length(PG_FUNCTION_ARGS);
 extern Datum pg_ls_dir_1arg(PG_FUNCTION_ARGS);
 
 /* misc.c */
+extern int pg_signal_backend(int pid, int sig, char *msg);
+
 extern Datum current_database(PG_FUNCTION_ARGS);
 extern Datum current_query(PG_FUNCTION_ARGS);
 extern Datum pg_cancel_backend(PG_FUNCTION_ARGS);
@@ -1389,5 +1391,9 @@ extern Datum gp_opt_version(PG_FUNCTION_ARGS);
 
 /* query_metrics.c */
 extern Datum gp_instrument_shmem_summary(PG_FUNCTION_ARGS);
+
+/* cdbendpoint.c */
+extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
+extern Datum gp_endpoints_status_info(PG_FUNCTION_ARGS);
 
 #endif   /* BUILTINS_H */

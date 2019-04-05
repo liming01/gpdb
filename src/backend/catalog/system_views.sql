@@ -394,6 +394,9 @@ CREATE VIEW pg_timezone_abbrevs AS
 CREATE VIEW pg_timezone_names AS
     SELECT * FROM pg_timezone_names();
 
+CREATE VIEW gp_endpoints AS
+    SELECT * FROM gp_endpoints_info();
+
 -- Statistics views
 
 CREATE VIEW pg_stat_all_tables AS

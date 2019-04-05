@@ -114,6 +114,7 @@
 #include "cdb/memquota.h"
 #include "cdb/cdbtargeteddispatch.h"
 #include "cdb/cdbutil.h"
+#include "cdb/cdbendpoint.h"
 
 
 /* Hooks for plugins to get control in ExecutorStart/Run/Finish/End */
@@ -146,7 +147,7 @@ static void EvalPlanQualStart(EPQState *epqstate, EState *parentestate,
 				  Plan *planTree);
 
 static void FillSliceGangInfo(Slice *slice, int numsegments);
-static void FillSliceTable(EState *estate, PlannedStmt *stmt);
+static void FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor);
 
 static PartitionNode *BuildPartitionNodeFromRoot(Oid relid);
 static void InitializeQueryPartsMetadata(PlannedStmt *plannedstmt, EState *estate);
@@ -718,6 +719,18 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		else
 			exec_identity = GP_IGNORE;
 
+		/*
+		 * Endpoint is on the QD, aggregate for example
+		 */
+		if (Gp_role == GP_ROLE_DISPATCH && queryDesc->parallel_cursor
+			&& queryDesc->operation == CMD_SELECT
+			&& !(eflags & EXEC_FLAG_EXPLAIN_ONLY)
+			&& exec_identity == GP_ROOT_SLICE
+			&& LocallyExecutingSliceIndex(estate) == 0)
+		{
+			SetEndpointRole(EPR_SENDER);
+		}
+
 		/* non-root on QE */
 		if (exec_identity == GP_NON_ROOT_ON_QE)
 		{
@@ -844,6 +857,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	DestReceiver *dest;
 	bool		sendTuples;
 	MemoryContext oldcontext;
+	DestReceiver *endpointDest = NULL;
 	/*
 	 * NOTE: Any local vars that are set in the PG_TRY block and examined in the
 	 * PG_CATCH block should be declared 'volatile'. (setjmp shenanigans)
@@ -897,7 +911,8 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 
 	sendTuples = (queryDesc->tupDesc != NULL &&
 				  (operation == CMD_SELECT ||
-				   queryDesc->plannedstmt->hasReturning));
+				   queryDesc->plannedstmt->hasReturning)) &&
+					!(queryDesc->parallel_cursor && dest->mydest == DestRemote); /* Don't return result set for EXECUTE PARALLEL CURSOR */
 
 	if (sendTuples)
 		(*dest->rStartup) (dest, operation, queryDesc->tupDesc);
@@ -923,6 +938,18 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 		 * getGpExecIdentity() in execUtils.
 		 */
 		exec_identity = getGpExecIdentity(queryDesc, direction, estate);
+
+		/*
+		 * When run a root slice, and it is a parallel cursor, it means
+		 * QD become the end point for connection. It is true, for
+		 * instance, SELECT * FROM foo LIMIT 10, and the result should
+		 * go out from QD.
+		 */
+		if (EndpointRole() == EPR_SENDER)
+		{
+			endpointDest = CreateDestReceiver(DestEndpoint);
+			(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
+		}
 
 		if (exec_identity == GP_IGNORE)
 		{
@@ -969,10 +996,10 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			ExecutePlan(estate,
 						queryDesc->planstate,
 						operation,
-						sendTuples,
+						(EndpointRole () == EPR_SENDER ? true : sendTuples),
 						count,
 						direction,
-						dest);
+						(EndpointRole () == EPR_SENDER ? endpointDest : dest));
 		}
 		else
 		{
@@ -1037,6 +1064,12 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	/*
 	 * shutdown tuple receiver, if we started it
 	 */
+	if (EndpointRole() == EPR_SENDER)
+	{
+		(*endpointDest->rShutdown) (endpointDest);
+		(*endpointDest->rDestroy) (endpointDest);
+	}
+
 	if (sendTuples)
 		(*dest->rShutdown) (dest);
 
@@ -1233,6 +1266,8 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
      */
 	ExecEndPlan(queryDesc->planstate, estate);
 
+	ClearEndpointRole();
+
 	/*
 	 * Remove our own query's motion layer.
 	 */
@@ -1275,6 +1310,7 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
 	queryDesc->estate = NULL;
 	queryDesc->planstate = NULL;
 	queryDesc->totaltime = NULL;
+	ClearGpToken();
 
 	if (DEBUG1 >= log_min_messages)
 	{
@@ -1400,6 +1436,17 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 		return true;
 
 	relOid = rte->relid;
+
+	/* Only gp_endpoints view can be allowed by retrieve role */
+	if (Gp_role == GP_ROLE_RETRIEVE)
+	{
+		if ((rte->relid != 11468) || (rte->relkind != 'v'))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Only gp_endpoints view can be accessed by retrieve role")));
+		}
+	}
 
 	/*
 	 * userid to check as: current user unless we have a setuid indication.
@@ -1978,7 +2025,7 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	 * Initialize the slice table.
 	 */
 	if (Gp_role == GP_ROLE_DISPATCH)
-		FillSliceTable(estate, plannedstmt);
+		FillSliceTable(estate, plannedstmt, queryDesc->parallel_cursor);
 
 	/*
 	 * Initialize private state information for each SubPlan.  We must do this
@@ -4936,7 +4983,7 @@ FillSliceTable_walker(Node *node, void *context)
  * into SubPlan nodes, to do the same.
  */
 static void
-FillSliceTable(EState *estate, PlannedStmt *stmt)
+FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 {
 	FillSliceTable_cxt cxt;
 	SliceTable *sliceTable = estate->es_sliceTable;
@@ -4948,6 +4995,10 @@ FillSliceTable(EState *estate, PlannedStmt *stmt)
 	cxt.estate = estate;
 	cxt.currentSliceId = 0;
 
+	/*
+	 * INTO and PARALLEL CURSOR are handled here because they dispatch but have
+	 * no motion between QD and QEs.
+	 */
 	if (stmt->intoClause != NULL || stmt->copyIntoClause != NULL)
 	{
 		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
@@ -4963,6 +5014,17 @@ FillSliceTable(EState *estate, PlannedStmt *stmt)
 			/* FIXME: ->lefttree or planTree? */
 			numsegments = stmt->planTree->flow->numsegments;
 		currentSlice->gangType = GANGTYPE_PRIMARY_WRITER;
+		FillSliceGangInfo(currentSlice, numsegments);
+	}
+	else if (parallel_cursor
+			 && (stmt->planTree->flow->flotype != FLOW_SINGLETON
+				 || stmt->planTree->flow->locustype == CdbLocusType_SegmentGeneral))
+	{
+		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
+		int			numsegments;
+
+		numsegments = stmt->planTree->flow->numsegments;
+		currentSlice->gangType = GANGTYPE_PRIMARY_READER;
 		FillSliceGangInfo(currentSlice, numsegments);
 	}
 
