@@ -2628,6 +2628,7 @@ typedef struct SecLabelStmt
 #define CURSOR_OPT_NO_SCROLL	0x0004	/* NO SCROLL explicitly given */
 #define CURSOR_OPT_INSENSITIVE	0x0008	/* INSENSITIVE */
 #define CURSOR_OPT_HOLD			0x0010	/* WITH HOLD */
+#define CURSOR_OPT_PARALLEL		0x0100	/* Cursor for parallel retrieving */
 /* these planner-control flags do not correspond to any SQL grammar: */
 #define CURSOR_OPT_FAST_PLAN	0x0020	/* prefer fast-start plan */
 #define CURSOR_OPT_GENERIC_PLAN 0x0040	/* force use of generic plan */
@@ -2681,6 +2682,8 @@ typedef struct FetchStmt
 	int64		howMany;		/* number of rows, or position argument */
 	char	   *portalname;		/* name of portal (cursor) */
 	bool		ismove;			/* TRUE if MOVE */
+	bool        isParallelCursor;  /* If it is a parallel cursor, FETCH statement
+									  is in fact EXECUTE PARALLEL CURSOR*/
 } FetchStmt;
 
 /* ----------------------
@@ -3360,5 +3363,13 @@ typedef struct AlterTSConfigurationStmt
 	bool		replace;		/* if true - replace dictionary by another */
 	bool		missing_ok;		/* for DROP - skip error if missing? */
 } AlterTSConfigurationStmt;
+
+typedef struct RetrieveStmt
+{
+	NodeTag		type;
+	int64		token;
+	int64		count;
+	bool		is_all;
+} RetrieveStmt;
 
 #endif   /* PARSENODES_H */
