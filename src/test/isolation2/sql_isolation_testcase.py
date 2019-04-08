@@ -62,10 +62,10 @@ class GlobalShellExecutor(object):
     
     def begin(self):
         self.v_cnt = 0
-        self.sh_proc = subprocess.Popen(['/bin/bash', '-i'], stdin=subprocess.PIPE,
+        self.sh_proc = subprocess.Popen(['/bin/bash'], stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # Set env var ${NL} because "\n" can not be converted to new line for unknown escaping reason
-        cmd = ''' export NL='\n' \n'''
+        cmd = ''' export NL='\n';\n'''
         self.sh_proc.stdin.write(cmd)
         self.sh_proc.stdin.flush()
 
@@ -79,10 +79,8 @@ class GlobalShellExecutor(object):
         # so here just write all matchsubs section into an auto generated init file when this test case file finished.
         if self.initfile_prefix!=None and len(self.initfile_prefix)>1:
             output_init_file = "%s.ini" % self.initfile_prefix
-            cmd = ''' [ ! -z "${MATCHSUBS}" ] && echo "-- start_matchsubs ${NL} ${MATCHSUBS} ${NL}-- end_matchsubs" > %s \n''' % output_init_file
-            # print >>self.output_file, "shell cmd: %s" % cmd
-            self.sh_proc.stdin.write(cmd)
-            self.sh_proc.stdin.flush() 
+            cmd = ''' [ ! -z "${MATCHSUBS}" ] && echo "-- start_matchsubs ${NL} ${MATCHSUBS} ${NL}-- end_matchsubs" > %s ''' % output_init_file
+            self.exec_gsh(cmd, False)
 
         self.sh_proc.terminate()
         self.v_cnt = 0
@@ -103,22 +101,14 @@ class GlobalShellExecutor(object):
             else:
                 time.sleep(1)
         return lines
-
-    # execute gobal shell:
-    # 1) set input stream -> $RAW_STR
-    # 2) execute shell command from input
-    # if error, write error message to err_log_file
-    def exec_in_global_shell(self, input, sh_cmd, is_trip_end_blanklines):
+    
+    # execute global shell cmd in bash deamon, and fetch result without blocking
+    def exec_gsh(self, sh_cmd, is_trip_output_end_blanklines):
         if self.sh_proc == None:
             self.begin();
-
-        self.v_cnt = 1 + self.v_cnt
-        escape_in = input.replace('\'',"'\\''")
-        # replace env variable to specific one for not to effect each others
-        sh_cmd = sh_cmd.replace("$RAW_STR", "$RAW_STR%d"%self.v_cnt)
-        sh_cmd = sh_cmd.replace("${RAW_STR}", "${RAW_STR%d}"%self.v_cnt)
-        # send shell cmd
-        cmd = ''' export RAW_STR%d='%s' && %s; echo "\n<<quit$?>>";\n''' % (self.v_cnt, escape_in, sh_cmd)
+    
+        # Add quit flag to return for readlines_nonblock(), and print $? for error tracing.
+        cmd = ''' %s; echo "\n<<quit$?>>";\n''' % sh_cmd
         self.sh_proc.stdin.write(cmd)
         self.sh_proc.stdin.flush()
         # print if need to debug this shell cmd
@@ -126,7 +116,7 @@ class GlobalShellExecutor(object):
 
         # get the output of shell commmand
         output=self.readlines_nonblock(cmd)
-        if is_trip_end_blanklines:
+        if is_trip_output_end_blanklines:
             for i in range(len(output)-1, 0, -1):
                 if output[i]=='\n':
                     del output[i]
@@ -135,6 +125,23 @@ class GlobalShellExecutor(object):
 
         return output
 
+
+    # execute gobal shell:
+    # 1) set input stream -> $RAW_STR
+    # 2) execute shell command from input
+    # if error, write error message to err_log_file
+    def exec_gsh_4_raw_str(self, input, sh_cmd, is_trip_output_end_blanklines):
+        self.v_cnt = 1 + self.v_cnt
+        escape_in = input.replace('\'',"'\\''")
+        # replace env variable to specific one for not to effect each others
+        sh_cmd = sh_cmd.replace("$RAW_STR", "$RAW_STR%d"%self.v_cnt)
+        sh_cmd = sh_cmd.replace("${RAW_STR}", "${RAW_STR%d}"%self.v_cnt)
+        # send shell cmd
+        cmd = ''' export RAW_STR%d='%s' && %s''' % (self.v_cnt, escape_in, sh_cmd)
+        return self.exec_gsh(cmd, is_trip_output_end_blanklines)
+
+    # extrac shell shell, sql part from one line with format: @header '': SQL
+    # return row: (found the header or not?, the extracted shell, the SQL in the left part)
     def extract_sh_cmd(self, header, input_str):
         start=len(header)
         is_start = False
@@ -233,7 +240,7 @@ class SQLIsolationExecutor(object):
                 raise Exception("Execution failed")
             
             if out_sh_cmd!=None:
-                new_out=global_sh_executor.exec_in_global_shell(r.rstrip(), out_sh_cmd,  True)
+                new_out=global_sh_executor.exec_gsh_4_raw_str(r.rstrip(), out_sh_cmd,  True)
                 for line in new_out:
                     self.out_file.write(line)
                 self.out_file.flush()
@@ -527,7 +534,7 @@ class SQLIsolationExecutor(object):
             
             # if set @in_sh or @out_sh
             if in_sh_cmd!=None:
-                sqls=global_sh_executor.exec_in_global_shell(sql, in_sh_cmd, True)
+                sqls=global_sh_executor.exec_gsh_4_raw_str(sql, in_sh_cmd, True)
                 if(len(sqls)!=1):
                     raise Exception("Invalid shell commmand: %v", sqls)
                 else:
