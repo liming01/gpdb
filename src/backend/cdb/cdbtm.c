@@ -1530,52 +1530,36 @@ assign_gp_write_shared_snapshot(bool newval, void *extra)
 void
 assign_gp_endpoints_token_operation(const char *newval, void *extra)
 {
+	const char *token = newval+1;
+	int tokenid = atoi(token);
+
 #if FALSE
 	elog(DEBUG1, "SET gp_endpoints_token_operation: %s", newval);
 #endif
 
 	/* maybe called in AtEOXact_GUC() to set to default value (i.e. empty string) */
-	if(newval==NULL || strlen(newval)==0)
-	{
-		return ;
-	}
+	if (newval == NULL || strlen(newval) == 0)
+		return;
 
-	const char *token = newval+1;
-	int tokenid = atoi(token);
-	if (tokenid!=InvalidToken)
+	if (tokenid != InvalidToken && Gp_role == GP_ROLE_EXECUTE && Gp_is_writer)
 	{
-		if (Gp_role == GP_ROLE_EXECUTE)
+		switch(newval[0])
 		{
-			if (Gp_is_writer)
-			{
-				switch(newval[0])
-				{
-					case 'p':
-						//Push end point
-						AllocEndPoint4token(tokenid);
-						break;
-					case 'f':
-						//Free end point
-						FreeEndPoint4token(tokenid);
-						break;
-//					case 'S':
-//						//Set senderpid of end point
-//						break;
-					case 'u':
-						//Unset senderpid of end point
-						UnSetSendPid4EndPoint(tokenid);
-						break;
-//					case 'A':
-//						//Attach end point
-//						break;
-//					case 'D':
-//						//Detach end point
-//						break;
-					default:
-						elog(ERROR, "Error to SET gp_endpoints_token_operation: %s", newval);
-						break;
-				}
-			}
+		case 'p':
+			/* Push end point */
+			AllocEndPoint4token(tokenid);
+			break;
+		case 'f':
+			/* Free end point */
+			FreeEndPoint4token(tokenid);
+			break;
+		case 'u':
+			/* Unset senderpid of end point */
+			UnSetSendPid4EndPoint(tokenid);
+			break;
+		default:
+			elog(ERROR, "Failed to SET gp_endpoints_token_operation: %s", newval);
+			break;
 		}
 	}
 }

@@ -1913,9 +1913,10 @@ DoPortalRunFetch(Portal portal,
 	{
 		PortalRunMulti(portal, false, dest, dest, NULL);
 
-		if (portal->parallel_cursor_token!=InvalidToken)
+		if (portal->parallel_cursor_token != InvalidToken)
 		{
 			char		cmd[255];
+
 			/* Unset sender pid for end-point */
 			sprintf(cmd, "set gp_endpoints_token_operation='u%d'", portal->parallel_cursor_token);
 
@@ -1924,7 +1925,7 @@ DoPortalRunFetch(Portal portal,
 			{
 				if (l->length == 1 && list_nth_int(l, 0) == MASTER_CONTENT_ID)
 				{
-					/* unset sender pid for end-point on master*/
+					/* unset sender pid for end-point on master */
 					UnSetSendPid4EndPoint(portal->parallel_cursor_token);
 				}
 				else

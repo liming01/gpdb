@@ -95,18 +95,20 @@ static void retrieve_cancel_pending_action(void);
 int32
 GetUniqueGpToken()
 {
+	int token;
+
 	SpinLockAcquire(shared_tokens_lock);
 
-REGENERATE:
+	/* The random number sequences in the same second are the same */
 	srand(time(NULL));
-	int32		token = rand();
+
+REGENERATE:
+	token = rand();
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (token == SharedTokens[i].token)
-		{
 			goto REGENERATE;
-		}
 	}
 
 	SpinLockRelease(shared_tokens_lock);
@@ -2027,7 +2029,7 @@ RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
 }
 
 static void
-			startup_endpoint_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
+startup_endpoint_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
 {
 	SetSendPid4EndPoint();
 	InitConn();
