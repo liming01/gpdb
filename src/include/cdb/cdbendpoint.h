@@ -65,7 +65,7 @@ typedef struct token
 #define INVALID_SESSION_ID -1
 
 #define SHAREDTOKEN_DBID_NUM 64
-#define TOKEN_NAME_FORMAT_STR "TK%010d"
+#define TOKEN_NAME_FORMAT_STR "tk%010d"
 /*
  * SharedTokenDesc is a entry to store the information of a token, includes:
  * token: token number
