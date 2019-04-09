@@ -112,7 +112,7 @@ EXPLAIN (COSTS false) SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
                    QUERY PLAN                   
 ------------------------------------------------
  Limit
-   ->  Gather Motion 2:1  (slice1; segments: 2)
+   ->  Gather Motion 3:1  (slice1; segments: 3)
          Merge Key: c3, c1
          ->  Limit
                ->  Sort
@@ -141,7 +141,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET
 --------------------------------------------------------------------------------------------
  Limit
    Output: c1, c2, c3, c4, c5, c6, c7, c8
-   ->  Gather Motion 2:1  (slice1; segments: 2)
+   ->  Gather Motion 3:1  (slice1; segments: 3)
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Merge Key: c3, c1
          ->  Limit
@@ -176,7 +176,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT t1 FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSE
 --------------------------------------------------------------------------------------------
  Limit
    Output: t1.*, c3, c1
-   ->  Gather Motion 2:1  (slice1; segments: 2)
+   ->  Gather Motion 3:1  (slice1; segments: 3)
          Output: t1.*, c3, c1
          Merge Key: c3, c1
          ->  Limit
@@ -215,7 +215,7 @@ SELECT * FROM ft1 WHERE false;
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
                                                                   QUERY PLAN                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -319,7 +319,7 @@ CREATE OPERATOR === (
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = postgres_fdw_abs(t1.c2);
                                 QUERY PLAN                                
 --------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -331,7 +331,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = postgres_fdw_a
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 === t1.c2;
                                 QUERY PLAN                                
 --------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -343,7 +343,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 === t1.c2;
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = abs(t1.c2);
                                            QUERY PLAN                                            
 -------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -354,7 +354,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = abs(t1.c2);
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = t1.c2;
                                          QUERY PLAN                                         
 --------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -368,7 +368,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = t1.c2;
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 1;         -- Var, OpExpr(b), Const
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -379,7 +379,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 1;         -- 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 100 AND t1.c2 = 0; -- BoolExpr
                                                  QUERY PLAN                                                 
 ------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -399,7 +399,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NULL;        -- 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NOT NULL;    -- NullTest
                                             QUERY PLAN                                             
 ---------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -410,7 +410,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NOT NULL;    -- 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE round(abs(c1), 0) = 1; -- FuncExpr
                                                     QUERY PLAN                                                     
 -------------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -421,7 +421,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE round(abs(c1), 0) = 1;
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = -c1;          -- OpExpr(l)
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -432,7 +432,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = -c1;          -- 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE 1 = c1!;           -- OpExpr(r)
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -443,7 +443,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE 1 = c1!;           -- 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE (c1 IS NOT NULL) IS DISTINCT FROM (c1 IS NOT NULL); -- DistinctExpr
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -454,7 +454,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE (c1 IS NOT NULL) IS DI
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = ANY(ARRAY[c2, 1, c1 + 0]); -- ScalarArrayOpExpr
                                                       QUERY PLAN                                                      
 ----------------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -465,7 +465,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = ANY(ARRAY[c2, 1, 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = (ARRAY[c1,c2,3])[1]; -- ArrayRef
                                                    QUERY PLAN                                                    
 -----------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -476,7 +476,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = (ARRAY[c1,c2,3])[
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  -- check special chars
                                                   QUERY PLAN                                                  
 --------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -487,7 +487,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
                                 QUERY PLAN                                
 --------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -501,7 +501,7 @@ EXPLAIN (VERBOSE, COSTS false)
   SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
                                                    QUERY PLAN                                                   
 ----------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice2; segments: 2)
+ Gather Motion 3:1  (slice2; segments: 3)
    Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8, b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
    ->  Hash Join
          Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8, b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
@@ -511,7 +511,7 @@ EXPLAIN (VERBOSE, COSTS false)
                Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
          ->  Hash
                Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
-               ->  Broadcast Motion 2:2  (slice1; segments: 2)
+               ->  Broadcast Motion 3:3  (slice1; segments: 3)
                      Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
                      ->  Foreign Scan on public.ft2 a
                            Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
@@ -530,7 +530,7 @@ EXPLAIN (VERBOSE, COSTS false)
   WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);
                                                    QUERY PLAN                                                   
 ----------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice2; segments: 2)
+ Gather Motion 3:1  (slice2; segments: 3)
    Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8, b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
    ->  Hash Join
          Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8, b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
@@ -540,7 +540,7 @@ EXPLAIN (VERBOSE, COSTS false)
                Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
          ->  Hash
                Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
-               ->  Broadcast Motion 2:2  (slice1; segments: 2)
+               ->  Broadcast Motion 3:3  (slice1; segments: 3)
                      Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
                      ->  Foreign Scan on public.ft2 a
                            Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
@@ -679,7 +679,7 @@ PREPARE st1(int, int) AS SELECT t1.c3, t2.c3 FROM ft1 t1, ft2 t2 WHERE t1.c1 = $
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st1(1, 2);
                                    QUERY PLAN                                    
 ---------------------------------------------------------------------------------
- Gather Motion 2:1  (slice2; segments: 2)
+ Gather Motion 3:1  (slice2; segments: 3)
    Output: t1.c3, t2.c3
    ->  Nested Loop
          Output: t1.c3, t2.c3
@@ -688,7 +688,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st1(1, 2);
                Remote SQL: SELECT c3 FROM public.t1 WHERE ((c1 = 1))
          ->  Materialize
                Output: t2.c3
-               ->  Broadcast Motion 2:2  (slice1; segments: 2)
+               ->  Broadcast Motion 3:3  (slice1; segments: 3)
                      Output: t2.c3
                      ->  Foreign Scan on public.ft2 t2
                            Output: t2.c3
@@ -713,7 +713,7 @@ PREPARE st2(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st2(10, 20);
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice2; segments: 2)
+ Gather Motion 3:1  (slice2; segments: 3)
    Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
    Merge Key: t1.c1
    ->  Sort
@@ -727,7 +727,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st2(10, 20);
                      Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 < 20))
                ->  Hash
                      Output: t2.c3
-                     ->  Broadcast Motion 2:2  (slice1; segments: 2)
+                     ->  Broadcast Motion 3:3  (slice1; segments: 3)
                            Output: t2.c3
                            ->  Foreign Scan on public.ft2 t2
                                  Output: t2.c3
@@ -753,7 +753,7 @@ PREPARE st3(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st3(10, 20);
                                                           QUERY PLAN                                                          
 ------------------------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice2; segments: 2)
+ Gather Motion 3:1  (slice2; segments: 3)
    Output: t1.c1, t1.c2, t1.c3, t1.c4, t1.c5, t1.c6, t1.c7, t1.c8
    Merge Key: t1.c1
    ->  Sort
@@ -767,7 +767,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st3(10, 20);
                      Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 < 20))
                ->  Hash
                      Output: t2.c3
-                     ->  Broadcast Motion 2:2  (slice1; segments: 2)
+                     ->  Broadcast Motion 3:3  (slice1; segments: 3)
                            Output: t2.c3
                            ->  Foreign Scan on public.ft2 t2
                                  Output: t2.c3
@@ -791,7 +791,7 @@ PREPARE st4(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 = $1;
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -802,7 +802,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -813,7 +813,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -824,7 +824,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -835,7 +835,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -847,7 +847,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                              QUERY PLAN                                              
 -----------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -860,7 +860,7 @@ PREPARE st5(user_enum,int) AS SELECT * FROM ft1 t1 WHERE c8 = $1 and c1 = $2;
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -872,7 +872,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -884,7 +884,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -896,7 +896,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -908,7 +908,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -920,7 +920,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                              QUERY PLAN                                              
 -----------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -964,7 +964,7 @@ EXPLAIN (VERBOSE, COSTS false)
 SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)
+ Gather Motion 3:1  (slice1; segments: 3)
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
@@ -975,9 +975,10 @@ SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
 SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
  c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
 ----+----+-------+------------------------------+--------------------------+----+------------+-----
+  6 |  6 | 00006 | Wed Jan 07 00:00:00 1970 PST | Wed Jan 07 00:00:00 1970 | 6  | 6          | foo
+ 12 |  2 | 00012 | Tue Jan 13 00:00:00 1970 PST | Tue Jan 13 00:00:00 1970 | 2  | 2          | foo
   3 |  3 | 00003 | Sun Jan 04 00:00:00 1970 PST | Sun Jan 04 00:00:00 1970 | 3  | 3          | foo
-  5 |  5 | 00005 | Tue Jan 06 00:00:00 1970 PST | Tue Jan 06 00:00:00 1970 | 5  | 5          | foo
-(2 rows)
+(3 rows)
 
 EXPLAIN (VERBOSE, COSTS false)
 SELECT ctid, * FROM ft1 t1 LIMIT 1 WHERE c2 = 1;
