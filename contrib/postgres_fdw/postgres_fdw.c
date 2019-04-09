@@ -900,11 +900,11 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
 	int numParams = list_length(fsplan->fdw_exprs);
 	bool fallback_to_single = false;
+	ForeignTable *rel = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
 
-	if (numParams != 0)
+	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && numParams != 0)
 		fallback_to_single = true;
 
-	ForeignTable *rel = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
 	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH && !fallback_to_single)
 	{
 		greenplumBeginMppForeignScan(node, eflags);
@@ -954,18 +954,21 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 
 	fsstate->fallback_to_single = fallback_to_single;
 
-	/* Get the slice nth number in current gang */
-	Slice   *current_slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
-
-	if (!current_slice || !IsA(current_slice, Slice))
-		ereport(ERROR, (errmsg("No valid slice %d", currentSliceId)));
-
-	int num = -1;
-	while ((num = bms_next_member(current_slice->processesMap, num)) >= 0)
+	if (fsstate->is_parallel || fsstate->fallback_to_single)
 	{
-		slice_no++;
-		if (qe_identifier == num)
-			break;
+		/* Get the slice nth number in current gang */
+		Slice   *current_slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
+
+		if (!current_slice || !IsA(current_slice, Slice))
+			ereport(ERROR, (errmsg("No valid slice %d", currentSliceId)));
+
+		int num = -1;
+		while ((num = bms_next_member(current_slice->processesMap, num)) >= 0)
+		{
+			slice_no++;
+			if (qe_identifier == num)
+				break;
+		}
 	}
 
 	/*
@@ -974,7 +977,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 */
 	if (!fsstate->is_parallel)
 	{
-		if (slice_no == 0)
+		if (!fsstate->fallback_to_single || slice_no == 0)
 		{
 			fsstate->conn = GetConnection(server, user, false);
 			/* Assign a unique ID for my cursor */
