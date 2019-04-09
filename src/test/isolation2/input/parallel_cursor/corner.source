@@ -1,0 +1,66 @@
+DROP TABLE IF EXISTS t1;
+CREATE TABLE t1 (a INT);
+insert into t1 select generate_series(1,100);
+
+-- Test1: close not executed parallel cursor
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: CLOSE c1;
+-- check no endpoint info
+1: SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+-- check no token info on QE after close parallel cursor
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+
+-- error out for closed cursor
+1: EXECUTE PARALLEL CURSOR c1;
+1: ROLLBACK;
+
+-- Test2: open many parallel cursors
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c4 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c5 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c6 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c7 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c9 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c10 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c11 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: ROLLBACK;
+-- check no endpoint info
+1: SELECT token,status FROM GP_ENDPOINTS;
+
+-- Test3: execute non-existing parallel cursor
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: EXECUTE PARALLEL CURSOR c2;
+1: ROLLBACK;
+-- check no endpoint info
+1: SELECT token,status FROM GP_ENDPOINTS;
+
+-- Test4: execute one of parallel cursors
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c4 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c5 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c6 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c7 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c9 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c10 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c11 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1&: EXECUTE PARALLEL CURSOR c2;
+
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+
+1<:
+-- check no endpoint info
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: ROLLBACK;
