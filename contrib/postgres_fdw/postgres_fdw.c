@@ -343,6 +343,7 @@ static void conversion_error_callback(void *arg);
 
 static void greenplumBeginMppForeignScan(ForeignScanState *node, int eflags);
 static void greenplumEndMppForeignScan(ForeignScanState *node);
+static int greenplumCheckIsGreenplum(ForeignServer *server, UserMapping *user);
 static int greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user);
 static void create_custom_cursor(ForeignScanState *node, const char *cursor_sql);
 static void wait_endpoints_ready(ForeignServer *server, UserMapping *user, int32 token);
@@ -902,10 +903,14 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	bool fallback_to_single = false;
 	ForeignTable *rel = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
 
+	/* gp2gp could not handle parameter path, because it run the remote sql
+	 * before executor, fallback_to_single runs on all segments but only the
+	 * first process in the slice really works */
 	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && numParams != 0)
 		fallback_to_single = true;
 
-	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH && !fallback_to_single)
+	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS
+		&& Gp_role == GP_ROLE_DISPATCH && !fallback_to_single)
 	{
 		greenplumBeginMppForeignScan(node, eflags);
 		return;
@@ -1756,6 +1761,7 @@ postgresIsForeignRelUpdatable(Relation rel)
 	bool		updatable;
 	ForeignTable *table;
 	ForeignServer *server;
+	UserMapping *user;
 	ListCell   *lc;
 
 	/*
@@ -1767,6 +1773,7 @@ postgresIsForeignRelUpdatable(Relation rel)
 
 	table = GetForeignTable(RelationGetRelid(rel));
 	server = GetForeignServer(table->serverid);
+	user = GetUserMapping(GetUserId(), server->serverid);
 
 	foreach(lc, server->options)
 	{
@@ -1786,8 +1793,15 @@ postgresIsForeignRelUpdatable(Relation rel)
 	/*
 	 * Currently "updatable" means support for INSERT, UPDATE and DELETE.
 	 */
-	return updatable ?
-		(1 << CMD_INSERT) | (1 << CMD_UPDATE) | (1 << CMD_DELETE) : 0;
+	if (!updatable)
+		return 0;
+
+	/* Greenplum only supports INSERT, because UPDATE/DELETE SELECT requires
+	 * the hidden column gp_segment_id */
+	if (greenplumCheckIsGreenplum(server, user))
+		return (1 << CMD_INSERT);
+	else
+		return (1 << CMD_INSERT) | (1 << CMD_UPDATE) | (1 << CMD_DELETE);
 }
 
 /*
@@ -2880,6 +2894,32 @@ conversion_error_callback(void *arg)
 }
 
 static int
+greenplumCheckIsGreenplum(ForeignServer *server, UserMapping *user)
+{
+	PGconn	   *conn;
+	PGresult   *res;
+	int			ret;
+
+	char *query =  "SELECT version()";
+
+	conn = GetConnection(server, user, false);
+
+	res = pgfdw_exec_query(conn, query);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		pgfdw_report_error(ERROR, res, conn, true, query);
+
+	if (PQntuples(res) == 0)
+		pgfdw_report_error(ERROR, res, conn, true, query);
+
+	ret = strstr(PQgetvalue(res, 0, 0), "Greenplum Database") ? 1 : 0;
+
+	PQclear(res);
+	ReleaseConnection(conn);
+
+	return ret;
+}
+
+static int
 greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user)
 {
 	PGconn	   *conn;
@@ -2888,7 +2928,6 @@ greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user)
 
 	char *query =  "SELECT count(DISTINCT content) FROM pg_catalog.gp_segment_configuration WHERE content >= 0";
 
-	/* Get the remote estimate */
 	conn = GetConnection(server, user, false);
 
 	res = pgfdw_exec_query(conn, query);

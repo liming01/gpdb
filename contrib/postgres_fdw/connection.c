@@ -764,9 +764,12 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					break;
 				case XACT_EVENT_PRE_PREPARE:
 
-					/* TODO: why */
-					if (!entry->reusable)
-						break;
+					/*
+					 * FDW update is not the same as Greenplum segments update,
+					 * doesn't need the two-phase commit.
+					 * TODO: fix on the Greenplum side but not workaround here.
+					 */
+					break;
 
 					/*
 					 * We disallow remote transactions that modified anything,

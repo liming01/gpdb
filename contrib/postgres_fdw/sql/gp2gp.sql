@@ -290,3 +290,11 @@ ROLLBACK TO s;
 FETCH c;
 -- SELECT * FROM ft1 ORDER BY c1 LIMIT 1;  -- should work but failed, report as a bug
 COMMIT;
+
+-- ===================================================================
+-- test writable foreign table stuff
+-- ===================================================================
+INSERT INTO ft2 (c1,c2,c3)
+  VALUES (1101,201,'aaa'), (1102,202,'bbb'), (1103,203,'ccc') RETURNING *;
+UPDATE ft2 SET c2 = c2 + 300, c3 = c3 || '_update3' WHERE c1 % 10 = 3;
+DELETE FROM ft2 WHERE c1 = 9999 RETURNING tableoid::regclass;
