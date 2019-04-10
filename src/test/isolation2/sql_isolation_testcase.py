@@ -99,7 +99,7 @@ class GlobalShellExecutor(object):
                     exit(1)
                 lines.append(line)
             else:
-                time.sleep(1)
+                time.sleep(0.1)
         return lines
     
     # execute global shell cmd in bash deamon, and fetch result without blocking
