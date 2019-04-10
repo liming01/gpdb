@@ -257,7 +257,7 @@ parseToken(char *token)
 {
 	int32 token_id = InvalidToken;
 
-	if(token[0]=='T' && token[1]=='K')
+	if(token[0]=='t' && token[1]=='k')
 	{
 		token_id = atol(token+2);
 	}
