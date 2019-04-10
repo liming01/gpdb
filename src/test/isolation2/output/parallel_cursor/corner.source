@@ -733,3 +733,39 @@ EXECUTE
 (3 rows)
 1: ROLLBACK;
 ROLLBACK
+
+-- Test11: endpoints on one segment.
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 WHERE a = 50;
+DECLARE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | INIT   
+(1 row)
+1&: EXECUTE PARALLEL CURSOR c1;
+ <waiting ...>
+
+1R:  SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id1';
+ attached 
+----------
+ 0        
+(1 row)
+1R:  RETRIEVE ALL FROM "token_id1";
+ a  
+----
+ 50 
+(1 row)
+
+1<:
+ <... completed>
+EXECUTE
+-- check no endpoint info
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | FINISH 
+(1 row)
+1: ROLLBACK;
+ROLLBACK
