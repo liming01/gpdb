@@ -12,6 +12,10 @@ COPY t3 FROM PROGRAM 'for i in `seq 1 10`; do echo ${i}test; done';
 COPY 10
 CREATE TABLE t4 (a text);
 CREATE
+CREATE TABLE t5 (b INT);
+CREATE
+INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
+INSERT 10
 
 -- Test1: close not executed parallel cursor
 1: BEGIN;
@@ -875,3 +879,82 @@ EXECUTE
 1: ROLLBACK;
 ROLLBACK
 
+-- Test15: parallel cursor for two tables' join;
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1, t5 where t1.a = t5.b;
+DECLARE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | INIT   
+ token_id1 | INIT   
+ token_id1 | INIT   
+(3 rows)
+1&: EXECUTE PARALLEL CURSOR c1;
+ <waiting ...>
+
+*R:  RETRIEVE ALL FROM "token_id1";
+ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ a | b 
+---+---
+ 2 | 2 
+ 3 | 3 
+ 4 | 4 
+ 7 | 7 
+ 8 | 8 
+(5 rows)
+ a | b 
+---+---
+ 1 | 1 
+(1 row)
+ a  | b  
+----+----
+ 5  | 5  
+ 6  | 6  
+ 9  | 9  
+ 10 | 10 
+(4 rows)
+
+1<:
+ <... completed>
+EXECUTE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | FINISH 
+ token_id1 | FINISH 
+ token_id1 | FINISH 
+(3 rows)
+1: ROLLBACK;
+ROLLBACK
+
+-- Test16: parallel cursor for the count of two tables' join;
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT COUNT(*) FROM t1, t5 where t1.a = t5.b;
+DECLARE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | INIT   
+(1 row)
+1&: EXECUTE PARALLEL CURSOR c1;
+ <waiting ...>
+
+-1R:  RETRIEVE ALL FROM "token_id1";
+ count 
+-------
+ 10    
+(1 row)
+
+1<:
+ <... completed>
+EXECUTE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | FINISH 
+(1 row)
+1: ROLLBACK;
+ROLLBACK
