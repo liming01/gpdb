@@ -462,6 +462,48 @@ DECLARE
 -- a new retrieve session should report error
 0R:  RETRIEVE 10 FROM "token_id3";
 ERROR:  end point token_id3 already attached by receiver(pid:50938) (cdbendpoint.c:871)
+-- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
+1R:  RETRIEVE ALL FROM "token_id3";
+ a  
+----
+ 1  
+ 12 
+ 15 
+ 20 
+ 23 
+ 26 
+ 30 
+ 31 
+ 35 
+ 36 
+ 38 
+ 40 
+ 44 
+ 46 
+ 47 
+ 48 
+ 49 
+ 50 
+ 57 
+ 61 
+ 64 
+ 68 
+ 69 
+ 71 
+ 72 
+ 74 
+ 76 
+ 78 
+ 79 
+ 83 
+ 86 
+ 87 
+ 88 
+ 89 
+ 91 
+ 95 
+ 98 
+(37 rows)
 -- get senderpid which is endpoint execution backend
 0R:  SELECT senderpid, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO();
  senderpid | ?column? | attached 
@@ -483,7 +525,7 @@ ERROR:  canceling MPP operation  (seg0 10.34.50.67:25432 pid=14178)
  status 
 --------
  INIT   
- INIT   
+ FINISH 
  INIT   
 (3 rows)
 *R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id3';
@@ -496,7 +538,7 @@ ERROR:  canceling MPP operation  (seg0 10.34.50.67:25432 pid=14178)
 (1 row)
  ?column? | ?column? | attached 
 ----------+----------+----------
- f        | f        | 0        
+ t        | t        | 2        
 (1 row)
  ?column? | ?column? | attached 
 ----------+----------+----------
@@ -540,6 +582,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c4;
  <waiting ...>
+-- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 0R:  RETRIEVE 10 FROM "token_id4";
  a  
 ----
@@ -554,6 +597,47 @@ DECLARE
  22 
  24 
 (10 rows)
+1R:  RETRIEVE ALL FROM "token_id4";
+ a  
+----
+ 1  
+ 12 
+ 15 
+ 20 
+ 23 
+ 26 
+ 30 
+ 31 
+ 35 
+ 36 
+ 38 
+ 40 
+ 44 
+ 46 
+ 47 
+ 48 
+ 49 
+ 50 
+ 57 
+ 61 
+ 64 
+ 68 
+ 69 
+ 71 
+ 72 
+ 74 
+ 76 
+ 78 
+ 79 
+ 83 
+ 86 
+ 87 
+ 88 
+ 89 
+ 91 
+ 95 
+ 98 
+(37 rows)
 -- get senderpid which is endpoint execution backend
 0R:  SELECT senderpid, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO();
  senderpid | ?column? | attached 
@@ -590,7 +674,7 @@ DETAIL:
 (0 rows)
  ?column? | ?column? | attached 
 ----------+----------+----------
- f        | f        | 0        
+ t        | t        | 2        
 (1 row)
  ?column? | ?column? | attached 
 ----------+----------+----------
@@ -634,6 +718,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c5;
  <waiting ...>
+-- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 0R:  RETRIEVE 10 FROM "token_id5";
  a  
 ----
@@ -648,6 +733,47 @@ DECLARE
  22 
  24 
 (10 rows)
+1R:  RETRIEVE ALL FROM "token_id5";
+ a  
+----
+ 1  
+ 12 
+ 15 
+ 20 
+ 23 
+ 26 
+ 30 
+ 31 
+ 35 
+ 36 
+ 38 
+ 40 
+ 44 
+ 46 
+ 47 
+ 48 
+ 49 
+ 50 
+ 57 
+ 61 
+ 64 
+ 68 
+ 69 
+ 71 
+ 72 
+ 74 
+ 76 
+ 78 
+ 79 
+ 83 
+ 86 
+ 87 
+ 88 
+ 89 
+ 91 
+ 95 
+ 98 
+(37 rows)
 -- get senderpid which is endpoint execution backend
 0R:  SELECT senderpid, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO();
  senderpid | ?column? | attached 
@@ -669,7 +795,7 @@ ERROR:  terminating connection due to administrator command  (seg0 10.34.50.67:2
  status 
 --------
  INIT   
- INIT   
+ FINISH 
  INIT   
 (3 rows)
 *R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id5';
@@ -682,7 +808,7 @@ ERROR:  terminating connection due to administrator command  (seg0 10.34.50.67:2
 (1 row)
  ?column? | ?column? | attached 
 ----------+----------+----------
- f        | f        | 0        
+ t        | t        | 2        
 (1 row)
  ?column? | ?column? | attached 
 ----------+----------+----------

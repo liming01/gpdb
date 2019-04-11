@@ -18,6 +18,7 @@
 #include "cdb/cdbutil.h"
 #include "utils/gp_alloc.h"
 #include "utils/builtins.h"
+#include "utils/memutils.h"
 #include "funcapi.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbdispatchresult.h"
@@ -68,8 +69,9 @@ static int	retr_status[MAX_ENDPOINT_SIZE];
 static int	retr_tk_len = 0,
 			retr_tk_cur = 0;
 
+static List            *token_in_tx     = NIL;
 static SharedTokenDesc *SharedTokens;
-static slock_t *shared_tokens_lock;
+static slock_t         *shared_tokens_lock;
 
 static EndPointDesc *SharedEndPoints;
 volatile EndPointDesc *mySharedEndPoint = NULL;
@@ -556,6 +558,10 @@ AllocEndPoint4token(int token)
 		SharedEndPoints[i].receiver_pid = InvalidPid;
 		SharedEndPoints[i].attached = Status_NotAttached;
 		SharedEndPoints[i].empty = false;
+
+		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		token_in_tx = lappend_int(token_in_tx, token);
+		MemoryContextSwitchTo(oldcontext);
 	}
 
 	SpinLockRelease(shared_end_points_lock);
@@ -1420,6 +1426,7 @@ CloseConn(void)
 void
 AbortEndPoint(void)
 {
+	ListCell *l;
 	s_inAbort = true;
 
 	switch (Gp_endpoint_role)
@@ -1436,6 +1443,19 @@ AbortEndPoint(void)
 			break;
 		default:
 			break;
+	}
+	/* Make sure all token running in this QE is freed, double free is allowed
+	 * because free request may issued by the QD already.
+	 */
+	if (token_in_tx != NIL)
+	{
+		foreach(l, token_in_tx)
+		{
+			int tk = lfirst_int(l);
+			FreeEndPoint4token(tk);
+		}
+		list_free(token_in_tx);
+		token_in_tx = NIL;
 	}
 
 	s_inAbort = false;
