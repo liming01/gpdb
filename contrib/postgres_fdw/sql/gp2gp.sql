@@ -1,25 +1,23 @@
 -- ===================================================================
 -- create FDW objects
 -- ===================================================================
+-- start_ignore
+DROP EXTENSION postgres_fdw CASCADE;
+DROP TYPE user_enum CASCADE;
+DROP FUNCTION postgres_fdw_abs(int) CASCADE;
+DROP OPERATOR ===(int, int) CASCADE;
+-- end_ignore
 
-DROP DATABASE IF EXISTS testdb;
-CREATE DATABASE testdb;
-DROP DATABASE IF EXISTS contrib_regression2;
-CREATE DATABASE contrib_regression2;
-
-\c contrib_regression2
 CREATE EXTENSION postgres_fdw;
 
-CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw 
-	OPTIONS (host 'localhost', dbname 'testdb', mpp_execute 'all segments');
- -- CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw
- -- OPTIONS (dbname 'contrib_regression', mpp_execute 'all segments');
+CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw
+	OPTIONS (mpp_execute 'all segments');
+CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw
+	OPTIONS (dbname 'contrib_regression', mpp_execute 'all segments');
 
 CREATE USER MAPPING FOR CURRENT_USER SERVER testserver1;
--- OPTIONS (user 'linw', password '');
--- CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 
-\c testdb;
 -- ===================================================================
 -- create objects used through FDW server
 -- ===================================================================
@@ -62,10 +60,6 @@ INSERT INTO t2
 -- ===================================================================
 -- create foreign tables
 -- ===================================================================
-\c contrib_regression2
-
-CREATE TYPE user_enum AS ENUM ('foo', 'bar', 'buz');
-
 CREATE FOREIGN TABLE ft1 (
 	c0 int,
 	c1 int NOT NULL,
@@ -76,7 +70,7 @@ CREATE FOREIGN TABLE ft1 (
 	c6 varchar(10),
 	c7 char(10) default 'ft1',
 	c8 user_enum
-) SERVER testserver1 OPTIONS(schema_name 'public', table_name 't1');
+) SERVER loopback OPTIONS(schema_name 'public', table_name 't1');
 ALTER FOREIGN TABLE ft1 DROP COLUMN c0;
 
 CREATE FOREIGN TABLE ft2 (
@@ -89,7 +83,7 @@ CREATE FOREIGN TABLE ft2 (
 	c6 varchar(10),
 	c7 char(10) default 'ft2',
 	c8 user_enum
-) SERVER testserver1 OPTIONS(schema_name 'public', table_name 't1');
+) SERVER loopback OPTIONS(schema_name 'public', table_name 't1');
 ALTER FOREIGN TABLE ft2 DROP COLUMN cx;
 
 ALTER FOREIGN TABLE ft2 OPTIONS (schema_name 'public', table_name 't1');
@@ -97,21 +91,27 @@ ALTER FOREIGN TABLE ft2 OPTIONS (schema_name 'public', table_name 't1');
 CREATE FOREIGN TABLE _ft2 (
 	c1 int NOT NULL,
 	c2 text
-) SERVER testserver1 OPTIONS(schema_name 'public', table_name 't2');
+) SERVER loopback OPTIONS(schema_name 'public', table_name 't2');
 
--- test directly dispatch
+-- ===================================================================
+-- directly dispatch
+-- ===================================================================
 SELECT * FROM _ft2 WHERE c1 = 10;
 
-SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  
+SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;
 
-ALTER SERVER testserver1 OPTIONS (SET dbname 'no such database');
+ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 
-ALTER SERVER testserver1 OPTIONS (SET dbname 'testdb');
+ALTER SERVER loopback OPTIONS (SET dbname 'contrib_regression');
 
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
 
+-- ===================================================================
+-- simple queries
+-- ===================================================================
+-- single table, with/without alias
 EXPLAIN (COSTS false) SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
 SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
@@ -125,10 +125,10 @@ SELECT * FROM ft1 WHERE false;
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
 SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
 -- with FOR UPDATE/SHARE
--- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE; -- should work, but failed, report as a bug 
--- SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;   -- should work, but failed, report as a bug 
+-- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE; -- should work, but failed, report as a bug
+-- SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;   -- should work, but failed, report as a bug
 -- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;
--- SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;    -- should work, but failed, report as a bug 
+-- SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;    -- should work, but failed, report as a bug
 -- aggregate
 SELECT COUNT(*) FROM ft1 t1;
 -- join two tables

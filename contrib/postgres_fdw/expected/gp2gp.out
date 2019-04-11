@@ -1,20 +1,15 @@
 -- ===================================================================
 -- create FDW objects
 -- ===================================================================
-DROP DATABASE IF EXISTS testdb;
-CREATE DATABASE testdb;
-DROP DATABASE IF EXISTS contrib_regression2;
-CREATE DATABASE contrib_regression2;
-\c contrib_regression2
+-- start_ignore
+-- end_ignore
 CREATE EXTENSION postgres_fdw;
-CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw 
-	OPTIONS (host 'localhost', dbname 'testdb', mpp_execute 'all segments');
- -- CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw
- -- OPTIONS (dbname 'contrib_regression', mpp_execute 'all segments');
+CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw
+	OPTIONS (mpp_execute 'all segments');
+CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw
+	OPTIONS (dbname 'contrib_regression', mpp_execute 'all segments');
 CREATE USER MAPPING FOR CURRENT_USER SERVER testserver1;
--- OPTIONS (user 'linw', password '');
--- CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
-\c testdb;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 -- ===================================================================
 -- create objects used through FDW server
 -- ===================================================================
@@ -52,8 +47,6 @@ INSERT INTO t2
 -- ===================================================================
 -- create foreign tables
 -- ===================================================================
-\c contrib_regression2
-CREATE TYPE user_enum AS ENUM ('foo', 'bar', 'buz');
 CREATE FOREIGN TABLE ft1 (
 	c0 int,
 	c1 int NOT NULL,
@@ -64,7 +57,7 @@ CREATE FOREIGN TABLE ft1 (
 	c6 varchar(10),
 	c7 char(10) default 'ft1',
 	c8 user_enum
-) SERVER testserver1 OPTIONS(schema_name 'public', table_name 't1');
+) SERVER loopback OPTIONS(schema_name 'public', table_name 't1');
 ALTER FOREIGN TABLE ft1 DROP COLUMN c0;
 CREATE FOREIGN TABLE ft2 (
 	c1 int NOT NULL,
@@ -76,38 +69,44 @@ CREATE FOREIGN TABLE ft2 (
 	c6 varchar(10),
 	c7 char(10) default 'ft2',
 	c8 user_enum
-) SERVER testserver1 OPTIONS(schema_name 'public', table_name 't1');
+) SERVER loopback OPTIONS(schema_name 'public', table_name 't1');
 ALTER FOREIGN TABLE ft2 DROP COLUMN cx;
 ALTER FOREIGN TABLE ft2 OPTIONS (schema_name 'public', table_name 't1');
 ERROR:  option "schema_name" provided more than once
 CREATE FOREIGN TABLE _ft2 (
 	c1 int NOT NULL,
 	c2 text
-) SERVER testserver1 OPTIONS(schema_name 'public', table_name 't2');
--- test directly dispatch
+) SERVER loopback OPTIONS(schema_name 'public', table_name 't2');
+-- ===================================================================
+-- directly dispatch
+-- ===================================================================
 SELECT * FROM _ft2 WHERE c1 = 10;
  c1 |   c2   
 ----+--------
  10 | AAA010
 (1 row)
 
-SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  
+SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;
   c3   |              c4              
 -------+------------------------------
  00001 | Fri Jan 02 00:00:00 1970 PST
 (1 row)
 
-ALTER SERVER testserver1 OPTIONS (SET dbname 'no such database');
+ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
-ERROR:  could not connect to server "testserver1"
+ERROR:  could not connect to server "loopback"
 DETAIL:  FATAL:  database "no such database" does not exist
-ALTER SERVER testserver1 OPTIONS (SET dbname 'testdb');
+ALTER SERVER loopback OPTIONS (SET dbname 'contrib_regression');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
   c3   |              c4              
 -------+------------------------------
  00001 | Fri Jan 02 00:00:00 1970 PST
 (1 row)
 
+-- ===================================================================
+-- simple queries
+-- ===================================================================
+-- single table, with/without alias
 EXPLAIN (COSTS false) SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
                    QUERY PLAN                   
 ------------------------------------------------
@@ -230,10 +229,10 @@ SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
 (1 row)
 
 -- with FOR UPDATE/SHARE
--- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE; -- should work, but failed, report as a bug 
--- SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;   -- should work, but failed, report as a bug 
+-- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE; -- should work, but failed, report as a bug
+-- SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;   -- should work, but failed, report as a bug
 -- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;
--- SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;    -- should work, but failed, report as a bug 
+-- SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;    -- should work, but failed, report as a bug
 -- aggregate
 SELECT COUNT(*) FROM ft1 t1;
  count 
