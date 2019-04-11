@@ -56,6 +56,8 @@ INSERT INTO t2
 	       'AAA' || to_char(id, 'FM000')
 	FROM generate_series(1, 100) id;
 
+ANALYZE t1;
+ANALYZE t2;
 
 -- ===================================================================
 -- create foreign tables
@@ -125,10 +127,10 @@ SELECT * FROM ft1 WHERE false;
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
 SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
 -- with FOR UPDATE/SHARE
--- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE; -- should work, but failed, report as a bug
--- SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;   -- should work, but failed, report as a bug
+-- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE; -- should work, but failed
+-- SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;   -- should work, but failed
 -- EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;
--- SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;    -- should work, but failed, report as a bug
+-- SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;    -- should work, but failed
 -- aggregate
 SELECT COUNT(*) FROM ft1 t1;
 -- join two tables
@@ -285,10 +287,13 @@ ERROR OUT;          -- ERROR
 ROLLBACK TO s;
 FETCH c;
 SAVEPOINT s;
--- SELECT * FROM ft1 WHERE 1 / (c1 - 1) > 0;  -- ERROR TODO: not an expected error, another command is already in progress
+-- TODO #165272762, dividing by zero causes `EXECUTE PARALLEL CURSOR` failure.
+-- We assume `EXECUTE PARALLEL CURSOR` would work and wait the endpoints ready
+-- with an infinite loop which causes hang.
+-- SELECT * FROM ft1 WHERE 1 / (c1 - 1) > 0;
 ROLLBACK TO s;
 FETCH c;
--- SELECT * FROM ft1 ORDER BY c1 LIMIT 1;  -- should work but failed, report as a bug
+SELECT * FROM ft1 ORDER BY c1 LIMIT 1;
 COMMIT;
 
 -- ===================================================================
@@ -298,3 +303,9 @@ INSERT INTO ft2 (c1,c2,c3)
   VALUES (1101,201,'aaa'), (1102,202,'bbb'), (1103,203,'ccc') RETURNING *;
 UPDATE ft2 SET c2 = c2 + 300, c3 = c3 || '_update3' WHERE c1 % 10 = 3;
 DELETE FROM ft2 WHERE c1 = 9999 RETURNING tableoid::regclass;
+
+-- ===================================================================
+-- test analyze foreign table
+-- ===================================================================
+ANALYZE ft1;
+ANALYZE ft2;
