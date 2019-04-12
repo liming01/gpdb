@@ -1491,6 +1491,7 @@ typedef struct
 #define GP_ENDPOINT_STATUS_READY	  "READY"
 #define GP_ENDPOINT_STATUS_RETRIEVING "RETRIEVING"
 #define GP_ENDPOINT_STATUS_FINISH	  "FINISH"
+#define GP_ENDPOINT_STATUS_RELEASED   "RELEASED"
 
 static EndPoint_Status *
 findStatusByTokenAndDbid(EndPoint_Status * status_array, int number,
@@ -1775,7 +1776,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					values[7] = CStringGetTextDatum(status);
 					nulls[7] = false;
 				} else {
-					nulls[7] = true;
+					values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_RELEASED);
+					nulls[7] = false;
 				}
 
 				tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
@@ -1852,7 +1854,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						values[7] = CStringGetTextDatum(status);
 						nulls[7] = false;
 					} else {
-						nulls[7] = true;
+						values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_RELEASED);
+						nulls[7] = false;
 					}
 
 					mystatus->curSegIdx++;

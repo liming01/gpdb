@@ -510,11 +510,11 @@ ERROR:  end point token_id3 already attached by receiver(pid:50938) (cdbendpoint
 -----------+----------+----------
  senderpid31| t        | 0        
 (1 row)
--- run 'kill -s INT senderpid' to cancel the endpoint execution backend
-0R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id3';
- ?column? | ?column? | attached 
-----------+----------+----------
- f        | t        | 0        
+-- run 'kill -s INT senderpid' to cancel the endpoint execution backend, retrieve session still can work
+0R:  SELECT 1;
+ ?column? 
+----------
+ 1        
 (1 row)
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
 1<:
@@ -522,11 +522,11 @@ ERROR:  end point token_id3 already attached by receiver(pid:50938) (cdbendpoint
 ERROR:  canceling MPP operation  (seg0 10.34.50.67:25432 pid=14178)
 -- check no endpoint info left
 2:  SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='token_id3';
- status 
---------
- INIT   
- FINISH 
- INIT   
+ status   
+----------
+ RELEASED 
+ RELEASED 
+ RELEASED 
 (3 rows)
 *R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id3';
  ?column? | ?column? | attached 
@@ -534,16 +534,13 @@ ERROR:  canceling MPP operation  (seg0 10.34.50.67:25432 pid=14178)
 (0 rows)
  ?column? | ?column? | attached 
 ----------+----------+----------
- f        | t        | 0        
-(1 row)
+(0 rows)
  ?column? | ?column? | attached 
 ----------+----------+----------
- t        | t        | 2        
-(1 row)
+(0 rows)
  ?column? | ?column? | attached 
 ----------+----------+----------
- f        | f        | 0        
-(1 row)
+(0 rows)
 -- report error for EXECUTE canceled PARALLEL CURSOR
 1: EXECUTE PARALLEL CURSOR c3;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
@@ -644,11 +641,12 @@ DECLARE
 -----------+----------+----------
  senderpid41| t        | 0        
 (1 row)
--- run 'kill -s QUIT senderpid' to cancel the endpoint execution backend
-0R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id4';
-server closed the connection unexpectedly
-	This probably means the server terminated abnormally
-	before or while processing the request.
+-- run 'kill -s QUIT senderpid' to cancel the endpoint execution backend, retrieve session still can work
+0R:  SELECT 1;
+ ?column? 
+----------
+ 1        
+(1 row)
 -- exit this session because the connection closed, so that it will re-connect next time use this session.
 0Rq:
 ... <quitting>
@@ -674,12 +672,10 @@ DETAIL:
 (0 rows)
  ?column? | ?column? | attached 
 ----------+----------+----------
- t        | t        | 2        
-(1 row)
+(0 rows)
  ?column? | ?column? | attached 
 ----------+----------+----------
- f        | f        | 0        
-(1 row)
+(0 rows)
 -- report error for EXECUTE canceled PARALLEL CURSOR
 1: EXECUTE PARALLEL CURSOR c4;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
@@ -780,11 +776,11 @@ DECLARE
 -----------+----------+----------
  senderpid51| t        | 0        
 (1 row)
--- run 'kill -s TERM senderpid' to cancel the endpoint execution backend
-0R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id5';
- ?column? | ?column? | attached 
-----------+----------+----------
- f        | t        | 0        
+-- run 'kill -s TERM senderpid' to cancel the endpoint execution backend, retrieve session still can work
+0R:  SELECT 1;
+ ?column? 
+----------
+ 1        
 (1 row)
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
 1<:
@@ -792,11 +788,11 @@ DECLARE
 ERROR:  terminating connection due to administrator command  (seg0 10.34.50.67:25432 pid=12905)
 -- check no endpoint info left
 2:  SELECT status FROM GP_ENDPOINTS WHERE cursorname='c5' AND token='token_id5';
- status 
---------
- INIT   
- FINISH 
- INIT   
+ status   
+----------
+ RELEASED 
+ RELEASED 
+ RELEASED 
 (3 rows)
 *R:  SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id5';
  ?column? | ?column? | attached 
@@ -804,16 +800,13 @@ ERROR:  terminating connection due to administrator command  (seg0 10.34.50.67:2
 (0 rows)
  ?column? | ?column? | attached 
 ----------+----------+----------
- f        | t        | 0        
-(1 row)
+(0 rows)
  ?column? | ?column? | attached 
 ----------+----------+----------
- t        | t        | 2        
-(1 row)
+(0 rows)
  ?column? | ?column? | attached 
 ----------+----------+----------
- f        | f        | 0        
-(1 row)
+(0 rows)
 -- report error for EXECUTE canceled PARALLEL CURSOR
 1: EXECUTE PARALLEL CURSOR c5;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block

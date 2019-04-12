@@ -73,12 +73,12 @@ insert into t1 select generate_series(1,100);
 1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
 -- get senderpid which is endpoint execution backend
 0R: @out_sh ' PID31=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" | sed -E "s#${PID31}[ \t]*#senderpid31#" ': SELECT senderpid, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO();
--- run 'kill -s INT senderpid' to cancel the endpoint execution backend
-0R: @in_sh 'kill -s INT ${PID31} && echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
+-- run 'kill -s INT senderpid' to cancel the endpoint execution backend, retrieve session still can work
+0R: @in_sh 'kill -s INT ${PID31} && echo "${RAW_STR}" ': SELECT 1;
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
 1<:
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT * FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='@TOKEN3';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='@TOKEN3';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
 -- report error for EXECUTE canceled PARALLEL CURSOR
 1: EXECUTE PARALLEL CURSOR c3;
@@ -97,8 +97,8 @@ insert into t1 select generate_series(1,100);
 1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': RETRIEVE ALL FROM "@TOKEN4";
 -- get senderpid which is endpoint execution backend
 0R: @out_sh ' PID41=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" | sed -E "s#${PID41}[ \t]*#senderpid41#" ': SELECT senderpid, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO();
--- run 'kill -s QUIT senderpid' to cancel the endpoint execution backend
-0R: @in_sh 'kill -s QUIT ${PID41} && echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
+-- run 'kill -s QUIT senderpid' to cancel the endpoint execution backend, retrieve session still can work
+0R: @in_sh 'kill -s QUIT ${PID41} && echo "${RAW_STR}" ': SELECT 1;
 -- exit this session because the connection closed, so that it will re-connect next time use this session.
 0Rq:
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
@@ -123,8 +123,8 @@ insert into t1 select generate_series(1,100);
 1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': RETRIEVE ALL FROM "@TOKEN5";
 -- get senderpid which is endpoint execution backend
 0R: @out_sh ' PID51=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" | sed -E "s#${PID51}[ \t]*#senderpid51#" ': SELECT senderpid, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO();
--- run 'kill -s TERM senderpid' to cancel the endpoint execution backend
-0R: @in_sh 'kill -s TERM ${PID51} && echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
+-- run 'kill -s TERM senderpid' to cancel the endpoint execution backend, retrieve session still can work
+0R: @in_sh 'kill -s TERM ${PID51} && echo "${RAW_STR}" ': SELECT 1;
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
 1<:
 -- check no endpoint info left
