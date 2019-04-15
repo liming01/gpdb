@@ -958,3 +958,293 @@ EXECUTE
 (1 row)
 1: ROLLBACK;
 ROLLBACK
+
+-- Test17: re-execute a parallel cursor
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+DECLARE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | INIT   
+ token_id1 | INIT   
+ token_id1 | INIT   
+(3 rows)
+1&: EXECUTE PARALLEL CURSOR c1;
+ <waiting ...>
+
+*R:  SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id1';
+ attached 
+----------
+(0 rows)
+ attached 
+----------
+ 0        
+(1 row)
+ attached 
+----------
+ 0        
+(1 row)
+ attached 
+----------
+ 0        
+(1 row)
+*R:  RETRIEVE ALL FROM "token_id1";
+ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ a  
+----
+ 2  
+ 3  
+ 4  
+ 7  
+ 8  
+ 16 
+ 18 
+ 19 
+ 22 
+ 24 
+ 27 
+ 29 
+ 34 
+ 37 
+ 39 
+ 41 
+ 42 
+ 45 
+ 51 
+ 53 
+ 54 
+ 55 
+ 59 
+ 60 
+ 65 
+ 66 
+ 70 
+ 75 
+ 77 
+ 80 
+ 81 
+ 84 
+ 90 
+ 92 
+ 93 
+ 94 
+ 97 
+ 99 
+(38 rows)
+ a  
+----
+ 1  
+ 12 
+ 15 
+ 20 
+ 23 
+ 26 
+ 30 
+ 31 
+ 35 
+ 36 
+ 38 
+ 40 
+ 44 
+ 46 
+ 47 
+ 48 
+ 49 
+ 50 
+ 57 
+ 61 
+ 64 
+ 68 
+ 69 
+ 71 
+ 72 
+ 74 
+ 76 
+ 78 
+ 79 
+ 83 
+ 86 
+ 87 
+ 88 
+ 89 
+ 91 
+ 95 
+ 98 
+(37 rows)
+ a   
+-----
+ 5   
+ 6   
+ 9   
+ 10  
+ 11  
+ 13  
+ 14  
+ 17  
+ 21  
+ 25  
+ 28  
+ 32  
+ 33  
+ 43  
+ 52  
+ 56  
+ 58  
+ 62  
+ 63  
+ 67  
+ 73  
+ 82  
+ 85  
+ 96  
+ 100 
+(25 rows)
+
+1<:
+ <... completed>
+EXECUTE
+1&: EXECUTE PARALLEL CURSOR c1;
+ <waiting ...>
+
+*R:  SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id1';
+ attached 
+----------
+(0 rows)
+ attached 
+----------
+ 0        
+(1 row)
+ attached 
+----------
+ 0        
+(1 row)
+ attached 
+----------
+ 0        
+(1 row)
+*R:  RETRIEVE ALL FROM "token_id1";
+ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ a  
+----
+ 2  
+ 3  
+ 4  
+ 7  
+ 8  
+ 16 
+ 18 
+ 19 
+ 22 
+ 24 
+ 27 
+ 29 
+ 34 
+ 37 
+ 39 
+ 41 
+ 42 
+ 45 
+ 51 
+ 53 
+ 54 
+ 55 
+ 59 
+ 60 
+ 65 
+ 66 
+ 70 
+ 75 
+ 77 
+ 80 
+ 81 
+ 84 
+ 90 
+ 92 
+ 93 
+ 94 
+ 97 
+ 99 
+(38 rows)
+ a  
+----
+ 1  
+ 12 
+ 15 
+ 20 
+ 23 
+ 26 
+ 30 
+ 31 
+ 35 
+ 36 
+ 38 
+ 40 
+ 44 
+ 46 
+ 47 
+ 48 
+ 49 
+ 50 
+ 57 
+ 61 
+ 64 
+ 68 
+ 69 
+ 71 
+ 72 
+ 74 
+ 76 
+ 78 
+ 79 
+ 83 
+ 86 
+ 87 
+ 88 
+ 89 
+ 91 
+ 95 
+ 98 
+(37 rows)
+ a   
+-----
+ 5   
+ 6   
+ 9   
+ 10  
+ 11  
+ 13  
+ 14  
+ 17  
+ 21  
+ 25  
+ 28  
+ 32  
+ 33  
+ 43  
+ 52  
+ 56  
+ 58  
+ 62  
+ 63  
+ 67  
+ 73  
+ 82  
+ 85  
+ 96  
+ 100 
+(25 rows)
+
+1<:
+ <... completed>
+EXECUTE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | FINISH 
+ token_id1 | FINISH 
+ token_id1 | FINISH 
+(3 rows)
+1: ROLLBACK;
+ROLLBACK

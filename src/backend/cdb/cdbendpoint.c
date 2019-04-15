@@ -496,6 +496,7 @@ SetSendPid4EndPoint()
 	{
 		SharedEndPoints[i].database_id = MyDatabaseId;
 		SharedEndPoints[i].sender_pid = MyProcPid;
+		SharedEndPoints[i].receiver_pid = InvalidPid;
 		SharedEndPoints[i].token = Gp_token.token;
 		SharedEndPoints[i].session_id = Gp_token.session_id;
 		SharedEndPoints[i].user_id = Gp_token.user_id;
@@ -553,7 +554,6 @@ AllocEndPoint4token(int token)
 		SharedEndPoints[i].token = token;
 		SharedEndPoints[i].session_id = gp_session_id;
 		SharedEndPoints[i].user_id = GetUserId();
-
 		SharedEndPoints[i].sender_pid = InvalidPid;
 		SharedEndPoints[i].receiver_pid = InvalidPid;
 		SharedEndPoints[i].attached = Status_NotAttached;
