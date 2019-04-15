@@ -40,6 +40,7 @@
 #include "cdb/cdbendpoint.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbgang.h"
+#include "libpq-int.h"
 
 PG_MODULE_MAGIC;
 
@@ -346,7 +347,7 @@ static void greenplumEndMppForeignScan(ForeignScanState *node);
 static int greenplumCheckIsGreenplum(ForeignServer *server, UserMapping *user);
 static int greenplumGetRemoteMppSize(ForeignServer *server, UserMapping *user);
 static void create_custom_cursor(ForeignScanState *node, const char *cursor_sql);
-static void wait_endpoints_ready(ForeignServer *server, UserMapping *user, int32 token);
+static void wait_endpoints_ready(ForeignScanState *node, ForeignServer *server, UserMapping *user, int32 token);
 static void get_endpoints_info(PGconn *conn, int cursor_number, int session_id, List **endpoints_list, int32 *token);
 static void create_and_execute_parallel_cursor(ForeignScanState *node);
 static void execute_parallel_cursor(ForeignScanState *node);
@@ -3062,7 +3063,7 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 		create_and_execute_parallel_cursor(node);
 
 	// TODO: Add fsstate->conn to QD's listen set
-	wait_endpoints_ready(server, user, fsstate->token);
+	wait_endpoints_ready(node, server, user, fsstate->token);
 }
 
 static void
@@ -3126,12 +3127,16 @@ get_session_id(PGconn *conn, int *session_id)
 }
 
 static void
-wait_endpoints_ready(ForeignServer *server,
+wait_endpoints_ready(ForeignScanState *node,
+					 ForeignServer *server,
 					 UserMapping *user,
 					 int32 token)
 {
 	StringInfoData buf;
 	PGconn	   *conn;
+
+	PgFdwScanState *fsstate = (PgFdwScanState *) node->fdw_state;
+	PGconn	   *executeConn = fsstate->conn;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "SELECT status FROM gp_endpoints WHERE token = '"TOKEN_NAME_FORMAT_STR"'", token);
@@ -3142,6 +3147,15 @@ wait_endpoints_ready(ForeignServer *server,
 	{
 		bool		all_endpoints_ready = true;
 		PGresult   *res;
+		PGresult   *executeRes;
+
+		/* The connection running `EXECUTE PARALLEL CURSOR` should be busy
+		 * waiting now, unless it fails */
+		if (PQsocket(executeConn) < 0 || pqReadReady(executeConn))
+		{
+			executeRes = pgfdw_get_result(executeConn, "EXECUTE PARALLEL CURSOR");
+			pgfdw_report_error(ERROR, executeRes, executeConn, true, "EXECUTE PARALLEL CURSOR");
+		}
 
 		CHECK_FOR_INTERRUPTS();
 
