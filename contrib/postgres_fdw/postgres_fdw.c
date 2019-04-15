@@ -3153,8 +3153,8 @@ wait_endpoints_ready(ForeignScanState *node,
 		 * waiting now, unless it fails */
 		if (PQsocket(executeConn) < 0 || pqReadReady(executeConn))
 		{
-			executeRes = pgfdw_get_result(executeConn, "EXECUTE PARALLEL CURSOR");
-			pgfdw_report_error(ERROR, executeRes, executeConn, true, "EXECUTE PARALLEL CURSOR");
+			executeRes = pgfdw_get_result(executeConn, fsstate->query);
+			pgfdw_report_error(ERROR, executeRes, executeConn, true, fsstate->query);
 		}
 
 		CHECK_FOR_INTERRUPTS();
