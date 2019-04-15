@@ -1077,6 +1077,42 @@ ERROR:  foreign table "ft2" does not allow updates
 DELETE FROM ft2 WHERE c1 = 9999 RETURNING tableoid::regclass;
 ERROR:  foreign table "ft2" does not allow deletes
 -- ===================================================================
+-- test serial columns (ie, sequence-based defaults)
+-- ===================================================================
+create table loc1 (f1 serial, f2 text);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column named 'f1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+create foreign table rem1 (f1 serial, f2 text)
+  server loopback options(table_name 'loc1');
+select pg_catalog.setval('rem1_f1_seq', 10, false);
+ setval 
+--------
+     10
+(1 row)
+
+insert into loc1(f2) values('hi');
+insert into rem1(f2) values('hi remote');
+insert into loc1(f2) values('bye');
+insert into rem1(f2) values('bye remote');
+select * from loc1;
+ f1 |     f2     
+----+------------
+  2 | bye
+  1 | hi
+ 10 | hi remote
+ 11 | bye remote
+(4 rows)
+
+select * from rem1;
+ f1 |     f2     
+----+------------
+ 10 | hi remote
+ 11 | bye remote
+  2 | bye
+  1 | hi
+(4 rows)
+
+-- ===================================================================
 -- test analyze foreign table
 -- ===================================================================
 ANALYZE ft1;

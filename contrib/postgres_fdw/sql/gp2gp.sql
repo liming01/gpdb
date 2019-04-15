@@ -6,6 +6,7 @@ DROP EXTENSION postgres_fdw CASCADE;
 DROP TYPE user_enum CASCADE;
 DROP FUNCTION postgres_fdw_abs(int) CASCADE;
 DROP OPERATOR ===(int, int) CASCADE;
+DROP TABLE loc1;
 -- end_ignore
 
 CREATE EXTENSION postgres_fdw;
@@ -303,6 +304,20 @@ INSERT INTO ft2 (c1,c2,c3)
   VALUES (1101,201,'aaa'), (1102,202,'bbb'), (1103,203,'ccc') RETURNING *;
 UPDATE ft2 SET c2 = c2 + 300, c3 = c3 || '_update3' WHERE c1 % 10 = 3;
 DELETE FROM ft2 WHERE c1 = 9999 RETURNING tableoid::regclass;
+
+-- ===================================================================
+-- test serial columns (ie, sequence-based defaults)
+-- ===================================================================
+create table loc1 (f1 serial, f2 text);
+create foreign table rem1 (f1 serial, f2 text)
+  server loopback options(table_name 'loc1');
+select pg_catalog.setval('rem1_f1_seq', 10, false);
+insert into loc1(f2) values('hi');
+insert into rem1(f2) values('hi remote');
+insert into loc1(f2) values('bye');
+insert into rem1(f2) values('bye remote');
+select * from loc1;
+select * from rem1;
 
 -- ===================================================================
 -- test analyze foreign table
