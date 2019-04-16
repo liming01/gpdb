@@ -240,7 +240,7 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
 1: ROLLBACK;
 
--- Test17: re-execute a parallel cursor
+-- Test17: re-execute a parallel cursor and retrieve in same sessions.
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
 1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
@@ -248,6 +248,29 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+
+1<:
+1&: EXECUTE PARALLEL CURSOR c1;
+
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+
+1<:
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: ROLLBACK;
+
+-- Test18: re-execute a parallel cursor and retrieve in different sessions.
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1&: EXECUTE PARALLEL CURSOR c1;
+
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+
+0Rq:
+1Rq:
+2Rq:
 
 1<:
 1&: EXECUTE PARALLEL CURSOR c1;
