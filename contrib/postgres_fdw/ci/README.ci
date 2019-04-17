@@ -1,0 +1,4 @@
+fly -t gpdb-dev set-pipeline \
+	    -p gp2gp_commit \
+	    -c ~/Projects/gpdb/contrib/postgres_fdw/ci/commit_pipeline.yml \
+	    -l ~/Projects/gp-continuous-integration/secrets/gpdb_pr.prod.yml

@@ -1,0 +1,48 @@
+resources:
+- name: gpdb_src
+  type: git
+  source:
+    branch: feature_gp2gp
+    uri: git@github.com:greenplum-db/gpdb.git
+    ignore_paths:
+    - gpdb-doc/*
+    - README*
+
+- name: ubuntu-gpdb-dev-16
+  type: docker-image
+  source:
+    repository: pivotaldata/ubuntu-gpdb-dev
+    tag: '16.04'
+
+jobs:
+  - name: compile_and_test_gp2gp
+    public: true
+    plan:
+    - aggregate:
+      - get: gpdb_src
+        trigger: true
+      - get: ubuntu-gpdb-dev-16
+
+    - task: compile_gpdb_ubuntu16
+      file: gpdb_src/concourse/tasks/compile_gpdb_open_source_ubuntu.yml
+      image: ubuntu-gpdb-dev-16
+      timeout: 30m
+      params:
+        BINTRAY_REMOTE: {{bintray_remote}}
+        BINTRAY_REMOTE_URL: {{bintray_remote_url}}
+  
+    - task: gp2gp_test_ubuntu16
+      image: ubuntu-gpdb-dev-16
+      input_mapping:
+        bin_gpdb: compiled_bits_ubuntu16
+      timeout: 3h
+      config:
+        inputs:
+          - name: gpdb_src
+          - name: bin_gpdb
+        platform: linux
+        run:
+          path: gpdb_src/contrib/postgres_fdw/ci/test_gp2gp.py
+          args:
+          - --mode=planner
+          - --gpdb_name=bin_gpdb
