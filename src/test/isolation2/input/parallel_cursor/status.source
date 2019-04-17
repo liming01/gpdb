@@ -136,3 +136,56 @@ insert into t1 select generate_series(1,100);
 -- check no endpoint info 
 2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c5' AND token='@TOKEN5';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
+
+---------- Test6: Cancel (using signal INT) the process of 'EXECUTE PARALLEL CURSOR'
+1: BEGIN;
+1: DECLARE c6 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN6=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN6}/${NL}s/${TOKEN6}/token_id6/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c6';
+-- get backend pid of this session which run 'EXECUTE PARALLEL CURSOR'
+1: @out_sh ' PID61=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" | sed -E "s#${PID61}[ \t]*#QDPid61#" ': select pg_backend_pid();
+1&: EXECUTE PARALLEL CURSOR c6;
+-- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': RETRIEVE 10 FROM "@TOKEN6";
+1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': RETRIEVE ALL FROM "@TOKEN6";
+-- run 'kill -s INT QDPid' to cancel the endpoint execution backend, retrieve session still can work
+0R: @in_sh 'kill -s INT ${PID61} && echo "${RAW_STR}" ': SELECT 1;
+-- check it can cancel the "EXECUTE PARALLEL CURSOR"
+1<:
+-- check no endpoint info left
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c6' AND token='@TOKEN6';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
+-- report error for EXECUTE canceled PARALLEL CURSOR
+1: EXECUTE PARALLEL CURSOR c6;
+1: ROLLBACK;
+-- check no endpoint info
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c6' AND token='@TOKEN6';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
+
+---------- Test7: terminate (using signal QUIT) the process of 'EXECUTE PARALLEL CURSOR'
+1: BEGIN;
+1: DECLARE c7 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN7=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN7}/${NL}s/${TOKEN7}/token_id7/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c7';
+-- get backend pid of this session which run 'EXECUTE PARALLEL CURSOR'
+1: @out_sh ' PID71=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" | sed -E "s#${PID71}[ \t]*#QDPid71#" ': select pg_backend_pid();
+1&: EXECUTE PARALLEL CURSOR c7;
+-- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': RETRIEVE 10 FROM "@TOKEN7";
+1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': RETRIEVE ALL FROM "@TOKEN7";
+-- run 'kill -s QUIT QDPid' to cancel the endpoint execution backend, retrieve session still can work
+-- here need to sleep sometime to wait for endpoint QE backend to detect QD connection lost.
+0R: @in_sh 'kill -s QUIT ${PID71}&& sleep 1 && echo "${RAW_STR}" ': SELECT 1;
+-- check it can cancel the "EXECUTE PARALLEL CURSOR"
+1<:
+-- quit all sessions on the master, because connect lost
+1q:
+2q:
+-1Rq:
+-- check no endpoint info left
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c7' AND token='@TOKEN7';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
+-- report error for EXECUTE canceled PARALLEL CURSOR
+1: EXECUTE PARALLEL CURSOR c7;
+1: ROLLBACK;
+-- check no endpoint info
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c7' AND token='@TOKEN7';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT senderpid<>-1, receiverpid<>-1, attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
