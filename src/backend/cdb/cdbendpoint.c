@@ -23,6 +23,7 @@
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbdispatchresult.h"
 #include "libpq-fe.h"
+#include "libpq/libpq.h"
 #include "mb/pg_wchar.h"
 
 #define MAX_ENDPOINT_SIZE	1000
@@ -1321,6 +1322,26 @@ sender_finish()
 
 		if (QueryFinishPending)
 			break;
+
+		/*Check the QD dispatcher connection is lost*/
+		unsigned char firstchar;
+		int			r;
+
+		pq_startmsgread();
+		r = pq_getbyte_if_available(&firstchar);
+		if (r < 0)
+		{
+			/* unexpected error or EOF */
+			ep_log(ERROR, "unexpected EOF on Query Dispatcher connection");
+		}else if (r > 0)
+		{
+			/* unexpected error */
+			ep_log(ERROR, "QD query dispatcher should waiting without data until QE backend finished processing.");
+		}else{
+			/* no data available without blocking */
+			pq_endmsgread();
+			/* continue processing as normal case*/
+		}
 
 		wr = WaitLatch(&mySharedEndPoint->ack_done,
 					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
