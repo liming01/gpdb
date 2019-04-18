@@ -30,7 +30,7 @@ jobs:
       params:
         BINTRAY_REMOTE: {{bintray_remote}}
         BINTRAY_REMOTE_URL: {{bintray_remote_url}}
-  
+
     - task: gp2gp_test_ubuntu16
       image: ubuntu-gpdb-dev-16
       input_mapping:

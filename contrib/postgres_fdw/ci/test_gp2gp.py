@@ -35,13 +35,13 @@ def run_gp2gp_tests():
     if status:
         return status
     status = subprocess.call("runuser gpadmin -c \"source /usr/local/gpdb/greenplum_path.sh \
-            && source gpAux/gpdemo/gpdemo-env.sh && PGOPTIONS='-c optimizer=off' \
-                make installcheck-gp2gp -C src/test/isolation2\"", cwd="gpdb_src", shell=True)
+            && source gpAux/gpdemo/gpdemo-env.sh \
+            && make installcheck-gp2gp -C src/test/isolation2\"", cwd="gpdb_src", shell=True)
     if status:
         return status
     status = subprocess.call("runuser gpadmin -c \"source /usr/local/gpdb/greenplum_path.sh \
-            && source gpAux/gpdemo/gpdemo-env.sh && PGOPTIONS='-c optimizer=off' \
-                make installcheck -C contrib/postgres_fdw\"", cwd="gpdb_src", shell=True)
+            && source gpAux/gpdemo/gpdemo-env.sh \
+            && make installcheck -C contrib/postgres_fdw\"", cwd="gpdb_src", shell=True)
     if status:
         return status
 
