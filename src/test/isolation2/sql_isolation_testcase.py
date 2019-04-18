@@ -486,7 +486,7 @@ class SQLIsolationExecutor(object):
             dbname = self.dbname
 
         con = pygresql.pg.connect(dbname=dbname)
-        result = con.query("SELECT content FROM gp_segment_configuration WHERE role = 'p'").getresult()
+        result = con.query("SELECT content FROM gp_segment_configuration WHERE role = 'p' order by content").getresult()
         if len(result) == 0:
             raise Exception("Invalid gp_segment_configuration contents")
         return [int(content[0]) for content in result]
