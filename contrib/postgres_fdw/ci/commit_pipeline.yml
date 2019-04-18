@@ -3,7 +3,7 @@ resources:
   type: git
   source:
     branch: feature_gp2gp
-    uri: git@github.com:greenplum-db/gpdb.git
+    uri: https://github.com/greenplum-db/gpdb.git
     ignore_paths:
     - gpdb-doc/*
     - README*
