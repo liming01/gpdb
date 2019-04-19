@@ -30,13 +30,20 @@ def create_gpadmin_user():
     if status:
         return status
 
-def run_gp2gp_tests():
+
+def run_interface_tests():
     status = create_demo_cluster()
     if status:
         return status
     status = subprocess.call("runuser gpadmin -c \"source /usr/local/gpdb/greenplum_path.sh \
             && source gpAux/gpdemo/gpdemo-env.sh \
             && make installcheck-gp2gp -C src/test/isolation2\"", cwd="gpdb_src", shell=True)
+    if status:
+        return status
+
+
+def run_gp2gp_tests():
+    status = create_demo_cluster()
     if status:
         return status
     status = subprocess.call("runuser gpadmin -c \"source /usr/local/gpdb/greenplum_path.sh \
@@ -96,7 +103,10 @@ def main():
     status = create_gpadmin_user()
     if status:
         return status
-    status = run_gp2gp_tests()
+    if os.getenv("TEST_SUITE") == 'interface':
+      status = run_interface_tests()
+    else:
+      status = run_gp2gp_tests()
     if status:
         copy_output()
     return status
