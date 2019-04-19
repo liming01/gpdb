@@ -28,6 +28,7 @@ jobs:
       image: ubuntu-gpdb-dev-16
       timeout: 30m
       params:
+        CONFIGURE_FLAGS: "--disable-orca"
         BINTRAY_REMOTE: {{bintray_remote}}
         BINTRAY_REMOTE_URL: {{bintray_remote_url}}
 
@@ -62,6 +63,7 @@ jobs:
       image: ubuntu-gpdb-dev-16
       timeout: 30m
       params:
+        CONFIGURE_FLAGS: "--disable-orca"
         BINTRAY_REMOTE: {{bintray_remote}}
         BINTRAY_REMOTE_URL: {{bintray_remote_url}}
 
