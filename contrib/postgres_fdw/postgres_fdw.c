@@ -168,7 +168,7 @@ typedef struct PgFdwScanState
 
 	/* parallel retrieving */
 	bool		is_parallel;
-	bool		fallback_to_single;
+	bool		slice0_mode;
 	int32		token;
 	List		*endpoints_list;
 } PgFdwScanState;
@@ -901,19 +901,23 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 {
 	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
 	int numParams = list_length(fsplan->fdw_exprs);
-	bool fallback_to_single = false;
+	bool slice0_mode = false;
 	ForeignTable *rel = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
 
 	/* gp2gp could not handle parameter path, because it run the remote sql
-	 * before executor, fallback_to_single runs on all segments but only the
-	 * first process in the slice really works */
+	 * before executor, slice0_mode runs on all segments but only the
+	 * first process of the slices really works */
 	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && numParams != 0)
-		fallback_to_single = true;
+		slice0_mode = true;
 
 	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS
-		&& Gp_role == GP_ROLE_DISPATCH && !fallback_to_single)
+		&& Gp_role == GP_ROLE_DISPATCH && !slice0_mode)
 	{
 		greenplumBeginMppForeignScan(node, eflags);
+		return;
+	}
+	else if (Gp_role == GP_ROLE_DISPATCH && slice0_mode)
+	{
 		return;
 	}
 
@@ -958,9 +962,9 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	else
 		fsstate->is_parallel = false;
 
-	fsstate->fallback_to_single = fallback_to_single;
+	fsstate->slice0_mode = slice0_mode;
 
-	if (fsstate->is_parallel || fsstate->fallback_to_single)
+	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role != GP_ROLE_DISPATCH)
 	{
 		/* Get the slice nth number in current gang */
 		Slice   *current_slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
@@ -983,7 +987,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 */
 	if (!fsstate->is_parallel)
 	{
-		if (!fsstate->fallback_to_single || slice_no == 0)
+		if (!fsstate->slice0_mode || slice_no == 0)
 		{
 			fsstate->conn = GetConnection(server, user, false);
 			/* Assign a unique ID for my cursor */
@@ -1020,7 +1024,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		if (slice_no < 0)
 			ereport(ERROR, (errmsg("No valid slice number")));
 
-		/* FIXME: if slice_no >= list_length(fsstate->endpoints_list), too much useless routines */
+		/* TODO: if else, too much useless routines */
 		if (slice_no < list_length(fsstate->endpoints_list))
 		{
 			List *endpoint = list_nth(fsstate->endpoints_list, slice_no);
@@ -1121,7 +1125,7 @@ postgresIterateForeignScan(ForeignScanState *node)
 	 * If this is the first call after Begin or ReScan, we need to create the
 	 * cursor on the remote side.
 	 */
-	if (!fsstate->cursor_exists)
+	if (!fsstate->cursor_exists && fsstate->conn)
 		create_cursor(node);
 
 	/*
@@ -1218,7 +1222,7 @@ postgresEndForeignScan(ForeignScanState *node)
 		return;
 
 	ForeignTable *table = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
-	if (table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH && !fsstate->fallback_to_single)
+	if (table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH && !fsstate->slice0_mode)
 	{
 		greenplumEndMppForeignScan(node);
 		return;
