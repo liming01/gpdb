@@ -5568,6 +5568,9 @@ AbortSubTransaction(void)
 	 */
 	XactReadOnly = s->prevXactReadOnly;
 
+	/* Release endpoints if exist */
+	AbortEndPoint();
+
 	RESUME_INTERRUPTS();
 }
 
