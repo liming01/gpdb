@@ -1043,10 +1043,9 @@ FETCH c;
 (1 row)
 
 SAVEPOINT s;
--- TODO #165272762, dividing by zero causes `EXECUTE PARALLEL CURSOR` failure.
--- We assume `EXECUTE PARALLEL CURSOR` would work and wait the endpoints ready
--- with an infinite loop which causes hang.
--- SELECT * FROM ft1 WHERE 1 / (c1 - 1) > 0;
+SELECT * FROM ft1 WHERE 1 / (c1 - 1) > 0;
+ERROR:  division by zero  (seg1 10.152.8.142:40001 pid=10943)
+CONTEXT:  Remote SQL command: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE (((1 / (c1 - 1)) > 0))
 ROLLBACK TO s;
 FETCH c;
  c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  

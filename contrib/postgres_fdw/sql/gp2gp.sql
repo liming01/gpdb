@@ -289,10 +289,7 @@ ERROR OUT;          -- ERROR
 ROLLBACK TO s;
 FETCH c;
 SAVEPOINT s;
--- TODO #165272762, dividing by zero causes `EXECUTE PARALLEL CURSOR` failure.
--- We assume `EXECUTE PARALLEL CURSOR` would work and wait the endpoints ready
--- with an infinite loop which causes hang.
--- SELECT * FROM ft1 WHERE 1 / (c1 - 1) > 0;
+SELECT * FROM ft1 WHERE 1 / (c1 - 1) > 0;
 ROLLBACK TO s;
 FETCH c;
 SELECT * FROM ft1 ORDER BY c1 LIMIT 1;
