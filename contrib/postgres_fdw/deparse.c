@@ -320,6 +320,9 @@ foreign_expr_walker(Node *node,
 			{
 				Param	   *p = (Param *) node;
 
+				if (p->paramkind == PARAM_EXEC_REMOTE || p->paramkind == PARAM_EXEC)
+					return false;
+
 				/*
 				 * Collation rule is same as for Consts and non-foreign Vars.
 				 */
