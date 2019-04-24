@@ -257,6 +257,8 @@ FI_IDENT(CleanupQE, "cleanup_qe")
 FI_IDENT(XLogAoInsert, "xlog_ao_insert")
 /* inject fault just before commiting alter database set tablespace */
 FI_IDENT(InsideMoveDbTransaction, "inside_move_db_transaction")
+/* inject fault when retrieving tuples from end-point */
+FI_IDENT(FetchTuplesFromEndpoint, "fetch_tuples_from_endpoint")
 #endif
 
 /*
