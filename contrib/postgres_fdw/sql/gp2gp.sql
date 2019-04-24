@@ -13,9 +13,8 @@ CREATE EXTENSION postgres_fdw;
 
 CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw
 	OPTIONS (mpp_execute 'all segments');
--- segments started by demo-cluster have no PGPORT environment variable
 CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw
-	OPTIONS (port '15432', dbname 'contrib_regression', mpp_execute 'all segments');
+	OPTIONS (dbname 'contrib_regression', mpp_execute 'all segments');
 
 CREATE USER MAPPING FOR CURRENT_USER SERVER testserver1;
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
