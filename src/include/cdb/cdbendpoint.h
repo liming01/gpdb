@@ -17,7 +17,7 @@
 #include "nodes/parsenodes.h"
 #include "storage/latch.h"
 #include "tcop/dest.h"
-
+#include "utils/faultinjector.h"
 
 enum EndPointRole
 {

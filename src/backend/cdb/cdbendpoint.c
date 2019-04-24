@@ -905,8 +905,6 @@ AttachEndPoint()
 		retr_status[retr_tk_cur] = RETR_STATUS_INIT;
 	}
 
-	/* cleanup and sigterm QEs while cancelling */
-	cancel_pending_hook = *retrieve_cancel_pending_action;
 }
 
 /* When detach endpoint, if this process have not yet finish this fifo reading, then don't reset it's pid,
@@ -1298,6 +1296,11 @@ RecvTupleSlot()
 		Assert(cmd == 'T');
 		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, (char *) &tupleSize, sizeof(int));
 		Assert(tupleSize > 0);
+
+		HOLD_INTERRUPTS();
+		SIMPLE_FAULT_INJECTOR(FetchTuplesFromEndpoint);
+		RESUME_INTERRUPTS();
+
 		mtup = palloc(tupleSize);
 		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, (char *) mtup, tupleSize);
 		slot->PRIVATE_tts_memtuple = mtup;
@@ -1460,6 +1463,7 @@ AbortEndPoint(void)
 		case EPR_RECEIVER:
 			if (retr_fifoConnState[retr_tk_cur])
 				receiver_close();
+			retrieve_cancel_pending_action();
 			DetachEndPoint(true);
 			break;
 		default:

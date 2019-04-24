@@ -259,6 +259,8 @@ FI_IDENT(XLogAoInsert, "xlog_ao_insert")
 FI_IDENT(InsideMoveDbTransaction, "inside_move_db_transaction")
 /* inject fault just after calculating redo record and before committing checkpoint record */
 FI_IDENT(CheckpointAfterRedoCalculated, "checkpoint_after_redo_calculated")
+/* inject fault when retrieving tuples from end-point */
+FI_IDENT(FetchTuplesFromEndpoint, "fetch_tuples_from_endpoint")
 #endif
 
 /*
