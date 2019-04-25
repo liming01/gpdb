@@ -8,6 +8,7 @@
 
 #define InvalidToken (-1)
 #define InvalidSession (-1)
+#define DummyToken          (0)   /* For fault injection */
 
 #define SHAREDTOKEN_DBID_NUM 64
 #define TOKEN_NAME_FORMAT_STR "tk%010d"

@@ -554,6 +554,39 @@ AddParallelCursorToken(int32 token, const char *name, int session_id, Oid user_i
 
 	SpinLockAcquire(shared_tokens_lock);
 
+#ifdef FAULT_INJECTOR
+	/* inject fault to set end-point shared memory slot full. */
+	FaultInjectorType_e typeE = SIMPLE_FAULT_INJECTOR(EndpointSharedMemorySlotFull);
+	if (typeE == FaultInjectorTypeFullMemorySlot)
+	{
+		const char *FJ_CURSOR = "FAULT_INJECTION_CURSOR";
+
+		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+		{
+			if (SharedTokens[i].token == InvalidToken)
+			{
+				/* pretend to set a valid token */
+				strncpy(SharedTokens[i].cursor_name, FJ_CURSOR, strlen(FJ_CURSOR));
+				SharedTokens[i].session_id = session_id;
+				SharedTokens[i].token      = DummyToken;
+				SharedTokens[i].user_id    = user_id;
+				SharedTokens[i].all_seg    = all_seg;
+			}
+		}
+	}
+	else if (typeE == FaultInjectorTypeRevertMemorySlot)
+	{
+		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+		{
+			if (SharedTokens[i].token == DummyToken)
+			{
+				memset(SharedTokens[i].cursor_name, '\0', NAMEDATALEN);
+				SharedTokens[i].token = InvalidToken;
+			}
+		}
+	}
+#endif
+
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedTokens[i].token == InvalidToken)
@@ -583,13 +616,14 @@ AddParallelCursorToken(int32 token, const char *name, int session_id, Oid user_i
 		}
 	}
 
+	SpinLockRelease(shared_tokens_lock);
+
 	/* no empty entry to save this token */
 	if (i == MAX_ENDPOINT_SIZE)
 	{
-		ep_log(ERROR, "can't add a new token %d into shared memory", token);
+		ep_log(ERROR, "can't add a new token "TOKEN_NAME_FORMAT_STR" into shared memory", token);
 	}
 
-	SpinLockRelease(shared_tokens_lock);
 }
 
 void
@@ -866,6 +900,39 @@ AllocEndpointOfToken(int token)
 
 	SpinLockAcquire(shared_end_points_lock);
 
+#ifdef FAULT_INJECTOR
+	/* inject fault "skip" to set end-point shared memory slot full */
+	FaultInjectorType_e typeE = SIMPLE_FAULT_INJECTOR(EndpointSharedMemorySlotFull);
+	if (typeE == FaultInjectorTypeFullMemorySlot)
+	{
+		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+		{
+			if (SharedEndpoints[i].token == InvalidToken)
+			{
+				/* pretend to set a valid token */
+				SharedEndpoints[i].database_id  = MyDatabaseId;
+				SharedEndpoints[i].token        = DummyToken;
+				SharedEndpoints[i].session_id   = gp_session_id;
+				SharedEndpoints[i].user_id      = GetUserId();
+				SharedEndpoints[i].sender_pid   = InvalidPid;
+				SharedEndpoints[i].receiver_pid = InvalidPid;
+				SharedEndpoints[i].attached     = Status_NotAttached;
+				SharedEndpoints[i].empty        = false;
+			}
+		}
+	}
+	else if (typeE == FaultInjectorTypeRevertMemorySlot)
+	{
+		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+		{
+			if (SharedEndpoints[i].token == DummyToken)
+			{
+				SharedEndpoints[i].token = InvalidToken;
+				SharedEndpoints[i].empty = true;
+			}
+		}
+	}
+#endif
 	/*
 	 * Presume that for any token, only one parallel cursor is activated at
 	 * that time.
