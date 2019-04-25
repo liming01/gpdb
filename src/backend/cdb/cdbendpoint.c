@@ -572,7 +572,7 @@ AddParallelCursorToken(int32 token, const char *name, int session_id, Oid user_i
 				{
 					int16		contentid = lfirst_int(l);
 
-					SharedTokens[i].dbIds[idx] = contentid + 2;
+					SharedTokens[i].dbIds[idx] = contentid_get_dbid(contentid, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
 					idx++;
 					SharedTokens[i].endpoint_cnt++;
 				}
@@ -619,7 +619,7 @@ ClearParallelCursorToken(int32 token)
 					{
 						int			dbid = SharedTokens[i].dbIds[j];
 
-						seg_list = lappend_int(seg_list, dbid - 2);
+						seg_list = lappend_int(seg_list, dbid_get_dbinfo(dbid)->segindex);
 					}
 				}
 			}
@@ -1541,7 +1541,7 @@ GetContentIDsByToken(int token)
 			else
 			{
 				for (int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
-					l = lappend_int(l, SharedTokens[i].dbIds[j] - 2);
+					l = lappend_int(l, dbid_get_dbinfo(SharedTokens[i].dbIds[j])->segindex);
 				break;
 			}
 		}
