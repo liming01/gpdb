@@ -207,8 +207,9 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 
 		elog(DEBUG3, "invoking IpcMemoryCreate(size=%zu)", size);
 
-		/* size of greenplum to greemplum end point shared memory */
-		size = add_size(size, EndPoint_ShmemSize());
+		/* size of token and endpoint shared memory */
+		size = add_size(size, Token_ShmemSize());
+		size = add_size(size, Endpoint_ShmemSize());
 
 		/*
 		 * Create the shmem segment
@@ -370,7 +371,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 
 	/* Initialize token and endpoint shared memory */
 	Token_ShmemInit();
-	EndPoint_ShmemInit();
+	Endpoint_ShmemInit();
 
 	/*
 	 * Now give loadable modules a chance to set up their shmem allocations

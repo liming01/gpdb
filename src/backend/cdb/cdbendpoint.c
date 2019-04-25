@@ -1,104 +1,528 @@
 #include "postgres.h"
 
-#include <stdlib.h>
-#include <sys/types.h>
+#include <poll.h>
 #include <sys/stat.h>
-#include <poll.h>
 #include <unistd.h>
-#include <errno.h>
-#include <poll.h>
 
-#include "nodes/value.h"
-#include "storage/ipc.h"
-#include "storage/procsignal.h"
-#include "storage/s_lock.h"
-#include "utils/elog.h"
 #include "cdb/cdbendpoint.h"
-#include "cdb/cdbvars.h"
-#include "cdb/cdbutil.h"
-#include "utils/gp_alloc.h"
-#include "utils/builtins.h"
-#include "utils/memutils.h"
-#include "funcapi.h"
-#include "cdb/cdbdisp_query.h"
+
+#include "access/tupdesc.h"
 #include "cdb/cdbdispatchresult.h"
+#include "cdb/cdbdisp_query.h"
+#include "cdb/cdbvars.h"
+#include "funcapi.h"
 #include "libpq-fe.h"
 #include "libpq/libpq.h"
-#include "mb/pg_wchar.h"
+#include "storage/ipc.h"
+#include "storage/latch.h"
+#include "utils/builtins.h"
+#include "utils/elog.h"
+#include "utils/faultinjector.h"
 
-#define MAX_ENDPOINT_SIZE	1000
-#define MAX_FIFO_NAME_SIZE	100
-#define FIFO_DIRECTORY "/tmp/gp2gp_fifos"
-#define FIFO_NAME_PATTERN "/tmp/gp2gp_fifos/%d_%d"
-#define SHMEM_TOKEN "SharedMemoryToken"
-#define SHMEM_TOKEN_SLOCK "SharedMemoryTokenSlock"
-#define SHMEM_END_POINT "SharedMemoryEndPoint"
-#define SHMEM_END_POINT_SLOCK "SharedMemoryEndPointSlock"
+/*
+ * Cache tuple descriptors for all tokens which have been retrieved in this
+ * retrieve session
+ */
+static FifoConnState RetrieveFifoConns[MAX_ENDPOINT_SIZE] = {};
+static TupleTableSlot *RetrieveTupleSlots[MAX_ENDPOINT_SIZE] = {};
+static int32 RetrieveTokens[MAX_ENDPOINT_SIZE];
+static int	RetrieveStatus[MAX_ENDPOINT_SIZE];
 
-#define ep_log(level, ...) \
-	do { \
-		if (!s_inAbort) \
-			elog(level, __VA_ARGS__); \
-	} \
-	while (0)
-
-const long	POLL_FIFO_TIMEOUT = 500;
-
-typedef struct
-{
-	DestReceiver pub;			/* publicly-known function pointers */
-}	DR_fifo_printtup;
-
-typedef struct fifoconnstate
-{
-	int32		fifo;
-	bool		finished;
-	bool		created;
-}	FifoConnStateData;
-
-typedef FifoConnStateData *FifoConnState;
-
-/* in retrieve session, cache tuple descriptor for all tokens which have been retrieved in this session */
-static FifoConnState retr_fifoConnState[MAX_ENDPOINT_SIZE] = {};
-static TupleTableSlot *retr_resultTupleSlot[MAX_ENDPOINT_SIZE] = {};
-static int32 retr_tokens[MAX_ENDPOINT_SIZE];
-#define RETR_STATUS_INIT 0
-#define RETR_STATUS_GET_TUPLEDSCR 1
-#define RETR_STATUS_GET_DATA 2
-#define RETR_STATUS_FINISH 3
-static int	retr_status[MAX_ENDPOINT_SIZE];
-static int	retr_tk_len = 0,
-			retr_tk_cur = 0;
-
-static List            *token_in_tx     = NIL;
 static SharedTokenDesc *SharedTokens;
-static slock_t         *shared_tokens_lock;
+static EndpointDesc *SharedEndpoints;
+static List *TokensInXact = NIL;
+static volatile EndpointDesc *my_shared_endpoint = NULL;
 
-static EndPointDesc *SharedEndPoints;
-volatile EndPointDesc *mySharedEndPoint = NULL;
-
+static slock_t *shared_tokens_lock;
 static slock_t *shared_end_points_lock;
 
-static Token Gp_token = {InvalidToken, INVALID_SESSION_ID, InvalidOid};
-static enum EndPointRole Gp_endpoint_role = EPR_NONE;
-static bool s_inAbort = false;
-static bool s_needAck = false;
+static Token Gp_token = {InvalidToken, InvalidSession, InvalidOid};
+static enum EndpointRole Gp_endpoint_role = EPR_NONE;
+static bool StatusInAbort = false;
+static bool StatusNeedAck = false;
+static int	CurrentRetrieveToken = 0;
 
-static void retry_read(int fifo, char *data, int len);
-static void retry_write(int fifo, char *data, int len);
+static const char *
+endpoint_role_to_string(enum EndpointRole role)
+{
+	switch (role)
+	{
+		case EPR_SENDER:
+			return "[END POINT SENDER]";
 
-static void startup_endpoint_fifo(DestReceiver *self, int operation,
-					  TupleDesc typeinfo);
-static void send_slot_to_endpoint_receiver(TupleTableSlot *slot, DestReceiver *self);
-static void shutdown_endpoint_fifo(DestReceiver *self);
-static void destroy_endpoint_fifo(DestReceiver *self);
+		case EPR_RECEIVER:
+			return "[END POINT RECEIVER]";
 
-static void retrieve_cancel_pending_action(void);
+		case EPR_NONE:
+			return "[END POINT NONE]";
+
+		default:
+			ep_log(ERROR, "unknown end point role %d", role);
+			return NULL;
+	}
+}
+
+static void
+make_fifo_conn(void)
+{
+	RetrieveFifoConns[CurrentRetrieveToken] = (FifoConnState) palloc(sizeof(FifoConnStateData));
+
+	Assert(RetrieveFifoConns[CurrentRetrieveToken]);
+
+	RetrieveFifoConns[CurrentRetrieveToken]->fifo = -1;
+	RetrieveFifoConns[CurrentRetrieveToken]->created = false;
+	RetrieveFifoConns[CurrentRetrieveToken]->finished = false;
+}
+
+static void
+check_token_valid()
+{
+	if (Gp_role == GP_ROLE_EXECUTE && Gp_token.token == InvalidToken)
+		ep_log(ERROR, "invalid endpoint token");
+}
+
+static void
+check_end_point_allocated()
+{
+	if (Gp_endpoint_role != EPR_SENDER)
+		ep_log(ERROR, "%s could not check endpoint allocated status",
+			   endpoint_role_to_string(Gp_endpoint_role));
+
+	if (!my_shared_endpoint)
+		ep_log(ERROR, "endpoint for token " TOKEN_NAME_FORMAT_STR " is not allocated", Gp_token.token);
+
+	check_token_valid();
+
+	SpinLockAcquire(shared_end_points_lock);
+
+	if (my_shared_endpoint->token != Gp_token.token)
+	{
+		SpinLockRelease(shared_end_points_lock);
+		ep_log(ERROR, "endpoint for token " TOKEN_NAME_FORMAT_STR " is not allocated", Gp_token.token);
+	}
+
+	SpinLockRelease(shared_end_points_lock);
+}
+
+static void
+create_and_connect_fifo()
+{
+	char		fifo_name[MAX_FIFO_NAME_SIZE];
+	int			flags;
+
+	check_token_valid();
+
+	if (RetrieveFifoConns[CurrentRetrieveToken]->created)
+		return;
+
+	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
+
+	if ((mkdir(FIFO_DIRECTORY, S_IRWXU) < 0 && errno != EEXIST) || (mkfifo(fifo_name, 0666) < 0))
+		ep_log(ERROR, "failed to create FIFO %s: %m", fifo_name);
+	else
+		RetrieveFifoConns[CurrentRetrieveToken]->created = true;
+
+	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0)
+		return;
+
+	if ((RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
+	{
+		CloseConn();
+		ep_log(ERROR, "failed to open FIFO %s for writing: %m", fifo_name);
+	}
+
+	flags = fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_GETFL);
+
+	if (flags < 0 || fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
+	{
+		CloseConn();
+		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_name);
+	}
+}
+
+static void
+init_conn_for_sender()
+{
+	check_end_point_allocated();
+	make_fifo_conn();
+	create_and_connect_fifo();
+}
+
+static void
+retry_write(int fifo, char *data, int len)
+{
+	int			wr;
+	int			curr = 0;
+
+	while (len > 0)
+	{
+		int			wrtRet;
+
+		CHECK_FOR_INTERRUPTS();
+		ResetLatch(&my_shared_endpoint->ack_done);
+
+		wrtRet = write(fifo, &data[curr], len);
+		if (wrtRet > 0)
+		{
+			curr += wrtRet;
+			len -= wrtRet;
+			continue;
+		}
+		else if (wrtRet == 0 && errno == EINTR)
+			continue;
+		else
+		{
+			if (errno != EAGAIN && errno != EWOULDBLOCK)
+				ep_log(ERROR, "could not write to FIFO: %m");
+		}
+
+		wr = WaitLatchOrSocket(&my_shared_endpoint->ack_done,
+							   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_WRITEABLE | WL_TIMEOUT | WL_SOCKET_READABLE,
+							   fifo,
+							   POLL_FIFO_TIMEOUT);
+
+		/*
+		 * Data is not sent out, so ack_done is not expected
+		 */
+		Assert(!(wr & WL_LATCH_SET));
+
+		if (wr & WL_POSTMASTER_DEATH)
+			proc_exit(0);
+	}
+}
+
+static void
+retry_read(int fifo, char *data, int len)
+{
+	int			rdRet;
+	int			curr = 0;
+	struct pollfd fds;
+
+	fds.fd = fifo;
+	fds.events = POLLIN;
+
+	while (len > 0)
+	{
+		int			pollRet;
+
+		do
+		{
+			CHECK_FOR_INTERRUPTS();
+			pollRet = poll(&fds, 1, POLL_FIFO_TIMEOUT);
+		}
+		while (pollRet == 0 || (pollRet < 0 && (errno == EINTR || errno == EAGAIN)));
+
+		if (pollRet < 0)
+			ep_log(ERROR, "failed to poll during reading: %m");
+
+		rdRet = read(fifo, &data[curr], len);
+		if (rdRet >= 0)
+		{
+			curr += rdRet;
+			len -= rdRet;
+		}
+		else if (rdRet == 0 && errno == EINTR)
+			continue;
+		else if (errno == EAGAIN || errno == EWOULDBLOCK)
+			continue;
+		else
+			ep_log(ERROR, "could not read from FIFO: %m");
+	}
+}
+
+static void
+sender_finish()
+{
+	char		cmd = 'F';
+
+	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
+
+	while (true)
+	{
+		int			wr;
+
+		CHECK_FOR_INTERRUPTS();
+
+		if (QueryFinishPending)
+			break;
+
+		/* Check the QD dispatcher connection is lost */
+		unsigned char firstchar;
+		int			r;
+
+		pq_startmsgread();
+		r = pq_getbyte_if_available(&firstchar);
+		if (r < 0)
+		{
+			/* unexpected error or EOF */
+			ep_log(ERROR, "unexpected EOF on query dispatcher connection");
+		}
+		else if (r > 0)
+		{
+			/* unexpected error */
+			ep_log(ERROR, "query dispatcher should get nothing until QE backend finished processing");
+		}
+		else
+		{
+			/* no data available without blocking */
+			pq_endmsgread();
+			/* continue processing as normal case */
+		}
+
+		wr = WaitLatch(&my_shared_endpoint->ack_done,
+					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
+					   POLL_FIFO_TIMEOUT);
+
+		if (wr & WL_TIMEOUT)
+			continue;
+
+		if (wr & WL_POSTMASTER_DEATH)
+		{
+			CloseConn();
+			proc_exit(0);
+		}
+
+		Assert(wr & WL_LATCH_SET);
+		break;
+	}
+}
+
+static void
+receiver_finish()
+{
+	/* for now, receiver does nothing after finished */
+}
+
+static void
+init_conn_for_receiver()
+{
+	char		fifo_name[MAX_FIFO_NAME_SIZE];
+	int			flags;
+
+	check_token_valid();
+
+	make_fifo_conn();
+
+	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
+
+	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0)
+		return;
+
+	if ((RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
+	{
+		ep_log(ERROR, "failed to open FIFO %s for reading: %m", fifo_name);
+		CloseConn();
+	}
+
+	flags = fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_GETFL);
+
+	if (flags < 0 || fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
+	{
+		CloseConn();
+		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_name);
+	}
+
+	RetrieveFifoConns[CurrentRetrieveToken]->created = true;
+}
+
+static void
+sender_close()
+{
+	char		fifo_name[MAX_FIFO_NAME_SIZE];
+
+	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
+
+	Assert(RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0);
+
+	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0 && close(RetrieveFifoConns[CurrentRetrieveToken]->fifo) < 0)
+		ep_log(ERROR, "failed to close FIFO %s: %m", fifo_name);
+
+	RetrieveFifoConns[CurrentRetrieveToken]->fifo = -1;
+
+	if (!RetrieveFifoConns[CurrentRetrieveToken]->created)
+		return;
+
+	if (unlink(fifo_name) < 0)
+		ep_log(ERROR, "failed to unlink FIFO %s: %m", fifo_name);
+
+	RetrieveFifoConns[CurrentRetrieveToken]->created = false;
+}
+
+static void
+receiver_close()
+{
+	if (close(RetrieveFifoConns[CurrentRetrieveToken]->fifo) < 0)
+		ep_log(ERROR, "failed to close FIFO: %m");
+
+	RetrieveFifoConns[CurrentRetrieveToken]->fifo = -1;
+	RetrieveFifoConns[CurrentRetrieveToken]->created = false;
+}
+
+static EndpointStatus *
+find_endpoint_status(EndpointStatus * status_array, int number,
+					 int token, int dbid)
+{
+	for (int i = 0; i < number; i++)
+	{
+		if (status_array[i].token == token
+			&& status_array[i].dbid == dbid)
+		{
+			return &status_array[i];
+		}
+	}
+	return NULL;
+}
+
+static bool
+is_dbid_in_token(int16 dbid, SharedToken token)
+{
+	bool		find = false;
+
+	if (token->all_seg)
+		return true;
+
+	for (int i = 0; i < token->endpoint_cnt; i++)
+	{
+		if (token->dbIds[i] == dbid)
+		{
+			find = true;
+			break;
+		}
+	}
+	return find;
+}
+
+static void
+set_attach_status(AttachStatus status)
+{
+	if (Gp_endpoint_role != EPR_SENDER)
+		ep_log(ERROR, "%s could not free endpoint", endpoint_role_to_string(Gp_endpoint_role));
+
+	if (!my_shared_endpoint && !my_shared_endpoint->empty)
+		ep_log(ERROR, "endpoint doesn't exist");
+
+	SpinLockAcquire(shared_end_points_lock);
+
+	my_shared_endpoint->attached = status;
+
+	SpinLockRelease(shared_end_points_lock);
+
+	if (status == Status_Finished)
+		my_shared_endpoint = NULL;
+}
+
+static void
+set_sender_pid()
+{
+	int			i;
+	int			found_idx = -1;
+
+	if (Gp_endpoint_role != EPR_SENDER)
+		ep_log(ERROR, "%s could not allocate endpoint slot",
+			   endpoint_role_to_string(Gp_endpoint_role));
+
+	if (my_shared_endpoint && my_shared_endpoint->token != InvalidToken)
+		ep_log(ERROR, "endpoint is already allocated");
+
+	check_token_valid();
+
+	SpinLockAcquire(shared_end_points_lock);
+
+	/*
+	 * Presume that for any token, only one parallel cursor is activated at
+	 * that time.
+	 */
+	/* find the slot with the same token */
+	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedEndpoints[i].token == Gp_token.token)
+		{
+			found_idx = i;
+			break;
+		}
+	}
+
+	if (found_idx != -1)
+	{
+		SharedEndpoints[i].database_id = MyDatabaseId;
+		SharedEndpoints[i].sender_pid = MyProcPid;
+		SharedEndpoints[i].receiver_pid = InvalidPid;
+		SharedEndpoints[i].token = Gp_token.token;
+		SharedEndpoints[i].session_id = Gp_token.session_id;
+		SharedEndpoints[i].user_id = Gp_token.user_id;
+		SharedEndpoints[i].attached = Status_NotAttached;
+		SharedEndpoints[i].empty = false;
+		OwnLatch(&SharedEndpoints[i].ack_done);
+	}
+
+	my_shared_endpoint = &SharedEndpoints[i];
+
+	SpinLockRelease(shared_end_points_lock);
+
+	if (!my_shared_endpoint)
+		ep_log(ERROR, "failed to allocate endpoint");
+}
+
+static void
+			startup_endpoint_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
+{
+	set_sender_pid();
+	InitConn();
+	SendTupdescToFIFO(typeinfo);
+}
+
+static void
+send_slot_to_endpoint_receiver(TupleTableSlot *slot, DestReceiver *self)
+{
+	SendTupleSlot(slot);
+}
+
+static void
+shutdown_endpoint_fifo(DestReceiver *self)
+{
+	FinishConn();
+	CloseConn();
+	set_attach_status(Status_Finished);
+}
+
+static void
+destroy_endpoint_fifo(DestReceiver *self)
+{
+	pfree(self);
+}
+
+static void
+retrieve_cancel_action(void)
+{
+	if (Gp_endpoint_role != EPR_RECEIVER)
+		ep_log(ERROR, "receiver cancel action is triggered by accident");
+
+	SpinLockAcquire(shared_end_points_lock);
+
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedEndpoints[i].token == Gp_token.token && SharedEndpoints[i].receiver_pid == MyProcPid)
+		{
+			SharedEndpoints[i].receiver_pid = InvalidPid;
+			SharedEndpoints[i].attached = Status_NotAttached;
+			pg_signal_backend(SharedEndpoints[i].sender_pid, SIGINT, NULL);
+			break;
+		}
+	}
+
+	SpinLockRelease(shared_end_points_lock);
+}
+
+static bool
+is_endpoint_on_qd(SharedToken token)
+{
+	return ((token->endpoint_cnt == 1) && (token->dbIds[0] == MASTER_DBID));
+}
 
 int32
 GetUniqueGpToken()
 {
-	int token;
+	int			token;
 
 	SpinLockAcquire(shared_tokens_lock);
 
@@ -120,30 +544,13 @@ REGENERATE:
 }
 
 void
-DismissGpToken()
-{
-	SpinLockAcquire(shared_tokens_lock);
-
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (SharedTokens[i].token == Gp_token.token)
-		{
-			SharedTokens[i].token = InvalidToken;
-			break;
-		}
-	}
-
-	SpinLockRelease(shared_tokens_lock);
-}
-
-void
 AddParallelCursorToken(int32 token, const char *name, int session_id, Oid user_id,
 					   bool all_seg, List *seg_list)
 {
 	int			i;
 
 	Assert(token != InvalidToken && name != NULL
-		   && session_id != INVALID_SESSION_ID);
+		   && session_id != InvalidSession);
 
 	SpinLockAcquire(shared_tokens_lock);
 
@@ -163,14 +570,14 @@ AddParallelCursorToken(int32 token, const char *name, int session_id, Oid user_i
 
 				foreach(l, seg_list)
 				{
-					int16 contentid = lfirst_int(l);
+					int16		contentid = lfirst_int(l);
 
 					SharedTokens[i].dbIds[idx] = contentid + 2;
 					idx++;
 					SharedTokens[i].endpoint_cnt++;
 				}
 			}
-			elog(LOG, "Add a new token:%d, session id:%d, cursor name:%s, into shared memory",
+			elog(LOG, "added a new token: %d, session id: %d, cursor name: %s, into shared memory",
 				 token, session_id, SharedTokens[i].cursor_name);
 			break;
 		}
@@ -189,8 +596,9 @@ void
 ClearParallelCursorToken(int32 token)
 {
 	Assert(token != InvalidToken);
-	bool endpoint_on_QD = false, found = false;
-	List *seg_list = NIL;
+	bool		endpoint_on_QD = false,
+				found = false;
+	List	   *seg_list = NIL;
 
 	SpinLockAcquire(shared_tokens_lock);
 
@@ -199,7 +607,7 @@ ClearParallelCursorToken(int32 token)
 		if (SharedTokens[i].token == token)
 		{
 			found = true;
-			if(isEndPointOnQD(&SharedTokens[i]))
+			if (is_endpoint_on_qd(&SharedTokens[i]))
 			{
 				endpoint_on_QD = true;
 			}
@@ -207,19 +615,20 @@ ClearParallelCursorToken(int32 token)
 			{
 				if (!SharedTokens[i].all_seg)
 				{
-					for(int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
+					for (int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
 					{
-						int dbid = SharedTokens[i].dbIds[j];
+						int			dbid = SharedTokens[i].dbIds[j];
+
 						seg_list = lappend_int(seg_list, dbid - 2);
 					}
 				}
 			}
 
-			elog(LOG, "Remove token:%d, session id:%d, cursor name:%s from shared memory",
-						token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
+			elog(LOG, "removed token:%d, session id:%d, cursor name:%s from shared memory",
+			 token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
-			SharedTokens[i].session_id = INVALID_SESSION_ID;
+			SharedTokens[i].session_id = InvalidSession;
 			SharedTokens[i].user_id = InvalidOid;
 			SharedTokens[i].endpoint_cnt = 0;
 			SharedTokens[i].all_seg = false;
@@ -235,12 +644,13 @@ ClearParallelCursorToken(int32 token)
 		/* Free end-point */
 		if (endpoint_on_QD)
 		{
-			FreeEndPoint4token(token);
+			FreeEndpointOfToken(token);
 		}
 		else
 		{
-			char cmd[255];
-			sprintf(cmd, "set gp_endpoints_token_operation='f%d'", token);
+			char		cmd[255];
+
+			sprintf(cmd, "SET gp_endpoints_token_operation='f%d'", token);
 			if (seg_list != NIL)
 			{
 				/* dispatch to some segments. */
@@ -258,28 +668,31 @@ ClearParallelCursorToken(int32 token)
 int32
 parseToken(char *token)
 {
-	int32 token_id = InvalidToken;
+	int32		token_id = InvalidToken;
 
-	if(token[0]=='t' && token[1]=='k')
+	if (token[0] == 't' && token[1] == 'k')
 	{
-		token_id = atol(token+2);
+		token_id = atol(token + 2);
 	}
-	else{
-		ep_log(ERROR, "Invalid token \"%s\"", token);
+	else
+	{
+		ep_log(ERROR, "invalid token \"%s\"", token);
 	}
 
 	return token_id;
 }
 
 /* Need to pfree() the result */
-char*
+char *
 printToken(int32 token_id)
 {
-	Insist(token_id!=InvalidToken);
+	Insist(token_id != InvalidToken);
 
-	char* res = palloc(13);  //2 ('TK') + 10(max value length of int32) + 1 ('\0')
+	char	   *res = palloc(13);
 
-	sprintf(res, TOKEN_NAME_FORMAT_STR, token_id);
+	//2('TK') + 10(max value length of int32) +1('\0')
+
+		sprintf(res, TOKEN_NAME_FORMAT_STR, token_id);
 
 	return res;
 }
@@ -288,9 +701,8 @@ void
 SetGpToken(int32 token, int session_id, Oid user_id)
 {
 	if (Gp_token.token != InvalidToken)
-		ep_log(ERROR, "end point token "TOKEN_NAME_FORMAT_STR" already set", Gp_token.token);
+		ep_log(ERROR, "endpoint token " TOKEN_NAME_FORMAT_STR " is already set", Gp_token.token);
 
-	ep_log(DEBUG3, "end point token is set to %d", token);
 	Gp_token.token = token;
 	Gp_token.session_id = session_id;
 	Gp_token.user_id = user_id;
@@ -299,10 +711,30 @@ SetGpToken(int32 token, int session_id, Oid user_id)
 void
 ClearGpToken(void)
 {
-	ep_log(LOG, "end point token "TOKEN_NAME_FORMAT_STR" unset", Gp_token.token);
+	ep_log(LOG, "endpoint token " TOKEN_NAME_FORMAT_STR " is unset", Gp_token.token);
 	Gp_token.token = InvalidToken;
-	Gp_token.session_id = INVALID_SESSION_ID;
+	Gp_token.session_id = InvalidSession;
 	Gp_token.user_id = InvalidOid;
+}
+
+void
+SetEndpointRole(enum EndpointRole role)
+{
+	if (Gp_endpoint_role != EPR_NONE)
+		ep_log(ERROR, "endpoint role %s is already set",
+			   endpoint_role_to_string(Gp_endpoint_role));
+
+	ep_log(LOG, "set endpoint role to %s", endpoint_role_to_string(role));
+
+	Gp_endpoint_role = role;
+}
+
+void
+ClearEndpointRole(void)
+{
+	ep_log(LOG, "unset endpoint role %s", endpoint_role_to_string(Gp_endpoint_role));
+
+	Gp_endpoint_role = EPR_NONE;
 }
 
 int32
@@ -311,68 +743,29 @@ GpToken(void)
 	return Gp_token.token;
 }
 
-static const char *
-endpoint_role_to_string(enum EndPointRole role)
-{
-	switch (role)
-	{
-		case EPR_SENDER:
-			return "[END POINT SENDER]";
-
-		case EPR_RECEIVER:
-			return "[END POINT RECEIVER]";
-
-		case EPR_NONE:
-			return "[END POINT NONE]";
-
-		default:
-			ep_log(ERROR, "unknown end point role %d", role);
-	}
-
-	Assert(0);
-
-	return NULL;
-}
-
-void
-SetEndPointRole(enum EndPointRole role)
-{
-	if (Gp_endpoint_role != EPR_NONE)
-		ep_log(ERROR, "gp endpoint role %s already set",
-			   endpoint_role_to_string(Gp_endpoint_role));
-
-	ep_log(LOG, "set end point role to %s", endpoint_role_to_string(role));
-
-	Gp_endpoint_role = role;
-}
-
-void
-ClearEndPointRole(void)
-{
-	ep_log(LOG, "unset end point role %s", endpoint_role_to_string(Gp_endpoint_role));
-
-	Gp_endpoint_role = EPR_NONE;
-}
-
-enum EndPointRole
-EndPointRole(void)
+enum EndpointRole
+EndpointRole(void)
 {
 	return Gp_endpoint_role;
 }
 
-static void
-check_gp_token_valid()
-{
-	if (Gp_role == GP_ROLE_EXECUTE && Gp_token.token == InvalidToken)
-		ep_log(ERROR, "invalid gp token");
-}
-
 Size
-EndPoint_ShmemSize()
+Token_ShmemSize()
 {
 	Size		size;
 
-	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(EndPointDesc));
+	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(SharedTokenDesc));
+	size = add_size(size, sizeof(slock_t));
+
+	return size;
+}
+
+Size
+Endpoint_ShmemSize()
+{
+	Size		size;
+
+	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(EndpointDesc));
 	size = add_size(size, sizeof(slock_t));
 
 	return size;
@@ -401,7 +794,7 @@ Token_ShmemInit()
 		{
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
-			SharedTokens[i].session_id = INVALID_SESSION_ID;
+			SharedTokens[i].session_id = InvalidSession;
 			SharedTokens[i].user_id = InvalidOid;
 		}
 	}
@@ -418,14 +811,14 @@ Token_ShmemInit()
 }
 
 void
-EndPoint_ShmemInit()
+Endpoint_ShmemInit()
 {
 	bool		is_shmem_ready;
 	Size		size;
 
-	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(EndPointDesc));
+	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(EndpointDesc));
 
-	SharedEndPoints = (EndPointDesc *)
+	SharedEndpoints = (EndpointDesc *)
 		ShmemInitStruct(SHMEM_END_POINT,
 						size,
 						&is_shmem_ready);
@@ -438,16 +831,16 @@ EndPoint_ShmemInit()
 
 		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 		{
-			SharedEndPoints[i].database_id = InvalidOid;
-			SharedEndPoints[i].sender_pid = InvalidPid;
-			SharedEndPoints[i].receiver_pid = InvalidPid;
-			SharedEndPoints[i].token = InvalidToken;
-			SharedEndPoints[i].session_id = INVALID_SESSION_ID;
-			SharedEndPoints[i].user_id = InvalidOid;
-			SharedEndPoints[i].attached = Status_NotAttached;
-			SharedEndPoints[i].empty = true;
+			SharedEndpoints[i].database_id = InvalidOid;
+			SharedEndpoints[i].sender_pid = InvalidPid;
+			SharedEndpoints[i].receiver_pid = InvalidPid;
+			SharedEndpoints[i].token = InvalidToken;
+			SharedEndpoints[i].session_id = InvalidSession;
+			SharedEndpoints[i].user_id = InvalidOid;
+			SharedEndpoints[i].attached = Status_NotAttached;
+			SharedEndpoints[i].empty = true;
 
-			InitSharedLatch(&SharedEndPoints[i].ack_done);
+			InitSharedLatch(&SharedEndpoints[i].ack_done);
 		}
 	}
 
@@ -463,65 +856,13 @@ EndPoint_ShmemInit()
 }
 
 void
-SetSendPid4EndPoint()
-{
-	int			i,
-				found_idx = -1;
-
-	if (Gp_endpoint_role != EPR_SENDER)
-		ep_log(ERROR, "%s could not allocate end point slot",
-			   endpoint_role_to_string(Gp_endpoint_role));
-
-	if (mySharedEndPoint && mySharedEndPoint->token != InvalidToken)
-		ep_log(ERROR, "end point slot already allocated");
-
-	check_gp_token_valid();
-
-	SpinLockAcquire(shared_end_points_lock);
-
-	/*
-	 * Presume that for any token, only one parallel cursor is activated at
-	 * that time.
-	 */
-	/* find the slot with the same token */
-	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (SharedEndPoints[i].token == Gp_token.token)
-		{
-			found_idx = i;
-			break;
-		}
-	}
-
-	if (found_idx != -1)
-	{
-		SharedEndPoints[i].database_id = MyDatabaseId;
-		SharedEndPoints[i].sender_pid = MyProcPid;
-		SharedEndPoints[i].receiver_pid = InvalidPid;
-		SharedEndPoints[i].token = Gp_token.token;
-		SharedEndPoints[i].session_id = Gp_token.session_id;
-		SharedEndPoints[i].user_id = Gp_token.user_id;
-		SharedEndPoints[i].attached = Status_NotAttached;
-		SharedEndPoints[i].empty = false;
-		OwnLatch(&SharedEndPoints[i].ack_done);
-	}
-
-	mySharedEndPoint = &SharedEndPoints[i];
-
-	SpinLockRelease(shared_end_points_lock);
-
-	if (!mySharedEndPoint)
-		ep_log(ERROR, "failed to allocate end point slot");
-}
-
-void
-AllocEndPoint4token(int token)
+AllocEndpointOfToken(int token)
 {
 	int			i,
 				found_idx = -1;
 
 	if (token == InvalidToken)
-		ep_log(ERROR, "AllocEndPoint4token invalid token id");
+		ep_log(ERROR, "allocate endpoint of invalid token ID");
 
 	SpinLockAcquire(shared_end_points_lock);
 
@@ -532,7 +873,7 @@ AllocEndPoint4token(int token)
 	/* find the slot with the same token */
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedEndPoints[i].token == token)
+		if (SharedEndpoints[i].token == token)
 		{
 			found_idx = i;
 			break;
@@ -542,7 +883,7 @@ AllocEndPoint4token(int token)
 	/* find a new slot */
 	for (i = 0; i < MAX_ENDPOINT_SIZE && found_idx == -1; ++i)
 	{
-		if (SharedEndPoints[i].empty)
+		if (SharedEndpoints[i].empty)
 		{
 			found_idx = i;
 			break;
@@ -551,87 +892,69 @@ AllocEndPoint4token(int token)
 
 	if (found_idx != -1)
 	{
-		SharedEndPoints[i].database_id = MyDatabaseId;
-		SharedEndPoints[i].token = token;
-		SharedEndPoints[i].session_id = gp_session_id;
-		SharedEndPoints[i].user_id = GetUserId();
-		SharedEndPoints[i].sender_pid = InvalidPid;
-		SharedEndPoints[i].receiver_pid = InvalidPid;
-		SharedEndPoints[i].attached = Status_NotAttached;
-		SharedEndPoints[i].empty = false;
+		SharedEndpoints[i].database_id = MyDatabaseId;
+		SharedEndpoints[i].token = token;
+		SharedEndpoints[i].session_id = gp_session_id;
+		SharedEndpoints[i].user_id = GetUserId();
+		SharedEndpoints[i].sender_pid = InvalidPid;
+		SharedEndpoints[i].receiver_pid = InvalidPid;
+		SharedEndpoints[i].attached = Status_NotAttached;
+		SharedEndpoints[i].empty = false;
 
 		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-		token_in_tx = lappend_int(token_in_tx, token);
+
+		TokensInXact = lappend_int(TokensInXact, token);
 		MemoryContextSwitchTo(oldcontext);
 	}
 
 	SpinLockRelease(shared_end_points_lock);
 
 	if (found_idx == -1)
-		ep_log(ERROR, "failed to allocate end point slot");
+		ep_log(ERROR, "failed to allocate endpoint");
 }
 
 void
-FreeEndPoint4token(int token)
+FreeEndpointOfToken(int token)
 {
-	volatile EndPointDesc *endPointDesc = FindEndPointByToken(token);
+	volatile EndpointDesc *endPointDesc = FindEndpointByToken(token);
 
 	if (!endPointDesc)
 		return;
 
-	ResetEndPointToken(endPointDesc);
+	ResetEndpointToken(endPointDesc);
 }
 
 void
-UnSetSendPid4EndPoint(int token)
+UnsetSenderPidOfToken(int token)
 {
-	volatile EndPointDesc *endPointDesc = FindEndPointByToken(token);
+	volatile EndpointDesc *endPointDesc = FindEndpointByToken(token);
 
 	if (!endPointDesc)
 	{
-		ep_log(ERROR, "No valid endpoint info for token %d", token);
+		ep_log(ERROR, "no valid endpoint info for token %d", token);
 	}
 
-	ResetEndPointSendPid(endPointDesc);
+	ResetEndpointSendPid(endPointDesc);
 }
 
 void
-UnSetSendPid4MyEndPoint()
+UnsetSenderPid()
 {
 	if (Gp_endpoint_role != EPR_SENDER)
-		ep_log(ERROR, "%s can free end point slot", endpoint_role_to_string(Gp_endpoint_role));
+		ep_log(ERROR, "%s can not free endpoint", endpoint_role_to_string(Gp_endpoint_role));
 
-	if (!mySharedEndPoint && !mySharedEndPoint->empty)
-		ep_log(ERROR, "non end point slot allocated");
+	if (!my_shared_endpoint && !my_shared_endpoint->empty)
+		ep_log(ERROR, "endpoint doesn't exist");
 
-	check_gp_token_valid();
+	check_token_valid();
 
-	ResetEndPointSendPid(mySharedEndPoint);
+	ResetEndpointSendPid(my_shared_endpoint);
 
-	mySharedEndPoint = NULL;
+	my_shared_endpoint = NULL;
 }
 
 void
-SetAttachStatus4MyEndPoint(AttachStatus status)
-{
-	if (Gp_endpoint_role != EPR_SENDER)
-		ep_log(ERROR, "%s can free end point slot", endpoint_role_to_string(Gp_endpoint_role));
-
-	if (!mySharedEndPoint && !mySharedEndPoint->empty)
-		ep_log(ERROR, "non end point slot allocated");
-
-	SpinLockAcquire(shared_end_points_lock);
-
-	mySharedEndPoint->attached = status;
-
-	SpinLockRelease(shared_end_points_lock);
-
-	if (status == Status_Finished)
-		mySharedEndPoint = NULL;
-}
-
-void
-ResetEndPointRecvPid(volatile EndPointDesc * endPointDesc)
+ResetEndpointRecvPid(volatile EndpointDesc * endPointDesc)
 {
 	pid_t		receiver_pid;
 	bool		is_attached;
@@ -658,17 +981,13 @@ ResetEndPointRecvPid(volatile EndPointDesc * endPointDesc)
 		SpinLockRelease(shared_end_points_lock);
 		if (receiver_pid != InvalidPid && is_attached && receiver_pid != MyProcPid)
 		{
-			/*
-			 * TODO: Kill receiver process and wait again to check if any
-			 * other receiver to join.
-			 */
 			if (kill(receiver_pid, SIGINT) < 0)
 			{
 				/* no permission or non-existing */
 				if (errno == EPERM || errno == ESRCH)
 					break;
 				else
-					elog(WARNING, "failed to kill sender process(pid:%d): %m", (int) receiver_pid);
+					elog(WARNING, "failed to kill sender process(pid: %d): %m", (int) receiver_pid);
 			}
 		}
 		else
@@ -677,15 +996,18 @@ ResetEndPointRecvPid(volatile EndPointDesc * endPointDesc)
 }
 
 void
-ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
+ResetEndpointSendPid(volatile EndpointDesc * endPointDesc)
 {
 	pid_t		pid;
 
 	if (!endPointDesc && !endPointDesc->empty)
 		return;
 
-	/* Since the receiver is not in the session, sender has the duty to cancel it */
-	ResetEndPointRecvPid(endPointDesc);
+	/*
+	 * Since the receiver is not in the session, sender has the duty to cancel
+	 * it
+	 */
+	ResetEndpointRecvPid(endPointDesc);
 
 	while (true)
 	{
@@ -696,8 +1018,8 @@ ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
 		pid = endPointDesc->sender_pid;
 
 		/*
-		 * Only reset by this process itself, other process just send signal to
-		 * sendpid
+		 * Only reset by this process itself, other process just send signal
+		 * to sendpid
 		 */
 		if (pid == MyProcPid)
 		{
@@ -714,7 +1036,7 @@ ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
 				if (errno == EPERM || errno == ESRCH)
 					break;
 				else
-					elog(WARNING, "failed to kill sender process(pid:%d): %m", (int) pid);
+					elog(WARNING, "failed to kill sender process(pid: %d): %m", (int) pid);
 			}
 		}
 		else
@@ -723,18 +1045,18 @@ ResetEndPointSendPid(volatile EndPointDesc * endPointDesc)
 }
 
 void
-ResetEndPointToken(volatile EndPointDesc * endPointDesc)
+ResetEndpointToken(volatile EndpointDesc * endPointDesc)
 {
 	if (!endPointDesc && !endPointDesc->empty)
-		ep_log(ERROR, "Not an valid endpoint");
+		ep_log(ERROR, "not an valid endpoint");
 
-	ResetEndPointSendPid(endPointDesc);
+	ResetEndpointSendPid(endPointDesc);
 
 	SpinLockAcquire(shared_end_points_lock);
 
 	endPointDesc->database_id = InvalidOid;
 	endPointDesc->token = InvalidToken;
-	endPointDesc->session_id = INVALID_SESSION_ID;
+	endPointDesc->session_id = InvalidSession;
 	endPointDesc->user_id = InvalidOid;
 	endPointDesc->empty = true;
 
@@ -742,7 +1064,7 @@ ResetEndPointToken(volatile EndPointDesc * endPointDesc)
 }
 
 bool
-FindEndPointTokenByUser(Oid user_id, const char *token_str)
+FindEndpointTokenByUser(Oid user_id, const char *token_str)
 {
 	bool		isFound = false;
 
@@ -750,15 +1072,15 @@ FindEndPointTokenByUser(Oid user_id, const char *token_str)
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (!SharedEndPoints[i].empty &&
-			SharedEndPoints[i].user_id == user_id)
+		if (!SharedEndpoints[i].empty &&
+			SharedEndpoints[i].user_id == user_id)
 		{
 			/*
 			 * Here convert token from int32 to string before comparation so
 			 * that even if the password can not be parsed to int32, there is
 			 * no crash.
 			 */
-			char* token = printToken(SharedEndPoints[i].token);
+			char	   *token = printToken(SharedEndpoints[i].token);
 
 			if (strcmp(token, token_str) == 0)
 			{
@@ -774,20 +1096,20 @@ FindEndPointTokenByUser(Oid user_id, const char *token_str)
 	return isFound;
 }
 
-volatile EndPointDesc *
-FindEndPointByToken(int token)
+volatile EndpointDesc *
+FindEndpointByToken(int token)
 {
-	EndPointDesc *res = NULL;
+	EndpointDesc *res = NULL;
 
 	SpinLockAcquire(shared_end_points_lock);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (!SharedEndPoints[i].empty &&
-			SharedEndPoints[i].token == token)
+		if (!SharedEndpoints[i].empty &&
+			SharedEndpoints[i].token == token)
 		{
 
-			res = &SharedEndPoints[i];
+			res = &SharedEndpoints[i];
 			break;
 		}
 	}
@@ -796,7 +1118,7 @@ FindEndPointByToken(int token)
 }
 
 void
-AttachEndPoint()
+AttachEndpoint()
 {
 	int			i;
 	bool		isFound = false;
@@ -809,58 +1131,58 @@ AttachEndPoint()
 	pid_t		attached_pid = InvalidPid;
 
 	if (Gp_endpoint_role != EPR_RECEIVER)
-		ep_log(ERROR, "%s could not attach end point slot", endpoint_role_to_string(Gp_endpoint_role));
+		ep_log(ERROR, "%s could not attach endpoint", endpoint_role_to_string(Gp_endpoint_role));
 
-	if (mySharedEndPoint)
-		ep_log(ERROR, "end point slot already attached");
+	if (my_shared_endpoint)
+		ep_log(ERROR, "endpoint is already attached");
 
-	check_gp_token_valid();
+	check_token_valid();
 
 	SpinLockAcquire(shared_end_points_lock);
 
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedEndPoints[i].database_id == MyDatabaseId &&
-			SharedEndPoints[i].token == Gp_token.token &&
-			SharedEndPoints[i].user_id == Gp_token.user_id &&
-			!SharedEndPoints[i].empty)
+		if (SharedEndpoints[i].database_id == MyDatabaseId &&
+			SharedEndpoints[i].token == Gp_token.token &&
+			SharedEndpoints[i].user_id == Gp_token.user_id &&
+			!SharedEndpoints[i].empty)
 		{
-			if (SharedEndPoints[i].sender_pid == InvalidPid)
+			if (SharedEndpoints[i].sender_pid == InvalidPid)
 			{
 				is_invalid_sendpid = true;
 				break;
 			}
 
-			if (SharedEndPoints[i].attached == Status_Attached)
+			if (SharedEndpoints[i].attached == Status_Attached)
 			{
 				already_attached = true;
-				attached_pid = SharedEndPoints[i].receiver_pid;
+				attached_pid = SharedEndpoints[i].receiver_pid;
 				break;
 			}
 
-			if (SharedEndPoints[i].receiver_pid == MyProcPid)	/* already attached by
+			if (SharedEndpoints[i].receiver_pid == MyProcPid)	/* already attached by
 																 * this process before */
 			{
 				is_self_pid = true;
 			}
-			else if (SharedEndPoints[i].receiver_pid != InvalidPid)		/* already attached by
+			else if (SharedEndpoints[i].receiver_pid != InvalidPid)		/* already attached by
 																		 * other process before */
 			{
 				is_other_pid = true;
-				attached_pid = SharedEndPoints[i].receiver_pid;
+				attached_pid = SharedEndpoints[i].receiver_pid;
 				break;
 			}
 			else
 			{
-				SharedEndPoints[i].receiver_pid = MyProcPid;
+				SharedEndpoints[i].receiver_pid = MyProcPid;
 			}
 
 			/* Not set if Status_Finished */
-			if (SharedEndPoints[i].attached == Status_NotAttached)
+			if (SharedEndpoints[i].attached == Status_NotAttached)
 			{
-				SharedEndPoints[i].attached = Status_Attached;
+				SharedEndpoints[i].attached = Status_Attached;
 			}
-			mySharedEndPoint = &SharedEndPoints[i];
+			my_shared_endpoint = &SharedEndpoints[i];
 			break;
 		}
 	}
@@ -869,73 +1191,76 @@ AttachEndPoint()
 
 	if (is_invalid_sendpid)
 	{
-		ep_log(ERROR, "The PARALLEL CURSOR related to the end point token "TOKEN_NAME_FORMAT_STR" is not EXECUTED.",
+		ep_log(ERROR, "the PARALLEL CURSOR related to endpoint token " TOKEN_NAME_FORMAT_STR " is not EXECUTED",
 			   Gp_token.token);
 	}
 
 	if (already_attached || is_other_pid)
-		ep_log(ERROR, "end point "TOKEN_NAME_FORMAT_STR" already attached by receiver(pid:%d)",
+		ep_log(ERROR, "endpoint " TOKEN_NAME_FORMAT_STR " is already attached by receiver(pid: %d)",
 			   Gp_token.token, attached_pid);
 
-	if (!mySharedEndPoint)
-		ep_log(ERROR, "failed to attach non exist end point for token "TOKEN_NAME_FORMAT_STR, Gp_token.token);
+	if (!my_shared_endpoint)
+		ep_log(ERROR, "failed to attach non-existing endpoint of token " TOKEN_NAME_FORMAT_STR, Gp_token.token);
 
-	s_needAck = false;
+	StatusNeedAck = false;
 
 	/*
-	 * Search all tokens that retrieved in this session, set retr_tk_cur to
-	 * it's array index
+	 * Search all tokens that retrieved in this session, set
+	 * CurrentRetrieveToken to it's array index
 	 */
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (retr_tokens[i] == Gp_token.token)
+		if (RetrieveTokens[i] == Gp_token.token)
 		{
 			isFound = true;
-			retr_tk_cur = i;
+			CurrentRetrieveToken = i;
 			break;
 		}
 	}
 	if (!isFound)
 	{
-		retr_tk_cur = retr_tk_len;
-		retr_tokens[retr_tk_len++] = Gp_token.token;
+		CurrentRetrieveToken = 0;
+		RetrieveTokens[0] = Gp_token.token;
 	}
 	if (!is_self_pid)
 	{
-		retr_status[retr_tk_cur] = RETR_STATUS_INIT;
+		RetrieveStatus[CurrentRetrieveToken] = RETRIEVE_STATUS_INIT;
 	}
 
 }
 
-/* When detach endpoint, if this process have not yet finish this fifo reading, then don't reset it's pid,
- * so that we can know the process is the first time of attaching endpoint (need to re-read tuple descriptor).
+/*
+ * When detach endpoint, if this process have not yet finish this fifo reading,
+ * then don't reset it's pid, so that we can know the process is the first time
+ * of attaching endpoint (need to re-read tuple descriptor).
+ * Note: don't drop the result slot, we only have one chance to built it.
  */
 void
-DetachEndPoint(bool reset_pid)
+DetachEndpoint(bool reset_pid)
 {
 	volatile Latch *ack_done;
 
 	if (Gp_endpoint_role != EPR_RECEIVER ||
-		!mySharedEndPoint ||
+		!my_shared_endpoint ||
 		Gp_token.token == InvalidToken)
 		return;
 
 	if (Gp_endpoint_role != EPR_RECEIVER)
-		ep_log(ERROR, "%s could not attach end point slot", endpoint_role_to_string(Gp_endpoint_role));
+		ep_log(ERROR, "%s could not attach endpoint", endpoint_role_to_string(Gp_endpoint_role));
 
-	check_gp_token_valid();
+	check_token_valid();
 
 	SpinLockAcquire(shared_end_points_lock);
 
 	PG_TRY();
 	{
-		if (mySharedEndPoint->token != Gp_token.token)
-			ep_log(LOG, "unmatched token, %d expected but %d met in slot",
-				   Gp_token.token, mySharedEndPoint->token);
+		if (my_shared_endpoint->token != Gp_token.token)
+			ep_log(LOG, "unmatched token, expected %d but it's %d",
+				   Gp_token.token, my_shared_endpoint->token);
 
-		if (mySharedEndPoint->receiver_pid != MyProcPid)
-			ep_log(ERROR, "unmatched pid, %d expected but %d met in slot",
-				   MyProcPid, mySharedEndPoint->receiver_pid);
+		if (my_shared_endpoint->receiver_pid != MyProcPid)
+			ep_log(ERROR, "unmatched pid, expected %d but it's %d",
+				   MyProcPid, my_shared_endpoint->receiver_pid);
 	}
 	PG_CATCH();
 	{
@@ -946,31 +1271,24 @@ DetachEndPoint(bool reset_pid)
 
 	if (reset_pid)
 	{
-		mySharedEndPoint->receiver_pid = InvalidPid;
+		my_shared_endpoint->receiver_pid = InvalidPid;
 	}
 	/* Not set if Status_Finished */
-	if (mySharedEndPoint->attached == Status_Attached)
+
+	if (my_shared_endpoint->attached == Status_Attached)
 	{
-		mySharedEndPoint->attached = Status_NotAttached;
+		my_shared_endpoint->attached = Status_NotAttached;
 	}
-	ack_done = &mySharedEndPoint->ack_done;
+	ack_done = &my_shared_endpoint->ack_done;
 
 	SpinLockRelease(shared_end_points_lock);
 
-	mySharedEndPoint = NULL;
+	my_shared_endpoint = NULL;
 
-	/* Don't drop the result slot, we only have one chance to built it. */
-
-	/*
-	 * if (retr_resultTupleSlot[retr_tk_cur]) {
-	 * ExecDropSingleTupleTableSlot(retr_resultTupleSlot[retr_tk_cur]);
-	 * retr_resultTupleSlot[retr_tk_cur] = NULL; }
-	 */
-
-	if (s_needAck)
+	if (StatusNeedAck)
 		SetLatch(ack_done);
 
-	s_needAck = false;
+	StatusNeedAck = false;
 }
 
 TupleDesc
@@ -981,7 +1299,7 @@ ResultTupleDesc()
 	TupleDescNode *tupdescnode;
 	MemoryContext oldcontext;
 
-	if (retr_status[retr_tk_cur] < RETR_STATUS_GET_TUPLEDSCR)
+	if (RetrieveStatus[CurrentRetrieveToken] < RETRIEVE_STATUS_GET_TUPLEDSCR)
 	{
 		/*
 		 * Store the result slot all the retrieve mode QE life cycle, we only
@@ -991,119 +1309,40 @@ ResultTupleDesc()
 
 		InitConn();
 
-		Assert(retr_fifoConnState[retr_tk_cur]);
-		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
+		Assert(RetrieveFifoConns[CurrentRetrieveToken]);
+		retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
 		if (cmd == 'D')
 		{
-			retry_read(retr_fifoConnState[retr_tk_cur]->fifo, (char *) &len, 4);
+			retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) &len, 4);
 
 			char	   *tupdescnode_str = palloc(len);
 
-			retry_read(retr_fifoConnState[retr_tk_cur]->fifo, tupdescnode_str, len);
+			retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, tupdescnode_str, len);
 
 			tupdescnode = (TupleDescNode *) readNodeFromBinaryString(tupdescnode_str, len);
-			if (retr_resultTupleSlot[retr_tk_cur] != NULL)
-				ExecClearTuple(retr_resultTupleSlot[retr_tk_cur]);
-			retr_resultTupleSlot[retr_tk_cur] = MakeTupleTableSlot();
-			ExecSetSlotDescriptor(retr_resultTupleSlot[retr_tk_cur], tupdescnode->tuple);
-			retr_status[retr_tk_cur] = RETR_STATUS_GET_TUPLEDSCR;
+			if (RetrieveTupleSlots[CurrentRetrieveToken] != NULL)
+				ExecClearTuple(RetrieveTupleSlots[CurrentRetrieveToken]);
+			RetrieveTupleSlots[CurrentRetrieveToken] = MakeTupleTableSlot();
+			ExecSetSlotDescriptor(RetrieveTupleSlots[CurrentRetrieveToken], tupdescnode->tuple);
+			RetrieveStatus[CurrentRetrieveToken] = RETRIEVE_STATUS_GET_TUPLEDSCR;
 		}
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	Assert(retr_resultTupleSlot[retr_tk_cur]);
-	Assert(retr_resultTupleSlot[retr_tk_cur]->tts_tupleDescriptor);
+	Assert(RetrieveTupleSlots[CurrentRetrieveToken]);
+	Assert(RetrieveTupleSlots[CurrentRetrieveToken]->tts_tupleDescriptor);
 
-	return retr_resultTupleSlot[retr_tk_cur]->tts_tupleDescriptor;
-}
-
-static void
-make_fifo_conn(void)
-{
-	retr_fifoConnState[retr_tk_cur] = (FifoConnStateData *) gp_malloc(sizeof(FifoConnStateData));
-
-	Assert(retr_fifoConnState[retr_tk_cur]);
-
-	retr_fifoConnState[retr_tk_cur]->fifo = -1;
-	retr_fifoConnState[retr_tk_cur]->created = false;
-	retr_fifoConnState[retr_tk_cur]->finished = false;
-}
-
-static void
-check_end_point_allocated()
-{
-	if (Gp_endpoint_role != EPR_SENDER)
-		ep_log(ERROR, "%s could not check end point slot allocated",
-			   endpoint_role_to_string(Gp_endpoint_role));
-
-	if (!mySharedEndPoint)
-		ep_log(ERROR, "end point slot for token "TOKEN_NAME_FORMAT_STR" not allocated", Gp_token.token);
-
-	check_gp_token_valid();
-
-	SpinLockAcquire(shared_end_points_lock);
-
-	if (mySharedEndPoint->token != Gp_token.token)
-	{
-		SpinLockRelease(shared_end_points_lock);
-		ep_log(ERROR, "end point slot for token "TOKEN_NAME_FORMAT_STR" not allocated", Gp_token.token);
-	}
-
-	SpinLockRelease(shared_end_points_lock);
-}
-
-static void
-create_and_connect_fifo()
-{
-	char		fifo_name[MAX_FIFO_NAME_SIZE];
-	int			flags;
-
-	check_gp_token_valid();
-
-	if (retr_fifoConnState[retr_tk_cur]->created)
-		return;
-
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
-
-	if ((mkdir(FIFO_DIRECTORY, S_IRWXU) < 0 && errno != EEXIST) || (mkfifo(fifo_name, 0666) < 0))
-		ep_log(ERROR, "create fifo %s failed:%m", fifo_name);
-	else
-		retr_fifoConnState[retr_tk_cur]->created = true;
-
-	if (retr_fifoConnState[retr_tk_cur]->fifo > 0)
-		return;
-
-	if ((retr_fifoConnState[retr_tk_cur]->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
-	{
-		CloseConn();
-		ep_log(ERROR, "open fifo %s for write failed:%m", fifo_name);
-	}
-
-	flags = fcntl(retr_fifoConnState[retr_tk_cur]->fifo, F_GETFL);
-
-	if (flags < 0 || fcntl(retr_fifoConnState[retr_tk_cur]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
-	{
-		CloseConn();
-		ep_log(ERROR, "set nonblock fifo %s failed:%m", fifo_name);
-	}
-}
-
-static void
-init_conn_for_sender()
-{
-	check_end_point_allocated();
-	make_fifo_conn();
-	create_and_connect_fifo();
+	return RetrieveTupleSlots[CurrentRetrieveToken]->tts_tupleDescriptor;
 }
 
 void
 SendTupdescToFIFO(TupleDesc tupdesc)
 {
-	Assert(retr_fifoConnState[retr_tk_cur]);
+	Assert(RetrieveFifoConns[CurrentRetrieveToken]);
 
 	char		cmd = 'D';
 
-	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
+	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
 	TupleDescNode *node = makeNode(TupleDescNode);
 
 	node->natts = tupdesc->natts;
@@ -1111,40 +1350,8 @@ SendTupdescToFIFO(TupleDesc tupdesc)
 	int			tupdesc_len = 0;
 	char	   *tupdesc_str = nodeToBinaryStringFast(node, &tupdesc_len);
 
-	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, (char *) &tupdesc_len, 4);
-	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, tupdesc_str, tupdesc_len);
-}
-
-static void
-init_conn_for_receiver()
-{
-	char		fifo_name[MAX_FIFO_NAME_SIZE];
-	int			flags;
-
-	check_gp_token_valid();
-
-	make_fifo_conn();
-
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
-
-	if (retr_fifoConnState[retr_tk_cur]->fifo > 0)
-		return;
-
-	if ((retr_fifoConnState[retr_tk_cur]->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
-	{
-		ep_log(ERROR, "failed to open fifo %s for read:%m", fifo_name);
-		CloseConn();
-	}
-
-	flags = fcntl(retr_fifoConnState[retr_tk_cur]->fifo, F_GETFL);
-
-	if (flags < 0 || fcntl(retr_fifoConnState[retr_tk_cur]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
-	{
-		CloseConn();
-		ep_log(ERROR, "set nonblock fifo %s failed:%m", fifo_name);
-	}
-
-	retr_fifoConnState[retr_tk_cur]->created = true;
+	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) &tupdesc_len, 4);
+	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, tupdesc_str, tupdesc_len);
 }
 
 void
@@ -1159,50 +1366,7 @@ InitConn()
 			init_conn_for_receiver();
 			break;
 		default:
-			ep_log(ERROR, "none end point roles");
-	}
-}
-
-static void
-retry_write(int fifo, char *data, int len)
-{
-	int			wr;
-	int			curr = 0;
-
-	while (len > 0)
-	{
-		int			wrtRet;
-
-		CHECK_FOR_INTERRUPTS();
-		ResetLatch(&mySharedEndPoint->ack_done);
-
-		wrtRet = write(fifo, &data[curr], len);
-		if (wrtRet > 0)
-		{
-			curr += wrtRet;
-			len -= wrtRet;
-			continue;
-		}
-		else if (wrtRet == 0 && errno == EINTR)
-			continue;
-		else
-		{
-			if (errno != EAGAIN && errno != EWOULDBLOCK)
-				ep_log(ERROR, "could not write to fifo:%m");
-		}
-
-		wr = WaitLatchOrSocket(&mySharedEndPoint->ack_done,
-							   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_WRITEABLE | WL_TIMEOUT | WL_SOCKET_READABLE,
-							   fifo,
-							   POLL_FIFO_TIMEOUT);
-
-		/*
-		 * Data is not sent out, so ack_done is not expected
-		 */
-		Assert(!(wr & WL_LATCH_SET));
-
-		if (wr & WL_POSTMASTER_DEATH)
-			proc_exit(0);
+			ep_log(ERROR, "invalid endpoint role");
 	}
 }
 
@@ -1219,51 +1383,9 @@ SendTupleSlot(TupleTableSlot *slot)
 
 	Assert(is_memtuple(mtup));
 	tupleSize = memtuple_get_size(mtup);
-	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
-	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, (char *) &tupleSize, sizeof(int));
-	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, (char *) mtup, tupleSize);
-}
-
-static void
-retry_read(int fifo, char *data, int len)
-{
-	int			rdRet;
-	int			curr = 0;
-	struct pollfd fds;
-
-	ep_log(DEBUG3, "Reading data(%d)\n", len);
-
-	fds.fd = fifo;
-	fds.events = POLLIN;
-
-	while (len > 0)
-	{
-		int			pollRet;
-
-		do
-		{
-			CHECK_FOR_INTERRUPTS();
-			pollRet = poll(&fds, 1, POLL_FIFO_TIMEOUT);
-		}
-		while (pollRet == 0 || (pollRet < 0 && (errno == EINTR || errno == EAGAIN)));
-
-		if (pollRet < 0)
-			ep_log(ERROR, "poll failed during read pipe:%m");
-
-		rdRet = read(fifo, &data[curr], len);
-		if (rdRet >= 0)
-		{
-			ep_log(DEBUG3, "data read %d bytes", len);
-			curr += rdRet;
-			len -= rdRet;
-		}
-		else if (rdRet == 0 && errno == EINTR)
-			continue;
-		else if (errno == EAGAIN || errno == EWOULDBLOCK)
-			continue;
-		else
-			ep_log(ERROR, "could not read from fifo:%m");
-	}
+	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
+	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) &tupleSize, sizeof(int));
+	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) mtup, tupleSize);
 }
 
 TupleTableSlot *
@@ -1275,26 +1397,26 @@ RecvTupleSlot()
 	int			tupleSize = 0;
 	MemTuple	mtup;
 
-	Assert(retr_fifoConnState[retr_tk_cur]);
-	Assert(retr_resultTupleSlot[retr_tk_cur]);
+	Assert(RetrieveFifoConns[CurrentRetrieveToken]);
+	Assert(RetrieveTupleSlots[CurrentRetrieveToken]);
 
-	ExecClearTuple(retr_resultTupleSlot[retr_tk_cur]);
+	ExecClearTuple(RetrieveTupleSlots[CurrentRetrieveToken]);
 
-	fifo = retr_fifoConnState[retr_tk_cur]->fifo;
-	slot = retr_resultTupleSlot[retr_tk_cur];
+	fifo = RetrieveFifoConns[CurrentRetrieveToken]->fifo;
+	slot = RetrieveTupleSlots[CurrentRetrieveToken];
 
 	while (true)
 	{
-		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
+		retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
 
 		if (cmd == 'F')
 		{
-			s_needAck = true;
+			StatusNeedAck = true;
 			return NULL;
 		}
 
 		Assert(cmd == 'T');
-		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, (char *) &tupleSize, sizeof(int));
+		retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) &tupleSize, sizeof(int));
 		Assert(tupleSize > 0);
 
 		HOLD_INTERRUPTS();
@@ -1302,72 +1424,12 @@ RecvTupleSlot()
 		RESUME_INTERRUPTS();
 
 		mtup = palloc(tupleSize);
-		retry_read(retr_fifoConnState[retr_tk_cur]->fifo, (char *) mtup, tupleSize);
+		retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) mtup, tupleSize);
 		slot->PRIVATE_tts_memtuple = mtup;
 		ExecStoreVirtualTuple(slot);
 
 		return slot;
 	}
-}
-
-static void
-sender_finish()
-{
-	char		cmd = 'F';
-
-	retry_write(retr_fifoConnState[retr_tk_cur]->fifo, &cmd, 1);
-
-	while (true)
-	{
-		int			wr;
-
-		CHECK_FOR_INTERRUPTS();
-
-		if (QueryFinishPending)
-			break;
-
-		/*Check the QD dispatcher connection is lost*/
-		unsigned char firstchar;
-		int			r;
-
-		pq_startmsgread();
-		r = pq_getbyte_if_available(&firstchar);
-		if (r < 0)
-		{
-			/* unexpected error or EOF */
-			ep_log(ERROR, "unexpected EOF on Query Dispatcher connection");
-		}else if (r > 0)
-		{
-			/* unexpected error */
-			ep_log(ERROR, "QD query dispatcher should waiting without data until QE backend finished processing.");
-		}else{
-			/* no data available without blocking */
-			pq_endmsgread();
-			/* continue processing as normal case*/
-		}
-
-		wr = WaitLatch(&mySharedEndPoint->ack_done,
-					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
-					   POLL_FIFO_TIMEOUT);
-
-		if (wr & WL_TIMEOUT)
-			continue;
-
-		if (wr & WL_POSTMASTER_DEATH)
-		{
-			CloseConn();
-			proc_exit(0);
-		}
-
-		Assert(wr & WL_LATCH_SET);
-		break;
-	}
-}
-
-static void
-receiver_finish()
-{
-	ep_log(LOG, "Finish receive.\n");
 }
 
 void
@@ -1382,54 +1444,21 @@ FinishConn(void)
 			receiver_finish();
 			break;
 		default:
-			ep_log(ERROR, "none end point role");
+			ep_log(ERROR, "invalid endpoint role");
 	}
 
-	retr_fifoConnState[retr_tk_cur]->finished = true;
-}
-
-static void
-sender_close()
-{
-	char		fifo_name[MAX_FIFO_NAME_SIZE];
-
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
-
-	Assert(retr_fifoConnState[retr_tk_cur]->fifo > 0);
-
-	if (retr_fifoConnState[retr_tk_cur]->fifo > 0 && close(retr_fifoConnState[retr_tk_cur]->fifo) < 0)
-		ep_log(ERROR, "failed to close fifo %s:%m", fifo_name);
-
-	retr_fifoConnState[retr_tk_cur]->fifo = -1;
-
-	if (!retr_fifoConnState[retr_tk_cur]->created)
-		return;
-
-	if (unlink(fifo_name) < 0)
-		ep_log(ERROR, "failed to unlink fifo %s:%m", fifo_name);
-
-	retr_fifoConnState[retr_tk_cur]->created = false;
-}
-
-static void
-receiver_close()
-{
-	if (close(retr_fifoConnState[retr_tk_cur]->fifo) < 0)
-		ep_log(ERROR, "failed to close fifo:%m");
-
-	retr_fifoConnState[retr_tk_cur]->fifo = -1;
-	retr_fifoConnState[retr_tk_cur]->created = false;
+	RetrieveFifoConns[CurrentRetrieveToken]->finished = true;
 }
 
 void
 CloseConn(void)
 {
-	Assert(retr_fifoConnState[retr_tk_cur]);
+	Assert(RetrieveFifoConns[CurrentRetrieveToken]);
 
-	if (!retr_fifoConnState[retr_tk_cur]->finished)
-		ep_log(ERROR, "not finished");
+	if (!RetrieveFifoConns[CurrentRetrieveToken]->finished)
+		ep_log(ERROR, "data are finished reading");
 
-	check_gp_token_valid();
+	check_token_valid();
 
 	switch (Gp_endpoint_role)
 	{
@@ -1440,107 +1469,64 @@ CloseConn(void)
 			receiver_close();
 			break;
 		default:
-			ep_log(ERROR, "none end point role");
+			ep_log(ERROR, "invalid endpoint role");
 	}
 
-	gp_free(retr_fifoConnState[retr_tk_cur]);
-	retr_fifoConnState[retr_tk_cur] = NULL;
+	pfree(RetrieveFifoConns[CurrentRetrieveToken]);
+	RetrieveFifoConns[CurrentRetrieveToken] = NULL;
 }
 
 void
-AbortEndPoint(void)
+AbortEndpoint(void)
 {
-	ListCell *l;
-	s_inAbort = true;
+	ListCell   *l;
+
+	StatusInAbort = true;
 
 	switch (Gp_endpoint_role)
 	{
 		case EPR_SENDER:
-			if (retr_fifoConnState[retr_tk_cur])
+			if (RetrieveFifoConns[CurrentRetrieveToken])
 				sender_close();
-			UnSetSendPid4MyEndPoint();
+			UnsetSenderPid();
 			break;
 		case EPR_RECEIVER:
-			if (retr_fifoConnState[retr_tk_cur])
+			if (RetrieveFifoConns[CurrentRetrieveToken])
 				receiver_close();
-			retrieve_cancel_pending_action();
-			DetachEndPoint(true);
+			retrieve_cancel_action();
+			DetachEndpoint(true);
 			break;
 		default:
 			break;
 	}
-	/* Make sure all token running in this QE is freed, double free is allowed
+
+	/*
+	 * Make sure all token running in this QE is freed, double free is allowed
 	 * because free request may issued by the QD already.
 	 */
-	if (token_in_tx != NIL)
+	if (TokensInXact != NIL)
 	{
-		foreach(l, token_in_tx)
+		foreach(l, TokensInXact)
 		{
-			int tk = lfirst_int(l);
-			FreeEndPoint4token(tk);
+			int			tk = lfirst_int(l);
+
+			FreeEndpointOfToken(tk);
 		}
-		list_free(token_in_tx);
-		token_in_tx = NIL;
+		list_free(TokensInXact);
+		TokensInXact = NIL;
 	}
 
-	s_inAbort = false;
-	/* DismissGpToken(); */
+	StatusInAbort = false;
 	Gp_token.token = InvalidToken;
-	Gp_token.session_id = INVALID_SESSION_ID;
+	Gp_token.session_id = InvalidSession;
 	Gp_token.user_id = InvalidOid;
 	Gp_endpoint_role = EPR_NONE;
 }
 
-typedef struct
+List *
+GetContentIDsByToken(int token)
 {
-	int			token;
-	int			dbid;
-	AttachStatus attached;
-	pid_t		sender_pid;
-}	EndPoint_Status;
-
-typedef struct
-{
-	int			curTokenIdx;
-	/* current index in shared token list. */
-	CdbComponentDatabaseInfo *seg_db_list;
-	int			segment_num;
-	/* number of segments */
-	int			curSegIdx;
-	/* current index of segment id */
-	EndPoint_Status *status;
-	int			status_num;
-}	GP_Endpoints_Info;
-
-#define GP_ENDPOINT_STATUS_INIT		  "INIT"
-#define GP_ENDPOINT_STATUS_READY	  "READY"
-#define GP_ENDPOINT_STATUS_RETRIEVING "RETRIEVING"
-#define GP_ENDPOINT_STATUS_FINISH	  "FINISH"
-#define GP_ENDPOINT_STATUS_RELEASED   "RELEASED"
-
-static EndPoint_Status *
-findStatusByTokenAndDbid(EndPoint_Status * status_array, int number,
-						 int token, int dbid)
-{
-	for (int i = 0; i < number; i++)
-	{
-		if (status_array[i].token == token
-			&& status_array[i].dbid == dbid)
-		{
-			return &status_array[i];
-		}
-	}
-	return NULL;
-}
-
-bool isEndPointOnQD(SharedToken token)
-{
-	return ((token->endpoint_cnt == 1) && (token->dbIds[0] == MASTER_DBID));
-}
-
-List* getContentidListByToken(int token)
-{
-	List* l = NIL;
+	List	   *l = NIL;
 
 	SpinLockAcquire(shared_tokens_lock);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -1564,32 +1550,80 @@ List* getContentidListByToken(int token)
 	return l;
 }
 
-static bool
-isDbIDInToken(int16 dbid, SharedToken token)
+void
+RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
 {
-	bool		find = false;
+	TupleTableSlot *result;
+	int64		retrieve_count;
 
-	if (token->all_seg)
-		return true;
+	retrieve_count = stmt->count;
 
-	for (int i = 0; i < token->endpoint_cnt; i++)
+	if (retrieve_count <= 0 && !stmt->is_all)
 	{
-		if (token->dbIds[i] == dbid)
-		{
-			find = true;
-			break;
-		}
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("RETRIEVE statement only supports forward scan, count should not be: %ld", retrieve_count)));
 	}
-	return find;
+
+	if (RetrieveStatus[CurrentRetrieveToken] < RETRIEVE_STATUS_FINISH)
+	{
+		InitConn();
+
+		while (retrieve_count > 0)
+		{
+			result = RecvTupleSlot();
+			if (!result)
+			{
+				RetrieveStatus[CurrentRetrieveToken] = RETRIEVE_STATUS_FINISH;
+				break;
+			}
+			(*dest->receiveSlot) (result, dest);
+			retrieve_count--;
+		}
+
+		if (stmt->is_all)
+		{
+			while (true)
+			{
+				result = RecvTupleSlot();
+				if (!result)
+				{
+					RetrieveStatus[CurrentRetrieveToken] = RETRIEVE_STATUS_FINISH;
+					break;
+				}
+				(*dest->receiveSlot) (result, dest);
+			}
+		}
+
+		FinishConn();
+		CloseConn();
+	}
+
+
+	DetachEndpoint(false);
+	ClearEndpointRole();
+	ClearGpToken();
 }
 
-#define GP_ENDPOINTS_INFO_ATTRNUM 8
+DestReceiver *
+CreateEndpointReceiver()
+{
+	DR_fifo_printtup *self = (DR_fifo_printtup *) palloc0(sizeof(DR_fifo_printtup));
+
+	self->pub.receiveSlot = send_slot_to_endpoint_receiver;
+	self->pub.rStartup = startup_endpoint_fifo;
+	self->pub.rShutdown = shutdown_endpoint_fifo;
+	self->pub.rDestroy = destroy_endpoint_fifo;
+	self->pub.mydest = DestEndpoint;
+
+	return (DestReceiver *) self;
+}
 
 Datum
 gp_endpoints_info(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
-	GP_Endpoints_Info *mystatus;
+	EndpointsInfo *mystatus;
 	MemoryContext oldcontext;
 	Datum		values[GP_ENDPOINTS_INFO_ATTRNUM];
 	bool		nulls[GP_ENDPOINTS_INFO_ATTRNUM] = {true};
@@ -1597,7 +1631,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	int			res_number = 0;
 
 	if (Gp_role != GP_ROLE_DISPATCH)
-		elog(ERROR, "gp_endpoints_info only can be called on query dispatcher.");
+		elog(ERROR, "gp_endpoints_info() only can be called on query dispatcher");
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -1611,7 +1645,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		TupleDesc	tupdesc = CreateTemplateTupleDesc(GP_ENDPOINTS_INFO_ATTRNUM, false);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
-		                   TEXTOID, -1, 0);
+						   TEXTOID, -1, 0);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "cursorname",
 						   TEXTOID, -1, 0);
@@ -1636,7 +1670,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
-		mystatus = (GP_Endpoints_Info *) palloc0(sizeof(GP_Endpoints_Info));
+		mystatus = (EndpointsInfo *) palloc0(sizeof(EndpointsInfo));
 		funcctx->user_fctx = (void *) mystatus;
 		mystatus->curTokenIdx = 0;
 		mystatus->seg_db_list = cdbcomponent_getComponentInfo(MASTER_CONTENT_ID)->cdbs->segment_db_info;
@@ -1659,14 +1693,14 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 			if (PQresultStatus(cdb_pgresults.pg_results[i]) != PGRES_TUPLES_OK)
 			{
 				cdbdisp_clearCdbPgResults(&cdb_pgresults);
-				elog(ERROR, "gp_endpoints_info(): resultStatus not tuples_Ok");
+				elog(ERROR, "gp_endpoints_info(): resultStatus is not tuples_Ok");
 			}
 			res_number += PQntuples(cdb_pgresults.pg_results[i]);
 		}
 
 		if (res_number > 0)
 		{
-			mystatus->status = (EndPoint_Status *) palloc0(sizeof(EndPoint_Status) * res_number);
+			mystatus->status = (EndpointStatus *) palloc0(sizeof(EndpointStatus) * res_number);
 			mystatus->status_num = res_number;
 			int			idx = 0;
 
@@ -1679,7 +1713,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					mystatus->status[idx].token = parseToken(PQgetvalue(result, j, 0));
 					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 1));
 					mystatus->status[idx].attached = atoi(PQgetvalue(result, j, 2));
-					mystatus->status[idx].sender_pid= atoi(PQgetvalue(result, j, 3));
+					mystatus->status[idx].sender_pid = atoi(PQgetvalue(result, j, 3));
 					idx++;
 				}
 			}
@@ -1691,7 +1725,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
 		{
-			EndPoint	entry = &SharedEndPoints[i];
+			Endpoint	entry = &SharedEndpoints[i];
 
 			if (!entry->empty)
 				cnt++;
@@ -1701,19 +1735,19 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 			mystatus->status_num += cnt;
 			if (mystatus->status)
 			{
-				mystatus->status = (EndPoint_Status *) repalloc(mystatus->status,
-							 sizeof(EndPoint_Status) * mystatus->status_num);
+				mystatus->status = (EndpointStatus *) repalloc(mystatus->status,
+							  sizeof(EndpointStatus) * mystatus->status_num);
 			}
 			else
 			{
-				mystatus->status = (EndPoint_Status *) palloc(
-							 sizeof(EndPoint_Status) * mystatus->status_num);
+				mystatus->status = (EndpointStatus *) palloc(
+							  sizeof(EndpointStatus) * mystatus->status_num);
 			}
 			int			idx = 0;
 
 			for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
 			{
-				EndPoint	entry = &SharedEndPoints[i];
+				Endpoint	entry = &SharedEndpoints[i];
 
 				if (!entry->empty)
 				{
@@ -1748,14 +1782,15 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		SharedToken entry = &SharedTokens[mystatus->curTokenIdx];
 
 		if (entry->token != InvalidToken
-				&& (superuser() || entry->user_id == GetUserId()))
+			&& (superuser() || entry->user_id == GetUserId()))
 		{
-			if (isEndPointOnQD(entry))
+			if (is_endpoint_on_qd(entry))
 			{
 				/* one end-point on master */
 				dbinfo = dbid_get_dbinfo(MASTER_DBID);
 
-				char *token = printToken(entry->token);
+				char	   *token = printToken(entry->token);
+
 				values[0] = CStringGetTextDatum(token);
 
 				nulls[0] = false;
@@ -1776,18 +1811,22 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				/*
 				 * find out the status of end-point
 				 */
-				EndPoint_Status *ep_status = findStatusByTokenAndDbid(mystatus->status, mystatus->status_num,
-																	entry->token, MASTER_DBID);
+				EndpointStatus *ep_status = find_endpoint_status(mystatus->status, mystatus->status_num,
+												  entry->token, MASTER_DBID);
+
 				if (ep_status != NULL)
 				{
-					char *status = NULL;
+					char	   *status = NULL;
 
 					switch (ep_status->attached)
 					{
 						case Status_NotAttached:
-							if (ep_status->sender_pid == InvalidPid) {
+							if (ep_status->sender_pid == InvalidPid)
+							{
 								status = GP_ENDPOINT_STATUS_INIT;
-							} else {
+							}
+							else
+							{
 								status = GP_ENDPOINT_STATUS_READY;
 							}
 							break;
@@ -1800,7 +1839,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					}
 					values[7] = CStringGetTextDatum(status);
 					nulls[7] = false;
-				} else {
+				}
+				else
+				{
 					values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_RELEASED);
 					nulls[7] = false;
 				}
@@ -1817,7 +1858,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				/* end-points on segments */
 				while ((mystatus->curSegIdx < mystatus->segment_num) &&
 				 ((mystatus->seg_db_list[mystatus->curSegIdx].role != 'p') ||
-				  !isDbIDInToken(mystatus->seg_db_list[mystatus->curSegIdx].dbid, entry)))
+				  !is_dbid_in_token(mystatus->seg_db_list[mystatus->curSegIdx].dbid, entry)))
 				{
 					mystatus->curSegIdx++;
 				}
@@ -1832,7 +1873,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						 && mystatus->curSegIdx < mystatus->segment_num)
 				{
 					/* get a primary segment and return this token and segment */
-					char *token = printToken(entry->token);
+					char	   *token = printToken(entry->token);
+
 					values[0] = CStringGetTextDatum(token);
 
 					nulls[0] = false;
@@ -1852,20 +1894,24 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					/*
 					 * find out the status of end-point
 					 */
-					EndPoint_Status *qe_status = findStatusByTokenAndDbid(mystatus->status,
-																		 mystatus->status_num,
-																		 entry->token,
-																		 mystatus->seg_db_list[mystatus->curSegIdx].dbid);
+					EndpointStatus *qe_status = find_endpoint_status(mystatus->status,
+														mystatus->status_num,
+																entry->token,
+							mystatus->seg_db_list[mystatus->curSegIdx].dbid);
+
 					if (qe_status != NULL)
 					{
-						char *status = NULL;
+						char	   *status = NULL;
 
 						switch (qe_status->attached)
 						{
 							case Status_NotAttached:
-								if (qe_status->sender_pid == InvalidPid) {
+								if (qe_status->sender_pid == InvalidPid)
+								{
 									status = GP_ENDPOINT_STATUS_INIT;
-								} else {
+								}
+								else
+								{
 									status = GP_ENDPOINT_STATUS_READY;
 								}
 								break;
@@ -1878,7 +1924,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						}
 						values[7] = CStringGetTextDatum(status);
 						nulls[7] = false;
-					} else {
+					}
+					else
+					{
 						values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_RELEASED);
 						nulls[7] = false;
 					}
@@ -1907,22 +1955,14 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	SRF_RETURN_DONE(funcctx);
 }
 
-typedef struct
-{
-	int			endpoints_num;
-	/* number of endpointdesc in the list */
-	int			current_idx;
-	/* current index of endpointdesc in the list */
-}	GP_Endpoints_Status_Info;
-
 /*
- * Display the status of all valid EndPointDesc in shared memory
+ * Display the status of all valid EndpointDesc in shared memory
  */
 Datum
 gp_endpoints_status_info(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
-	GP_Endpoints_Status_Info *mystatus;
+	EndpointsStatusInfo *mystatus;
 	MemoryContext oldcontext;
 	Datum		values[8];
 	bool		nulls[8] = {true};
@@ -1940,7 +1980,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		TupleDesc	tupdesc = CreateTemplateTupleDesc(8, false);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
-		                   TEXTOID, -1, 0);
+						   TEXTOID, -1, 0);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "databaseid",
 						   INT4OID, -1, 0);
@@ -1966,7 +2006,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
-		mystatus = (GP_Endpoints_Status_Info *) palloc0(sizeof(GP_Endpoints_Status_Info));
+		mystatus = (EndpointsStatusInfo *) palloc0(sizeof(EndpointsStatusInfo));
 		funcctx->user_fctx = (void *) mystatus;
 		mystatus->endpoints_num = MAX_ENDPOINT_SIZE;
 		mystatus->current_idx = 0;
@@ -1985,11 +2025,12 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		memset(nulls, 0, sizeof(nulls));
 		Datum		result;
 
-		EndPoint	entry = &SharedEndPoints[mystatus->current_idx];
+		Endpoint	entry = &SharedEndpoints[mystatus->current_idx];
 
 		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
 		{
-			char *token = printToken(entry->token);
+			char	   *token = printToken(entry->token);
+
 			values[0] = CStringGetTextDatum(token);
 
 			nulls[0] = false;
@@ -2019,122 +2060,4 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	SpinLockRelease(shared_end_points_lock);
 
 	SRF_RETURN_DONE(funcctx);
-}
-
-void
-RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
-{
-	TupleTableSlot *result;
-	int64		retrieve_count;
-
-	retrieve_count = stmt->count;
-
-	if (retrieve_count <= 0 && !stmt->is_all)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("RETRIEVE STATEMENT ONLY SUPPORT FORWARD SCAN. Retrieve count should >=0: %ld", retrieve_count)));
-	}
-
-	if (retr_status[retr_tk_cur] < RETR_STATUS_FINISH)
-	{
-		InitConn();
-
-		while (retrieve_count > 0)
-		{
-			result = RecvTupleSlot();
-			if (!result)
-			{
-				retr_status[retr_tk_cur] = RETR_STATUS_FINISH;
-				break;
-			}
-			(*dest->receiveSlot) (result, dest);
-			retrieve_count--;
-		}
-
-		if (stmt->is_all)
-		{
-			while (true)
-			{
-				result = RecvTupleSlot();
-				if (!result)
-				{
-					retr_status[retr_tk_cur] = RETR_STATUS_FINISH;
-					break;
-				}
-				(*dest->receiveSlot) (result, dest);
-			}
-		}
-
-		FinishConn();
-		CloseConn();
-	}
-
-
-	DetachEndPoint(false);
-	ClearEndPointRole();
-	ClearGpToken();
-}
-
-static void
-startup_endpoint_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
-{
-	SetSendPid4EndPoint();
-	InitConn();
-	SendTupdescToFIFO(typeinfo);
-}
-
-static void
-send_slot_to_endpoint_receiver(TupleTableSlot *slot, DestReceiver *self)
-{
-	SendTupleSlot(slot);
-}
-
-static void
-shutdown_endpoint_fifo(DestReceiver *self)
-{
-	FinishConn();
-	CloseConn();
-	SetAttachStatus4MyEndPoint(Status_Finished);
-}
-
-static void
-destroy_endpoint_fifo(DestReceiver *self)
-{
-	pfree(self);
-}
-
-DestReceiver *
-CreateEndpointReceiver()
-{
-	DR_fifo_printtup *self = (DR_fifo_printtup *) palloc0(sizeof(DR_fifo_printtup));
-
-	self->pub.receiveSlot = send_slot_to_endpoint_receiver;
-	self->pub.rStartup = startup_endpoint_fifo;
-	self->pub.rShutdown = shutdown_endpoint_fifo;
-	self->pub.rDestroy = destroy_endpoint_fifo;
-	self->pub.mydest = DestEndpoint;
-
-	return (DestReceiver *) self;
-}
-
-static void retrieve_cancel_pending_action(void)
-{
-	if (Gp_endpoint_role != EPR_RECEIVER)
-		ep_log(ERROR, "cancel hook is triggered by accident");
-
-	SpinLockAcquire(shared_end_points_lock);
-
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (SharedEndPoints[i].token == Gp_token.token && SharedEndPoints[i].receiver_pid == MyProcPid)
-		{
-			SharedEndPoints[i].receiver_pid = InvalidPid;
-			SharedEndPoints[i].attached = Status_NotAttached;
-			pg_signal_backend(SharedEndPoints[i].sender_pid, SIGINT, NULL);
-			break;
-		}
-	}
-
-	SpinLockRelease(shared_end_points_lock);
 }

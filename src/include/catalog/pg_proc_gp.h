@@ -325,7 +325,6 @@ DESCR("mpp endpoints information");
 DATA(insert OID = 7179 ( gp_endpoints_status_info  PGNSP PGUID 12 1 1000 0 0 f f f f f t v 0 0 2249 "" "{25,23,23,23,23,23,23,26}" "{o,o,o,o,o,o,o,o}" "{token,databaseid,senderpid,receiverpid,attached,dbid,sessionid,userid}" _null_ gp_endpoints_status_info _null_ _null_ _null_ n a ));
 DESCR("endpoints status information");
 
-
 /* the bitmap index access method routines */
 /* bmgettuple(internal, internal) => bool */
 DATA(insert OID = 7050 ( bmgettuple  PGNSP PGUID 12 1 0 0 0 f f f f t f v 2 0 16 "2281 2281" _null_ _null_ _null_ _null_ bmgettuple _null_ _null_ _null_ n a ));

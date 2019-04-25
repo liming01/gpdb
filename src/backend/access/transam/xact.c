@@ -3334,7 +3334,7 @@ AbortTransaction(void)
 		UnassignResGroup();
 
 	/* Release endpoints if exist */
-	AbortEndPoint();
+	AbortEndpoint();
 }
 
 /*
@@ -5569,7 +5569,7 @@ AbortSubTransaction(void)
 	XactReadOnly = s->prevXactReadOnly;
 
 	/* Release endpoints if exist */
-	AbortEndPoint();
+	AbortEndpoint();
 
 	RESUME_INTERRUPTS();
 }

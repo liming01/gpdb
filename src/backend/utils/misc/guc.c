@@ -7961,6 +7961,7 @@ GetPGVariableResultDesc(const char *name)
 	return tupdesc;
 }
 
+
 /*
  * SHOW command
  */

@@ -1533,33 +1533,28 @@ assign_gp_endpoints_token_operation(const char *newval, void *extra)
 	const char *token = newval+1;
 	int tokenid = atoi(token);
 
-#if FALSE
-	elog(DEBUG1, "SET gp_endpoints_token_operation: %s", newval);
-#endif
-
-	/* maybe called in AtEOXact_GUC() to set to default value (i.e. empty string) */
+	/* Maybe called in AtEOXact_GUC() to set to default value (i.e. empty string) */
 	if (newval == NULL || strlen(newval) == 0)
 		return;
 
 	if (tokenid != InvalidToken && Gp_role == GP_ROLE_EXECUTE && Gp_is_writer)
 	{
-		switch(newval[0])
+		switch (newval[0])
 		{
 		case 'p':
-			/* Push end point */
-			AllocEndPoint4token(tokenid);
+			/* Push endpoint */
+			AllocEndpointOfToken(tokenid);
 			break;
 		case 'f':
-			/* Free end point */
-			FreeEndPoint4token(tokenid);
+			/* Free endpoint */
+			FreeEndpointOfToken(tokenid);
 			break;
 		case 'u':
-			/* Unset senderpid of end point */
-			UnSetSendPid4EndPoint(tokenid);
+			/* Unset sender pid of endpoint */
+			UnsetSenderPidOfToken(tokenid);
 			break;
 		default:
 			elog(ERROR, "Failed to SET gp_endpoints_token_operation: %s", newval);
-			break;
 		}
 	}
 }

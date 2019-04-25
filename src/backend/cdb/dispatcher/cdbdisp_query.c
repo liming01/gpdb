@@ -459,7 +459,7 @@ cdbdisp_buildCommandQueryParms(const char *strCommand, int flags)
 	pQueryParms->serializedQueryDispatchDesc = NULL;
 	pQueryParms->serializedQueryDispatchDesclen = 0;
 	pQueryParms->token = InvalidToken;
-	pQueryParms->sessionId = INVALID_SESSION_ID;
+	pQueryParms->sessionId = InvalidSession;
 
 	/*
 	 * Serialize a version of our DTX Context Info
@@ -532,7 +532,8 @@ cdbdisp_buildUtilityQueryParms(struct Node *stmt,
 	pQueryParms->serializedQueryDispatchDesc = serializedQueryDispatchDesc;
 	pQueryParms->serializedQueryDispatchDesclen = serializedQueryDispatchDesc_len;
 	pQueryParms->token = InvalidToken;
-	pQueryParms->sessionId = INVALID_SESSION_ID;
+	pQueryParms->sessionId = InvalidSession;
+
 	/*
 	 * Serialize a version of our DTX Context Info
 	 */

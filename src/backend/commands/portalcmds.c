@@ -176,7 +176,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 		portal->parallel_cursor_token = GetUniqueGpToken();
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 		char		cmd[255];
-		sprintf(cmd, "set gp_endpoints_token_operation='p%d'", portal->parallel_cursor_token);
+		sprintf(cmd, "SET gp_endpoints_token_operation='p%d'", portal->parallel_cursor_token);
 
 		if (!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
 				stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
@@ -184,7 +184,8 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 			if (stmt->planTree->directDispatch.isDirectDispatch &&
 					stmt->planTree->directDispatch.contentIds != NULL)
 			{
-				/* Direct dispatch to some segments, so end-points only exist
+				/*
+				 * Direct dispatch to some segments, so end-points only exist
 				 * on these segments
 				 */
 				ListCell *cell;
@@ -226,7 +227,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 								   GetUserId(),
 								   false,
 								   l);
-			AllocEndPoint4token(portal->parallel_cursor_token);
+			AllocEndpointOfToken(portal->parallel_cursor_token);
 		}
 	}
 
@@ -306,7 +307,6 @@ PerformPortalFetch(FetchStmt *stmt,
 	/* Adjust dest if needed.  MOVE wants destination DestNone */
 	if (stmt->ismove)
 		dest = None_Receiver;
-
 
 	/* Do it */
 	nprocessed = PortalRunFetch(portal,

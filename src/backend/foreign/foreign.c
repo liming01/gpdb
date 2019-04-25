@@ -33,7 +33,7 @@
 extern Datum pg_options_to_table(PG_FUNCTION_ARGS);
 extern Datum postgresql_fdw_validator(PG_FUNCTION_ARGS);
 
-/* Get and separate out the custom foreign options. */
+/* Get and separate out the custom foreign options */
 CustomForeignOptions
 SeparateOutCustomForeignOptions(List **options)
 {

@@ -200,7 +200,7 @@ InitPgFdwOptions(void)
 	for (lopt = libpq_options; lopt->keyword; lopt++)
 	{
 		/* Hide debug options, as well as settings we override internally. */
-		/* except the "options" option, we set the gp_session_role via it */
+		/* Greenplum: except the "options" option, gp2gp sets the gp_session_role via it */
 		if ((strchr(lopt->dispchar, 'D') && strcmp(lopt->keyword, "options") != 0) ||
 			strcmp(lopt->keyword, "fallback_application_name") == 0 ||
 			strcmp(lopt->keyword, "client_encoding") == 0)

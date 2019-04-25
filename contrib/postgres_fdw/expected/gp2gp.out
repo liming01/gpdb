@@ -119,7 +119,7 @@ EXPLAIN (COSTS false) SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
                ->  Sort
                      Sort Key: c3, c1
                      ->  Foreign Scan on ft1
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (8 rows)
 
 SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
@@ -153,7 +153,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET
                      ->  Foreign Scan on public.ft1 t1
                            Output: c1, c2, c3, c4, c5, c6, c7, c8
                            Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (14 rows)
 
 SELECT * FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
@@ -188,7 +188,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT t1 FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSE
                      ->  Foreign Scan on public.ft1 t1
                            Output: t1.*, c3, c1
                            Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (14 rows)
 
 SELECT t1 FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
@@ -221,7 +221,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c7 >= '1'::bpchar)) AND ((c1 = 101)) AND ((c6 = '1'::text))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
@@ -326,7 +326,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = postgres_fdw_a
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Filter: (t1.c1 = postgres_fdw_abs(t1.c2))
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (7 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 === t1.c2;
@@ -338,7 +338,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 === t1.c2;
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Filter: (t1.c1 === t1.c2)
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (7 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = abs(t1.c2);
@@ -349,7 +349,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = abs(t1.c2);
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = abs(c2)))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = t1.c2;
@@ -360,7 +360,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = t1.c2;
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = c2))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 -- ===================================================================
@@ -374,7 +374,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 1;         -- 
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 100 AND t1.c2 = 0; -- BoolExpr
@@ -385,7 +385,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 100 AND t1.c2 
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 100)) AND ((c2 = 0))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NULL;        -- NullTest
@@ -394,7 +394,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NULL;        -- 
  Result
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    One-Time Filter: false
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (4 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NOT NULL;    -- NullTest
@@ -405,7 +405,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NOT NULL;    -- 
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 IS NOT NULL))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE round(abs(c1), 0) = 1; -- FuncExpr
@@ -416,7 +416,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE round(abs(c1), 0) = 1;
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((round(abs(c1), 0) = 1::numeric))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = -c1;          -- OpExpr(l)
@@ -427,7 +427,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = -c1;          -- 
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = (- c1)))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE 1 = c1!;           -- OpExpr(r)
@@ -438,7 +438,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE 1 = c1!;           -- 
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((1::numeric = (c1 !)))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE (c1 IS NOT NULL) IS DISTINCT FROM (c1 IS NOT NULL); -- DistinctExpr
@@ -449,7 +449,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE (c1 IS NOT NULL) IS DI
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE (((c1 IS NOT NULL) IS DISTINCT FROM (c1 IS NOT NULL)))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = ANY(ARRAY[c2, 1, c1 + 0]); -- ScalarArrayOpExpr
@@ -460,7 +460,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = ANY(ARRAY[c2, 1, 
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = ANY (ARRAY[c2, 1, (c1 + 0)])))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = (ARRAY[c1,c2,3])[1]; -- ArrayRef
@@ -471,7 +471,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = (ARRAY[c1,c2,3])[
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = ((ARRAY[c1, c2, 3])[1])))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  -- check special chars
@@ -482,7 +482,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c6 = E'foo''s\\bar'::text))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
@@ -494,7 +494,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't 
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Filter: (t1.c8 = 'foo'::user_enum)
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (7 rows)
 
 -- parameterized remote path
@@ -517,7 +517,7 @@ EXPLAIN (VERBOSE, COSTS false)
                      ->  Foreign Scan on public.ft2 a
                            Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
                            Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 47))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (16 rows)
 
 SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
@@ -547,7 +547,7 @@ EXPLAIN (VERBOSE, COSTS false)
                            Output: a.c1, a.c2, a.c3, a.c4, a.c5, a.c6, a.c7, a.c8
                            Filter: (a.c8 = 'foo'::user_enum)
                            Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c2 = 6))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (17 rows)
 
 SELECT * FROM ft2 a, ft2 b
@@ -694,7 +694,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st1(1, 2);
                      ->  Foreign Scan on public.ft2 t2
                            Output: t2.c3
                            Remote SQL: SELECT c3 FROM public.t1 WHERE ((c1 = 2))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (15 rows)
 
 EXECUTE st1(1, 1);
@@ -734,7 +734,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st2(10, 20);
                                  Output: t2.c3
                                  Filter: (date(t2.c4) = '01-17-1970'::date)
                                  Remote SQL: SELECT c3, c4 FROM public.t1 WHERE ((c1 > 10))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (21 rows)
 
 EXECUTE st2(10, 20);
@@ -773,7 +773,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st3(10, 20);
                            ->  Foreign Scan on public.ft2 t2
                                  Output: t2.c3
                                  Remote SQL: SELECT c3 FROM public.t1 WHERE ((c1 > 10)) AND ((date(c5) = '1970-01-17'::date))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (20 rows)
 
 EXECUTE st3(10, 20);
@@ -797,7 +797,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
@@ -808,7 +808,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
@@ -819,7 +819,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
@@ -830,7 +830,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
@@ -841,7 +841,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 -- once we try it enough times, should switch to generic plan
@@ -853,7 +853,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = $1::integer))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 -- value of $1 should not be sent to remote
@@ -867,7 +867,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Filter: (t1.c8 = 'foo'::user_enum)
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (7 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
@@ -879,7 +879,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Filter: (t1.c8 = 'foo'::user_enum)
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (7 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
@@ -891,7 +891,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Filter: (t1.c8 = 'foo'::user_enum)
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (7 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
@@ -903,7 +903,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Filter: (t1.c8 = 'foo'::user_enum)
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (7 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
@@ -915,7 +915,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Filter: (t1.c8 = 'foo'::user_enum)
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = 1))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (7 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
@@ -927,7 +927,7 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Filter: (t1.c8 = $1)
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((c1 = $1::integer))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (7 rows)
 
 EXECUTE st5('foo', 1);
@@ -970,7 +970,7 @@ SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
    ->  Foreign Scan on public.ft1 t1
          Output: c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE ((ctid = '(0,2)'::tid))
- Optimizer: legacy query optimizer
+ Optimizer: Postgres query optimizer
 (6 rows)
 
 SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
@@ -1014,7 +1014,7 @@ DROP FUNCTION f_test(int);
 -- ===================================================================
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE int;
 SELECT * FROM ft1 WHERE c1 = 1;  -- ERROR
-ERROR:  invalid input syntax for integer: "foo"  (seg0 slice1 127.0.0.1:6000 pid=6541)
+ERROR:  invalid input syntax for integer: "foo"
 CONTEXT:  column "c8" of foreign table "ft1"
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE user_enum;
 -- ===================================================================
@@ -1043,7 +1043,7 @@ FETCH c;
 
 SAVEPOINT s;
 SELECT * FROM ft1 WHERE 1 / (c1 - 1) > 0;
-ERROR:  division by zero  (seg1 10.152.8.142:40001 pid=10943)
+ERROR:  division by zero
 CONTEXT:  Remote SQL command: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM public.t1 WHERE (((1 / (c1 - 1)) > 0))
 ROLLBACK TO s;
 FETCH c;

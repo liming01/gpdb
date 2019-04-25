@@ -166,7 +166,7 @@ typedef struct PgFdwScanState
 	MemoryContext batch_cxt;	/* context holding current batch of tuples */
 	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
 
-	/* parallel retrieving */
+	/* Greenplum: parallel retrieving */
 	bool		is_parallel;
 	int32		token;
 	List		*endpoints_list;
@@ -901,6 +901,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	ForeignTable *rel = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
 	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
 	{
+		/* gp2gp routine */
 		greenplumBeginMppForeignScan(node, eflags);
 		return;
 	}
@@ -943,14 +944,15 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(userid, server->serverid);
 
+	/* greenplumBeginMppForeignScan() made it */
 	if (list_length(fsplan->fdw_private) == FdwScanPrivateMaxSize)
 		fsstate->is_parallel = true;
 	else
 		fsstate->is_parallel = false;
 
+	/* Get the slice nth number in current gang */
 	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role != GP_ROLE_DISPATCH)
 	{
-		/* Get the slice nth number in current gang */
 		Slice   *current_slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
 
 		if (!current_slice || !IsA(current_slice, Slice))
@@ -1005,7 +1007,6 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		if (slice_no < 0)
 			ereport(ERROR, (errmsg("No valid slice number")));
 
-		/* TODO: if else, too much useless routines */
 		if (slice_no < list_length(fsstate->endpoints_list))
 		{
 			List *endpoint = list_nth(fsstate->endpoints_list, slice_no);
@@ -1200,6 +1201,7 @@ postgresEndForeignScan(ForeignScanState *node)
 	ForeignTable *table = GetForeignTable(RelationGetRelid(node->ss.ss_currentRelation));
 	if (table->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role == GP_ROLE_DISPATCH)
 	{
+		/* gp2gp routine */
 		greenplumEndMppForeignScan(node);
 		return;
 	}
@@ -1783,8 +1785,10 @@ postgresIsForeignRelUpdatable(Relation rel)
 	if (!updatable)
 		return 0;
 
-	/* Greenplum only supports INSERT, because UPDATE/DELETE SELECT requires
-	 * the hidden column gp_segment_id */
+	/*
+	 * Greenplum only supports INSERT, because UPDATE/DELETE SELECT requires
+	 * the hidden column gp_segment_id 
+	 */
 	if (greenplumCheckIsGreenplum(server, user))
 		return (1 << CMD_INSERT);
 	else
@@ -2073,7 +2077,7 @@ create_cursor(ForeignScanState *node)
 		appendStringInfo(&buf, "DECLARE c%u CURSOR FOR\n%s",
 						 fsstate->cursor_number, fsstate->query);
 		create_custom_cursor(node, buf.data);
-	};
+	}
 }
 
 static void
@@ -2188,7 +2192,8 @@ fetch_more_data(ForeignScanState *node)
 		int			numrows;
 		int			i;
 
-		if (conn == NULL) {
+		if (conn == NULL)
+		{
 			fsstate->eof_reached = true;
 			return;
 		}
@@ -3048,7 +3053,6 @@ greenplumBeginMppForeignScan(ForeignScanState *node, int eflags)
 	if (!fsstate->cursor_exists)
 		create_and_execute_parallel_cursor(node);
 
-	// TODO: Add fsstate->conn to QD's listen set
 	wait_endpoints_ready(node, server, user, fsstate->token);
 }
 
@@ -3102,10 +3106,10 @@ get_session_id(PGconn *conn, int *session_id)
 {
 	PGresult   *res;
 
-	res = pgfdw_exec_query(conn, "show gp_session_id");
+	res = pgfdw_exec_query(conn, "SHOW gp_session_id");
 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
 	{
-		pgfdw_report_error(ERROR, res, conn, true, "show gp_session_id");
+		pgfdw_report_error(ERROR, res, conn, true, "SHOW gp_session_id");
 	}
 
 	*session_id = atoi(PQgetvalue(res, 0, 0));
@@ -3135,8 +3139,10 @@ wait_endpoints_ready(ForeignScanState *node,
 		PGresult   *res;
 		PGresult   *executeRes;
 
-		/* The connection running `EXECUTE PARALLEL CURSOR` should be busy
-		 * waiting now, unless it fails */
+		/*
+		 * The connection running `EXECUTE PARALLEL CURSOR` should be busy
+		 * waiting now, unless it fails
+		 */
 		if (PQsocket(executeConn) < 0 || pqReadReady(executeConn))
 		{
 			executeRes = pgfdw_get_result(executeConn, fsstate->query);

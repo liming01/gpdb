@@ -2386,7 +2386,8 @@ retry1:
 			{
 				port->cmdline_options = pstrdup(valptr);
 
-				/* Parse cmdline_options to fetch gp_session_role setting */
+				/* Parse cmdline_options to get gp_session_role setting */
+				/* TODO */
 				if (port->cmdline_options != NULL && strstr(port->cmdline_options,"gp_session_role") != 0)
 				{
 					char	  **av;

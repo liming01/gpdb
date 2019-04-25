@@ -719,14 +719,16 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		else
 			exec_identity = GP_IGNORE;
 
-		if (Gp_role == GP_ROLE_DISPATCH &&
-			queryDesc->parallel_cursor &&
-			queryDesc->operation == CMD_SELECT &&
-			!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
+		/*
+		 * Endpoint is on the QD, aggregate for example
+		 */
+		if (Gp_role == GP_ROLE_DISPATCH && queryDesc->parallel_cursor
+			&& queryDesc->operation == CMD_SELECT
+			&& !(eflags & EXEC_FLAG_EXPLAIN_ONLY)
+			&& exec_identity == GP_ROOT_SLICE
+			&& LocallyExecutingSliceIndex(estate) == 0)
 		{
-			if (exec_identity == GP_ROOT_SLICE &&
-				LocallyExecutingSliceIndex(estate) == 0)
-				SetEndPointRole(EPR_SENDER);
+			SetEndpointRole(EPR_SENDER);
 		}
 
 		/* non-root on QE */
@@ -910,36 +912,10 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	sendTuples = (queryDesc->tupDesc != NULL &&
 				  (operation == CMD_SELECT ||
 				   queryDesc->plannedstmt->hasReturning)) &&
-					!(queryDesc->parallel_cursor && dest->mydest == DestRemote);    /* Do not return result set for EXECUTE PARALLEL CURSOR */
+					!(queryDesc->parallel_cursor && dest->mydest == DestRemote); /* Don't return result set for EXECUTE PARALLEL CURSOR */
 
 	if (sendTuples)
 		(*dest->rStartup) (dest, operation, queryDesc->tupDesc);
-
-	/*
-	 * Run the plan locally.  There are three ways;
-	 *
-	 * 1. Do nothing
-	 * 2. Run a root slice
-	 * 3. Run a non-root slice on a QE.
-	 *
-	 * Here we decide what is our identity -- root slice, non-root
-	 * on QE or other (in which case we do nothing), and then run
-	 * the plan if required. For more information see
-	 * getGpExecIdentity() in execUtils.
-	 */
-	exec_identity = getGpExecIdentity(queryDesc, direction, estate);
-
-	/*
-	 * When run a root slice, and it is a parallel cursor, it means
-	 * QD become the end point for connection. It is true, for
-	 * instance, SELECT * FROM foo LIMIT 10, and the result should
-	 * go out from QD.
-	 */
-	if (EndPointRole() == EPR_SENDER)
-	{
-		endpointDest = CreateDestReceiver(DestEndpoint);
-		(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
-	}
 
 	/*
 	 * Need a try/catch block here so that if an ereport is called from
@@ -949,6 +925,32 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	 */
 	PG_TRY();
 	{
+		/*
+		 * Run the plan locally.  There are three ways;
+		 *
+		 * 1. Do nothing
+		 * 2. Run a root slice
+		 * 3. Run a non-root slice on a QE.
+		 *
+		 * Here we decide what is our identity -- root slice, non-root
+		 * on QE or other (in which case we do nothing), and then run
+		 * the plan if required. For more information see
+		 * getGpExecIdentity() in execUtils.
+		 */
+		exec_identity = getGpExecIdentity(queryDesc, direction, estate);
+
+		/*
+		 * When run a root slice, and it is a parallel cursor, it means
+		 * QD become the end point for connection. It is true, for
+		 * instance, SELECT * FROM foo LIMIT 10, and the result should
+		 * go out from QD.
+		 */
+		if (EndpointRole() == EPR_SENDER)
+		{
+			endpointDest = CreateDestReceiver(DestEndpoint);
+			(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
+		}
+
 		if (exec_identity == GP_IGNORE)
 		{
 			/* do nothing */
@@ -994,10 +996,10 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			ExecutePlan(estate,
 						queryDesc->planstate,
 						operation,
-						(EndPointRole () == EPR_SENDER ? true : sendTuples),
+						(EndpointRole () == EPR_SENDER ? true : sendTuples),
 						count,
 						direction,
-						(EndPointRole () == EPR_SENDER ? endpointDest : dest));
+						(EndpointRole () == EPR_SENDER ? endpointDest : dest));
 		}
 		else
 		{
@@ -1062,7 +1064,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	/*
 	 * shutdown tuple receiver, if we started it
 	 */
-	if (EndPointRole() == EPR_SENDER)
+	if (EndpointRole() == EPR_SENDER)
 	{
 		(*endpointDest->rShutdown) (endpointDest);
 		(*endpointDest->rDestroy) (endpointDest);
@@ -1264,7 +1266,7 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
      */
 	ExecEndPlan(queryDesc->planstate, estate);
 
-	ClearEndPointRole();
+	ClearEndpointRole();
 
 	/*
 	 * Remove our own query's motion layer.
@@ -1435,12 +1437,12 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 
 	relOid = rte->relid;
 
-	/* Only gp_endpoints view can be allowed in retrieve mode */
+	/* Only gp_endpoints view can be allowed by retrieve role */
 	if (Gp_role == GP_ROLE_RETRIEVE)
 	{
 		if ((rte->relid != 11468) || (rte->relkind != 'v'))
 		{
-			elog(ERROR, "Only gp_endpoints view can be accessed in retrieve mode");
+			elog(ERROR, "Only gp_endpoints view can be accessed by retrieve role");
 		}
 	}
 
@@ -5008,9 +5010,9 @@ FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 		currentSlice->gangType = GANGTYPE_PRIMARY_WRITER;
 		FillSliceGangInfo(currentSlice, numsegments);
 	}
-	else if (parallel_cursor &&
-		!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
-		stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
+	else if (parallel_cursor
+			 && !(stmt->planTree->flow->flotype == FLOW_SINGLETON
+				  && stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
 	{
 		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
 		int			numsegments;

@@ -1889,10 +1889,10 @@ results_differ(const char *testname, const char *resultsfile, const char *defaul
 	char		diff[MAXPGPATH];
 	char		cmd[MAXPGPATH * 3];
 	char		best_expect_file[MAXPGPATH];
-	char        diff_opts[MAXPGPATH];
-	char        m_pretty_diff_opts[MAXPGPATH];
-	char    buf[MAXPGPATH];
-	char		generated_initfile[MAXPGPATH];	
+	char		diff_opts[MAXPGPATH];
+	char		m_pretty_diff_opts[MAXPGPATH];
+	char		buf[MAXPGPATH];
+	char		generated_initfile[MAXPGPATH];
 	FILE	   *difffile;
 	int			best_line_count;
 	int			i;
@@ -1942,7 +1942,7 @@ results_differ(const char *testname, const char *resultsfile, const char *defaul
 	if(file_exists(buf))
 	{
 		snprintf(generated_initfile, sizeof(generated_initfile),
-		     "--gpd_init %s", buf);
+				 "--gpd_init %s", buf);
 	}
 	else
 	{

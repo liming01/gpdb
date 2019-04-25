@@ -46,7 +46,7 @@ typedef struct ConnCacheKey
 {
 	Oid			serverid;		/* OID of foreign server */
 	Oid			userid;			/* OID of local user whose mapping we use */
-	int			dbid;           /* the database id of the foreign Greenplum cluster*/
+	int			dbid;           /* the database ID of the foreign Greenplum cluster*/
 } ConnCacheKey;
 
 typedef struct ConnCacheEntry
@@ -62,7 +62,7 @@ typedef struct ConnCacheEntry
 	bool		invalidated;	/* true if reconnect is pending */
 	uint32		server_hashvalue;	/* hash value of foreign server OID */
 	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
-	bool 		reusable;			/* if the connection reusable */
+	bool 		reusable;			/* if the connection is reusable */
 } ConnCacheEntry;
 
 /*
@@ -869,9 +869,12 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 			disconnect_pg_server(entry);
 		}
 
-		/* Close the not reusable connection, we don't leave it there for
-		 * sharing */
-		if (!entry->reusable) {
+		/*
+		 * Close the not reusable connection, we don't leave it there for
+		 * sharing
+		 */
+		if (!entry->reusable)
+		{
 			elog(DEBUG3, "discarding connection %p", entry->conn);
 			disconnect_pg_server(entry);
 		}

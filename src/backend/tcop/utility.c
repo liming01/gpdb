@@ -1877,8 +1877,8 @@ TupleDesc
 UtilityTupleDescriptor(Node *parsetree)
 {
 
-	/* Only allow RETRIEVE statement in retrieve mode */
-	if ((Gp_role == GP_ROLE_RETRIEVE) && (nodeTag(parsetree)!= T_RetrieveStmt))
+	/* Only allow RETRIEVE statement for retrieve role */
+	if ((Gp_role == GP_ROLE_RETRIEVE) && (nodeTag(parsetree) != T_RetrieveStmt))
 		elog(ERROR, "Only allow RETRIEVE and SELECT statement in retrieve mode");
 
 	switch (nodeTag(parsetree))
@@ -1927,9 +1927,9 @@ UtilityTupleDescriptor(Node *parsetree)
 				if (Gp_role != GP_ROLE_RETRIEVE)
 					elog(ERROR, "RETRIEVE command can only run in retrieve mode");
 
-				SetGpToken(n->token, INVALID_SESSION_ID, GetUserId());
-				SetEndPointRole(EPR_RECEIVER);
-				AttachEndPoint();
+				SetGpToken(n->token, InvalidSession, GetUserId());
+				SetEndpointRole(EPR_RECEIVER);
+				AttachEndpoint();
 
 				return CreateTupleDescCopy(ResultTupleDesc());
 			}

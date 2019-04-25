@@ -111,7 +111,7 @@ CreateQueryDesc(PlannedStmt *plannedstmt,
 	qd->totaltime = NULL;
 
 	qd->extended_query = false; /* default value */
-	qd->parallel_cursor= false;
+	qd->parallel_cursor = false;
 	qd->portal_name = NULL;
 
 	qd->ddesc = NULL;
@@ -159,7 +159,7 @@ CreateUtilityQueryDesc(Node *utilitystmt,
 	qd->totaltime = NULL;
 
 	qd->extended_query = false; /* default value */
-	qd->parallel_cursor= false;
+	qd->parallel_cursor = false;
 	qd->portal_name = NULL;
 
 	return qd;
@@ -366,7 +366,7 @@ ProcessQuery(Portal portal,
  * See the comments in portal.h.
  */
 PortalStrategy
-ChoosePortalStrategy(List *stmts, bool parallelcursor)
+ChoosePortalStrategy(List *stmts, bool parallelCursor)
 {
 	int			nSetTag;
 	ListCell   *lc;
@@ -423,7 +423,7 @@ ChoosePortalStrategy(List *stmts, bool parallelcursor)
 				{
 					if (pstmt->hasModifyingCTE)
 						return PORTAL_ONE_MOD_WITH;
-					else if (parallelcursor)
+					else if (parallelCursor)
 						return PORTAL_MULTI_QUERY;
 					else
 						return PORTAL_ONE_SELECT;
@@ -608,7 +608,6 @@ PortalStart(Portal portal, ParamListInfo params,
 	MemoryContext oldContext = CurrentMemoryContext;
 	QueryDesc  *queryDesc;
 	int			myeflags;
-	PlannedStmt *stmts;
 
 	AssertArg(PortalIsValid(portal));
 	AssertState(portal->status == PORTAL_DEFINED);
@@ -1906,8 +1905,8 @@ DoPortalRunFetch(Portal portal,
 	}
 
 	/*
-	 * If we fetch for parallel cursor, we use PORTAL_MULTI_QUERY strategy, because result is retrieved from
-	 * QE instead of QD. For this case, we run multi simply, and returns 0 rows.
+	 * Fetch/Retrieve from parallel cursor uses PORTAL_MULTI_QUERY strategy,
+	 * because results are retrieved from QEs instead of QD.
 	 */
 	if (portal->strategy == PORTAL_MULTI_QUERY)
 	{
@@ -1920,13 +1919,13 @@ DoPortalRunFetch(Portal portal,
 			/* Unset sender pid for end-point */
 			sprintf(cmd, "set gp_endpoints_token_operation='u%d'", portal->parallel_cursor_token);
 
-			List* l = getContentidListByToken(portal->parallel_cursor_token);
+			List* l = GetContentIDsByToken(portal->parallel_cursor_token);
 			if (l)
 			{
 				if (l->length == 1 && list_nth_int(l, 0) == MASTER_CONTENT_ID)
 				{
 					/* unset sender pid for end-point on master */
-					UnSetSendPid4EndPoint(portal->parallel_cursor_token);
+					UnsetSenderPidOfToken(portal->parallel_cursor_token);
 				}
 				else
 				{

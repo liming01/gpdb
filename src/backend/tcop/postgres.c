@@ -1344,7 +1344,7 @@ exec_mpp_query(const char *query_string,
 						  NULL);
 
 		if ((commandType == CMD_SELECT) && (currentSliceId == 0) && (GpToken() != InvalidToken))
-			SetEndPointRole(EPR_SENDER);
+			SetEndpointRole(EPR_SENDER);
 
 		/*
 		 * Start the portal.
@@ -5276,7 +5276,7 @@ PostgresMain(int argc, char *argv[],
 					int resgroupInfoLen = 0;
 
 					int multi_process_fetch_token = InvalidToken;
-					int session_id = INVALID_SESSION_ID;
+					int session_id = InvalidSession;
 
 					TimestampTz statementStart;
 					Oid suid;
@@ -5343,7 +5343,6 @@ PostgresMain(int argc, char *argv[],
 						resgroupInfoBuf = pq_getmsgbytes(&input_message, resgroupInfoLen);
 
 					multi_process_fetch_token = pq_getmsgint(&input_message, sizeof(int32));
-
 					session_id = pq_getmsgint(&input_message, sizeof(int));
 
 					pq_getmsgend(&input_message);

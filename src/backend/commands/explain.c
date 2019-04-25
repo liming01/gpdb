@@ -616,11 +616,8 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	/* Create textual dump of plan tree */
 	ExplainPrintPlan(es, queryDesc);
 
-	if (queryDesc->utilitystmt &&
-		IsA(queryDesc->utilitystmt, DeclareCursorStmt))
-	{
+	if (queryDesc->utilitystmt && IsA(queryDesc->utilitystmt, DeclareCursorStmt))
 		cursorOptions |= ((DeclareCursorStmt *) queryDesc->utilitystmt)->options;
-	}
 
 	if (cursorOptions & CURSOR_OPT_PARALLEL)
 	{
@@ -634,7 +631,8 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 			if (queryDesc->plannedstmt->planTree->directDispatch.isDirectDispatch &&
 				queryDesc->plannedstmt->planTree->directDispatch.contentIds != NULL)
 			{
-				/* Direct dispatch to some segments, so end-points only exist
+				/*
+				 * Direct dispatch to some segments, so end-points only exist
 				 * on these segments
 				 */
 				ListCell *cell;

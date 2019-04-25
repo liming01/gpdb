@@ -323,10 +323,10 @@ auth_failed(Port *port, int status, char *logdetail)
 }
 
 /*
- * In retrieve mode, directly using the token of parallel cursor as password to authenticate.
+ * Retrieve role directly uses the token of parallel cursor as password to authenticate.
  */
 static int
-retrieve_mode_authentication(Port *port)
+retrieve_role_authentication(Port *port)
 {
 	char	   *passwd;
 	Oid        owner_uid;
@@ -335,19 +335,22 @@ retrieve_mode_authentication(Port *port)
 	passwd = recv_password_packet(port);
 	if (passwd == NULL)
 	{
-		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of "
-				  "null password.");
+		elog(LOG, "libpq connection skips RETRIEVE role authentication"
+			 "because of empty password");
 		return false;
 	}
 
-	/* verify that the username is same as the owner of parallel cursor and the password is the token*/
+	/*
+	 * verify that the username is same as the owner of parallel cursor and the
+	 * password is the token
+	 */
 	owner_uid = get_role_oid(port->user_name, false);
 
-	if(!FindEndPointTokenByUser(owner_uid, passwd))
+	if (!FindEndpointTokenByUser(owner_uid, passwd))
 	{
-		elog(LOG, "libpq connection skip RETRIEVE MODE authentication because of "
-				  "no token of the parallel cursor created by current user \"%s\" "
-				  "is same as the password \"%s\".", port->user_name, passwd);
+		elog(LOG, "libpq connection skips RETRIEVE role authentication"
+			 "because the password doesn't match any token of the parallel"
+			 "cursor created by current user \"%s\"", port->user_name);
 		return false;
 	}
 
@@ -466,9 +469,10 @@ ClientAuthentication(Port *port)
 	int			status = STATUS_ERROR;
 	char	   *logdetail = NULL;
 
-	elog(LOG, "libpq connection authenticate in Gp_role mode: %s, Gp_session_role mode: %s.", role_to_string(Gp_role), role_to_string(Gp_session_role));
+	elog(LOG, "libpq connection authenticate in Gp_role: %s, Gp_session_role: "
+		 "%s", role_to_string(Gp_role), role_to_string(Gp_session_role));
 
-	if (GP_ROLE_RETRIEVE == Gp_role && retrieve_mode_authentication(port))
+	if (GP_ROLE_RETRIEVE == Gp_role && retrieve_role_authentication(port))
 		return;
 
 	/*
