@@ -33,6 +33,7 @@ typedef struct attrdesc
 }	AttrDesc;
 
 #define InvalidToken		(-1)
+#define DummyToken          (0)   /* For fault injection */
 
 typedef enum AttachStatus
 {
