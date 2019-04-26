@@ -1,0 +1,28 @@
+-- @Description Tests retrieve session functionality restriction for security.
+-- 
+DROP TABLE IF EXISTS t1;
+CREATE TABLE t1 (a INT);
+insert into t1 select generate_series(1,100);
+
+-- Test: Should not change gp_session_role and gp_role in retrieve mode
+0R: set gp_session_role to 'utility';
+0R: set gp_role to 'utility';
+
+-- Test: limit all statement which is supported in utility sesssion
+0R: show gp_session_role;
+
+0R: begin; 
+0R: declare c1 cursor for select * from t1;
+0R: fetch 5 from c1;
+0R: rollback;
+
+0R: delete FROM t1;
+0R: insert into t1 select generate_series(100,110);
+0R: update t1 set a=a+100 where a<10;
+
+0R: CREATE TABLE t10 (a INT);
+0R: DROP TABLE t1;
+
+-- Create UDF? external table? 
+-- Run shell UDF? web external table? copy on program?
+-- now pg_proc_aclcheck() retriction is removed because some type conversion is needed frequently.
