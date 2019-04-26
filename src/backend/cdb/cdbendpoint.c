@@ -18,6 +18,7 @@
 #include "utils/builtins.h"
 #include "utils/elog.h"
 #include "utils/faultinjector.h"
+#include "utils/fmgroids.h"
 
 /*
  * Cache tuple descriptors for all tokens which have been retrieved in this
@@ -392,6 +393,50 @@ is_dbid_in_token(int16 dbid, SharedToken token)
 	return find;
 }
 
+/*
+ * Obtain the contentid of a segment by given dbid
+ */
+static int16
+dbid_to_contentid(int16 dbid)
+{
+	int16		contentid = 0;
+	Relation	rel;
+	ScanKeyData scankey[1];
+	SysScanDesc scan;
+	HeapTuple	tup;
+
+	/* Can only run on a master node.*/
+	if (!IS_QUERY_DISPATCHER())
+		elog(ERROR, "dbid_to_contentid() should only execute on execution segments");
+
+	rel = heap_open(GpSegmentConfigRelationId, AccessShareLock);
+
+	/*
+	 * SELECT * FROM gp_segment_configuration WHERE dbid = :1
+	 */
+	ScanKeyInit(&scankey[0],
+				Anum_gp_segment_configuration_dbid,
+				BTEqualStrategyNumber, F_INT2EQ,
+				Int16GetDatum(dbid));
+
+	scan = systable_beginscan(rel, InvalidOid, false,
+							  NULL, 1, scankey);
+
+
+	tup = systable_getnext(scan);
+	if (HeapTupleIsValid(tup))
+	{
+		contentid = ((Form_gp_segment_configuration) GETSTRUCT(tup))->content;
+		/* We expect a single result, assert this */
+		Assert(systable_getnext(scan) == NULL); /* should be only 1 */
+	}
+
+	systable_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	return contentid;
+}
+
 static void
 set_attach_status(AttachStatus status)
 {
@@ -653,7 +698,7 @@ ClearParallelCursorToken(int32 token)
 					{
 						int			dbid = SharedTokens[i].dbIds[j];
 
-						seg_list = lappend_int(seg_list, dbid_get_dbinfo(dbid)->segindex);
+						seg_list = lappend_int(seg_list, dbid_to_contentid(dbid));
 					}
 				}
 			}
@@ -1608,7 +1653,7 @@ GetContentIDsByToken(int token)
 			else
 			{
 				for (int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
-					l = lappend_int(l, dbid_get_dbinfo(SharedTokens[i].dbIds[j])->segindex);
+					l = lappend_int(l, dbid_to_contentid(SharedTokens[i].dbIds[j]));
 				break;
 			}
 		}
