@@ -1,0 +1,46 @@
+-- @Description Tests retrieve session functionality restriction for security.
+--
+DROP TABLE IF EXISTS t1;
+DROP
+CREATE TABLE t1 (a INT);
+CREATE
+insert into t1 select generate_series(1,100);
+INSERT 100
+
+-- Test: Should not change gp_session_role and gp_role in retrieve mode
+0R: set gp_session_role to 'utility';
+ERROR:  parameter "gp_session_role" cannot be set after connection start
+0R: set gp_role to 'utility';
+ERROR:  "gp_role" cannot be changed in retrieve mode.
+
+-- Test: limit all statement which is supported in utility sesssion
+0R: show gp_session_role;
+ gp_session_role 
+-----------------
+ retrieve        
+(1 row)
+
+0R: begin;
+BEGIN
+0R: declare c1 cursor for select * from t1;
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode. (utility.c:415)
+0R: fetch 5 from c1;
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+0R: rollback;
+ROLLBACK
+
+0R: delete FROM t1;
+ERROR:  Only gp_endpoints view can be accessed in retrieve mode (execMain.c:1437)
+0R: insert into t1 select generate_series(100,110);
+ERROR:  Only gp_endpoints view can be accessed in retrieve mode (execMain.c:1437)
+0R: update t1 set a=a+100 where a<10;
+ERROR:  Only gp_endpoints view can be accessed in retrieve mode (execMain.c:1437)
+
+0R: CREATE TABLE t10 (a INT);
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode. (utility.c:415)
+0R: DROP TABLE t1;
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode. (utility.c:415)
+
+-- Create UDF? external table?
+-- Run shell UDF? web external table? copy on program?
+-- now pg_proc_aclcheck() retriction is removed because some type conversion is needed frequently.

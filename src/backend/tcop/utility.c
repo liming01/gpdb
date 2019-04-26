@@ -405,6 +405,16 @@ standard_ProcessUtility(Node *parsetree,
 	if (completionTag)
 		completionTag[0] = '\0';
 
+	/* Only allow some statements for retrieve role */
+	if (Gp_role == GP_ROLE_RETRIEVE &&
+			(nodeTag(parsetree) != T_TransactionStmt) &&
+			(nodeTag(parsetree) != T_VariableSetStmt) &&
+			(nodeTag(parsetree) != T_VariableShowStmt) &&
+			(nodeTag(parsetree) != T_RetrieveStmt))
+	{
+		elog(ERROR, "Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role");
+	}
+
 	switch (nodeTag(parsetree))
 	{
 			/*
@@ -1876,10 +1886,12 @@ UtilityReturnsTuples(Node *parsetree)
 TupleDesc
 UtilityTupleDescriptor(Node *parsetree)
 {
-
-	/* Only allow RETRIEVE statement for retrieve role */
-	if ((Gp_role == GP_ROLE_RETRIEVE) && (nodeTag(parsetree) != T_RetrieveStmt))
-		elog(ERROR, "Only allow RETRIEVE and SELECT statement in retrieve mode");
+	/* Only allow some statements for retrieve role */
+	if ((Gp_role == GP_ROLE_RETRIEVE) &&
+			(nodeTag(parsetree)!= T_RetrieveStmt) &&
+			(nodeTag(parsetree) != T_VariableSetStmt) &&
+			(nodeTag(parsetree)!= T_VariableShowStmt))
+		elog(ERROR, "Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role");
 
 	switch (nodeTag(parsetree))
 	{
