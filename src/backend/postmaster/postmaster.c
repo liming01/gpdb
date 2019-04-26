@@ -2386,45 +2386,15 @@ retry1:
 			{
 				port->cmdline_options = pstrdup(valptr);
 
-				/* Parse cmdline_options to get gp_session_role setting */
-				/* TODO */
-				if (port->cmdline_options != NULL && strstr(port->cmdline_options,"gp_session_role") != 0)
-				{
-					char	  **av;
-					int			maxac;
-					int			ac;
-
-					maxac = 2 + (strlen(port->cmdline_options) + 1) / 2;
-
-					av = (char **) palloc(maxac * sizeof(char *));
-					ac = 0;
-
-					/* Note this mangles port->cmdline_options */
-					pg_split_opts(av, &ac, port->cmdline_options);
-
-					av[ac] = NULL;
-
-					Assert(ac < maxac);
-
-					for(int i=0; i< ac; i++)
-					{
-						char *item = strstr(av[i], "gp_session_role");
-
-						if ( item!= 0)
-						{
-							char	   *name,
-									   *value;
-
-							ParseLongOption(item, &name, &value);
-
-							if (strcmp(name, "gp_session_role") == 0) /* process it before libpq connection authentication */
-							{
-								assign_gp_session_role(value, NULL);
-								break;
-							}
-						}
-					}
-				}
+				/*
+				 * Set gp_session_role to retrieve if it is, authentication
+				 * while initializing needs it. It's safe to check
+				 * "gp_session_role=retrieve" since ParseLongOption() does the
+				 * same thing.
+				 */
+				if (port->cmdline_options != NULL
+					&& strstr(port->cmdline_options,"gp_session_role=retrieve") != 0)
+					assign_gp_session_role(pstrdup("retrieve"), NULL);
 			}
 
 			else if (strcmp(nameptr, "gpqeid") == 0)
