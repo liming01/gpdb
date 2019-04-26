@@ -25,6 +25,7 @@
 #include "libpq-fe.h"
 #include "libpq/libpq.h"
 #include "mb/pg_wchar.h"
+#include "utils/fmgroids.h"
 
 #define MAX_ENDPOINT_SIZE	1000
 #define MAX_FIFO_NAME_SIZE	100
@@ -94,6 +95,50 @@ static void shutdown_endpoint_fifo(DestReceiver *self);
 static void destroy_endpoint_fifo(DestReceiver *self);
 
 static void retrieve_cancel_pending_action(void);
+
+/*
+ * Obtain the contentid of a segment by given dbid
+ */
+static int16
+getContentidByDbid(int16 dbid)
+{
+	int16		contentid = 0;
+	Relation	rel;
+	ScanKeyData scankey[1];
+	SysScanDesc scan;
+	HeapTuple	tup;
+
+	/* Can only run on a master node.*/
+	if (!IS_QUERY_DISPATCHER())
+		elog(ERROR, "getContentidByDbid() executed on execution segment");
+
+	rel = heap_open(GpSegmentConfigRelationId, AccessShareLock);
+
+	/*
+	 * SELECT * FROM gp_segment_configuration WHERE dbid = :1
+	 */
+	ScanKeyInit(&scankey[0],
+				Anum_gp_segment_configuration_dbid,
+				BTEqualStrategyNumber, F_INT2EQ,
+				Int16GetDatum(dbid));
+
+	scan = systable_beginscan(rel, InvalidOid, false,
+							  NULL, 1, scankey);
+
+
+	tup = systable_getnext(scan);
+	if (HeapTupleIsValid(tup))
+	{
+		contentid = ((Form_gp_segment_configuration) GETSTRUCT(tup))->content;
+		/* We expect a single result, assert this */
+		Assert(systable_getnext(scan) == NULL); /* should be only 1 */
+	}
+
+	systable_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	return contentid;
+}
 
 int32
 GetUniqueGpToken()
@@ -244,7 +289,7 @@ ClearParallelCursorToken(int32 token)
 					for(int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
 					{
 						int dbid = SharedTokens[i].dbIds[j];
-						seg_list = lappend_int(seg_list, dbid_get_dbinfo(dbid)->segindex);
+						seg_list = lappend_int(seg_list, getContentidByDbid(dbid));
 					}
 				}
 			}
@@ -1622,7 +1667,7 @@ List* getContentidListByToken(int token)
 			else
 			{
 				for (int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
-					l = lappend_int(l, dbid_get_dbinfo(SharedTokens[i].dbIds[j])->segindex);
+					l = lappend_int(l, getContentidByDbid(SharedTokens[i].dbIds[j]));
 				break;
 			}
 		}
