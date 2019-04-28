@@ -1673,6 +1673,15 @@ exec_simple_query(const char *query_string)
 							Debug_dtm_action, commandTag)));
 		}
 
+		if ((Gp_role == GP_ROLE_RETRIEVE) &&
+			((nodeTag(parsetree) == T_InsertStmt) ||
+				(nodeTag(parsetree) == 	T_DeleteStmt) ||
+				(nodeTag(parsetree) == 	T_UpdateStmt)))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.")));
+		}
 		/*
 		 * If are connected in utility mode, disallow PREPARE TRANSACTION
 		 * statements.

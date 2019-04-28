@@ -23,23 +23,27 @@ ERROR:  "gp_role" cannot be changed in retrieve mode.
 0R: begin;
 BEGIN
 0R: declare c1 cursor for select * from t1;
-ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode. (utility.c:415)
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
 0R: fetch 5 from c1;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 0R: rollback;
 ROLLBACK
 
 0R: delete FROM t1;
-ERROR:  Only gp_endpoints view can be accessed in retrieve mode (execMain.c:1437)
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
 0R: insert into t1 select generate_series(100,110);
-ERROR:  Only gp_endpoints view can be accessed in retrieve mode (execMain.c:1437)
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
 0R: update t1 set a=a+100 where a<10;
-ERROR:  Only gp_endpoints view can be accessed in retrieve mode (execMain.c:1437)
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
+0R: truncate table t1;
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
+0R: select * from t1;
+ERROR:  Only gp_endpoints view can be accessed in retrieve mode.
 
 0R: CREATE TABLE t10 (a INT);
-ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode. (utility.c:415)
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
 0R: DROP TABLE t1;
-ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode. (utility.c:415)
+ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
 
 -- Create UDF? external table?
 -- Run shell UDF? web external table? copy on program?

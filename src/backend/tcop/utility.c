@@ -412,7 +412,9 @@ standard_ProcessUtility(Node *parsetree,
 			(nodeTag(parsetree) != T_VariableShowStmt) &&
 			(nodeTag(parsetree) != T_RetrieveStmt))
 	{
-		elog(ERROR, "Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role");
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role")));
 	}
 
 	switch (nodeTag(parsetree))
@@ -1891,7 +1893,11 @@ UtilityTupleDescriptor(Node *parsetree)
 			(nodeTag(parsetree)!= T_RetrieveStmt) &&
 			(nodeTag(parsetree) != T_VariableSetStmt) &&
 			(nodeTag(parsetree)!= T_VariableShowStmt))
-		elog(ERROR, "Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role");
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role")));
+	}
 
 	switch (nodeTag(parsetree))
 	{
