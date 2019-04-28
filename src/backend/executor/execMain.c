@@ -1434,7 +1434,9 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 	{
 		if ((rte->relid != 11468) || (rte->relkind != 'v'))
 		{
-			elog(ERROR, "Only gp_endpoints view can be accessed in retrieve mode");
+			ereport(ERROR,
+			        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				        errmsg("Only gp_endpoints view can be accessed in retrieve mode.")));
 		}
 	}
 

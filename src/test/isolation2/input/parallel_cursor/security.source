@@ -19,6 +19,8 @@ insert into t1 select generate_series(1,100);
 0R: delete FROM t1;
 0R: insert into t1 select generate_series(100,110);
 0R: update t1 set a=a+100 where a<10;
+0R: truncate table t1;
+0R: select * from t1;
 
 0R: CREATE TABLE t10 (a INT);
 0R: DROP TABLE t1;
