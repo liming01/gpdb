@@ -157,7 +157,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
  a  
 ----
  2  
@@ -328,7 +328,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
  a  
 ----
  2  
@@ -494,9 +494,9 @@ DECLARE
  9  
  10 
 (10 rows)
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
 
 1<:
  <... completed>
@@ -541,9 +541,9 @@ DECLARE
  a 
 ---
 (0 rows)
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
 
 1<:
  <... completed>
@@ -589,7 +589,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
  a 
 ---
 (0 rows)
@@ -646,7 +646,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
  a     
 -------
  2test 
@@ -713,7 +713,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
  a 
 ---
 (0 rows)
@@ -895,7 +895,7 @@ DECLARE
  <waiting ...>
 
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
  a | b 
 ---+---
  2 | 2 
@@ -991,7 +991,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
  a  
 ----
  2  
@@ -1125,7 +1125,7 @@ EXECUTE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
  a  
 ----
  2  
@@ -1281,7 +1281,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
  a  
 ----
  2  
@@ -1422,7 +1422,7 @@ EXECUTE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
  a  
 ----
  2  
@@ -1591,14 +1591,14 @@ ERROR:  canceling MPP operation  (seg0 127.0.0.1:25432 pid=401)
 ----------
 (0 rows)
 1R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
 
 2R:  SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id1';
  attached 
 ----------
 (0 rows)
 2R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
 
 1<:
  <... completed>
@@ -1658,14 +1658,14 @@ ERROR:  canceling MPP operation  (seg1 127.0.0.1:25433 pid=26515)
 ----------
 (0 rows)
 0R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
 
 2R:  SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='token_id1';
  attached 
 ----------
 (0 rows)
 2R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
 
 1<:
  <... completed>
@@ -1767,7 +1767,7 @@ ERROR:  canceling MPP operation  (seg0 127.0.0.1:25432 pid=31406)
 ----------
 (0 rows)
 2R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
 
 1<:
  <... completed>

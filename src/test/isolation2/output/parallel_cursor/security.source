@@ -11,7 +11,7 @@ INSERT 100
 0R: set gp_session_role to 'utility';
 ERROR:  parameter "gp_session_role" cannot be set after connection start
 0R: set gp_role to 'utility';
-ERROR:  "gp_role" cannot be changed in retrieve mode.
+ERROR:  "gp_role" could not be changed from retrieve role
 
 -- Test: limit all statement which is supported in utility sesssion
 0R: show gp_session_role;
@@ -23,7 +23,7 @@ ERROR:  "gp_role" cannot be changed in retrieve mode.
 0R: begin;
 BEGIN
 0R: declare c1 cursor for select * from t1;
-ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: fetch 5 from c1;
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 0R: rollback;
@@ -36,14 +36,14 @@ ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode
 0R: update t1 set a=a+100 where a<10;
 ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
 0R: truncate table t1;
-ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: select * from t1;
-ERROR:  Only gp_endpoints view can be accessed in retrieve mode.
+ERROR:  Only gp_endpoints view can be accessed by retrieve role
 
 0R: CREATE TABLE t10 (a INT);
-ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: DROP TABLE t1;
-ERROR:  Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 
 -- Create UDF? external table?
 -- Run shell UDF? web external table? copy on program?

@@ -26,14 +26,14 @@ CREATE
 BEGIN
 -- should report error on seg0
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-ERROR:  failed to allocate end point slot (cdbendpoint.c:639)  (seg0 10.34.50.153:25432 pid=41153) (cdbendpoint.c:639)
+ERROR:  failed to allocate endpoint (cdbendpoint.c:639)  (seg0 10.34.50.153:25432 pid=41153) (cdbendpoint.c:639)
 1: ROLLBACK;
 ROLLBACK
 -- test same error on another session
 3: BEGIN;
 BEGIN
 3: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-ERROR:  failed to allocate end point slot (cdbendpoint.c:639)  (seg0 10.34.50.153:25432 pid=41162) (cdbendpoint.c:639)
+ERROR:  failed to allocate endpoint (cdbendpoint.c:639)  (seg0 10.34.50.153:25432 pid=41162) (cdbendpoint.c:639)
 3: ROLLBACK;
 ROLLBACK
 -- reset the fault injection
@@ -79,7 +79,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:949)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:949)
  a  
 ----
  2  
@@ -287,7 +287,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id2";
-ERROR:  failed to attach non exist end point for token token_id2 (cdbendpoint.c:948)
+ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c:948)
  a  
 ----
  2  

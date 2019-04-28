@@ -39,7 +39,7 @@ DECLARE
  0        
 (1 row)
 *R:  RETRIEVE ALL FROM "token_id1";
-ERROR:  failed to attach non exist end point for token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
  a  
 ----
  2  
@@ -195,7 +195,7 @@ DECLARE
 (3 rows)
 -- test RETRIEVE report error if parallel cursor not executed
 0R:  RETRIEVE 10 FROM "token_id2";
-ERROR:  The PARALLEL CURSOR related to the end point token token_id2 is not EXECUTED. (cdbendpoint.c:866)
+ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED (cdbendpoint.c:866)
 1&: EXECUTE PARALLEL CURSOR c2;
  <waiting ...>
 
@@ -309,7 +309,7 @@ ERROR:  The PARALLEL CURSOR related to the end point token token_id2 is not EXEC
 (0 rows)
 -- finished retrieving all endpoints and check status
 *R:  RETRIEVE ALL FROM "token_id2";
-ERROR:  failed to attach non exist end point for token token_id2 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c:874)
  a  
 ----
  27 
@@ -461,7 +461,7 @@ DECLARE
 ... <quitting>
 -- a new retrieve session should report error
 0R:  RETRIEVE 10 FROM "token_id3";
-ERROR:  end point token_id3 already attached by receiver(pid:50938) (cdbendpoint.c:871)
+ERROR:  endpoint token_id3 is already attached by receiver(pid: 50938) (cdbendpoint.c:871)
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 1R:  RETRIEVE ALL FROM "token_id3";
  a  
