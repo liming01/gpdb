@@ -51,6 +51,11 @@ def run_gp2gp_tests():
             && make installcheck -C contrib/postgres_fdw\"", cwd="gpdb_src", shell=True)
     if status:
         return status
+    status = subprocess.call("runuser gpadmin -c \"source /usr/local/gpdb/greenplum_path.sh \
+            && source gpAux/gpdemo/gpdemo-env.sh \
+            && ./src/test/regress/pg_regress --inputdir=./src/test/regress/ --init-file=./src/test/regress/init_file foreign_data gp_foreign_data\"", cwd="gpdb_src", shell=True)
+    if status:
+        return status
 
 
 def copy_output():

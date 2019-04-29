@@ -75,6 +75,7 @@ SeparateOutCustomForeignOptions(List **options)
 		prev = lc;
 	}
 
+	prev = NULL;
 	foreach(lc, *options)
 	{
 		DefElem    *def = (DefElem *) lfirst(lc);
