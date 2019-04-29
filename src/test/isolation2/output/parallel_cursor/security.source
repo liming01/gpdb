@@ -21,42 +21,33 @@ ERROR:  "gp_role" could not be changed from retrieve role
 (1 row)
 
 0R: begin;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
-0R: savepoint s1;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+BEGIN
 0R: declare c1 cursor for select * from t1;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
-0R: ROLLBACK TO SAVEPOINT s1;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: fetch 5 from c1;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
 0R: rollback;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
-0R: RELEASE SAVEPOINT s1;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
-0R: commit;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+ROLLBACK
 
 0R: delete FROM t1;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: insert into t1 select generate_series(100,110);
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: update t1 set a=a+100 where a<10;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: truncate table t1;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
--- web external table is also disallowed by this restriction.
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: select * from t1;
 ERROR:  Only gp_endpoints view can be accessed by retrieve role
 
 0R: CREATE TABLE t10 (a INT);
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: DROP TABLE t1;
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 
 -- copy ... on program ... is also disallowed by this restriction.
 0R: COPY t1 to '/tmp/1.cvs';
-ERROR:  Only allow RETRIEVE, SELECT and GUC statements for retrieve role
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 
 -- Create UDF
 -- Run shell UDF?

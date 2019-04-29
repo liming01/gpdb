@@ -12,19 +12,14 @@ insert into t1 select generate_series(1,100);
 0R: show gp_session_role;
 
 0R: begin;
-0R: savepoint s1;
 0R: declare c1 cursor for select * from t1;
-0R: ROLLBACK TO SAVEPOINT s1;
 0R: fetch 5 from c1;
 0R: rollback;
-0R: RELEASE SAVEPOINT s1;
-0R: commit;
 
 0R: delete FROM t1;
 0R: insert into t1 select generate_series(100,110);
 0R: update t1 set a=a+100 where a<10;
 0R: truncate table t1;
--- web external table is also disallowed by this restriction.
 0R: select * from t1;
 
 0R: CREATE TABLE t10 (a INT);
