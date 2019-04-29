@@ -46,7 +46,7 @@ typedef struct ConnCacheKey
 {
 	Oid			serverid;		/* OID of foreign server */
 	Oid			userid;			/* OID of local user whose mapping we use */
-	int			dbid;           /* the database ID of the foreign Greenplum cluster*/
+	int			dbid;           /* the database ID of the foreign Greenplum cluster */
 } ConnCacheKey;
 
 typedef struct ConnCacheEntry

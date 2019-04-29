@@ -917,7 +917,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	int			numParams;
 	int			i;
 	ListCell   *lc;
-	int     slice_no = -1;
+	int     process_no = -1;
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
@@ -950,7 +950,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	else
 		fsstate->is_parallel = false;
 
-	/* Get the slice nth number in current gang */
+	/* Get the process nth number in current gang */
 	if (rel->exec_location == FTEXECLOCATION_ALL_SEGMENTS && Gp_role != GP_ROLE_DISPATCH)
 	{
 		Slice   *current_slice = list_nth(node->ss.ps.state->es_sliceTable->slices, currentSliceId);
@@ -961,7 +961,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		int num = -1;
 		while ((num = bms_next_member(current_slice->processesMap, num)) >= 0)
 		{
-			slice_no++;
+			process_no++;
 			if (qe_identifier == num)
 				break;
 		}
@@ -1004,12 +1004,12 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 		fsstate->token = linitial_int(list_nth(fsplan->fdw_private, FdwScanPrivateToken));
 		fsstate->endpoints_list = list_nth(fsplan->fdw_private, FdwScanPrivateEndpoints);
 
-		if (slice_no < 0)
+		if (process_no < 0)
 			ereport(ERROR, (errmsg("No valid slice number")));
 
-		if (slice_no < list_length(fsstate->endpoints_list))
+		if (process_no < list_length(fsstate->endpoints_list))
 		{
-			List *endpoint = list_nth(fsstate->endpoints_list, slice_no);
+			List *endpoint = list_nth(fsstate->endpoints_list, process_no);
 			host = list_nth(endpoint, 0);
 			port = list_nth(endpoint, 1);
 			dbid = atoi(strVal(list_nth(endpoint, 2)));
@@ -1787,7 +1787,7 @@ postgresIsForeignRelUpdatable(Relation rel)
 
 	/*
 	 * Greenplum only supports INSERT, because UPDATE/DELETE SELECT requires
-	 * the hidden column gp_segment_id 
+	 * the hidden column gp_segment_id
 	 */
 	if (greenplumCheckIsGreenplum(server, user))
 		return (1 << CMD_INSERT);
