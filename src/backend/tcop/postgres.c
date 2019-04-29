@@ -1680,7 +1680,7 @@ exec_simple_query(const char *query_string)
 		{
 			ereport(ERROR,
 			        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				        errmsg("Only allow RETRIEVE, SELECT, transaction, guc statement in retrieve mode.")));
+				        errmsg("Only allow RETRIEVE, SELECT, guc statement in retrieve mode.")));
 		}
 		/*
 		 * If are connected in utility mode, disallow PREPARE TRANSACTION
