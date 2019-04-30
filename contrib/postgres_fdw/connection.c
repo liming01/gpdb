@@ -767,7 +767,9 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					/*
 					 * FDW update is not the same as Greenplum segments update,
 					 * doesn't need the two-phase commit.
-					 * TODO: fix on the Greenplum side but not workaround here.
+					 *
+					 * Besides that, Greenplum prepares on many cases including
+					 * DTX distributing for MPP usages, just break here.
 					 */
 					break;
 
