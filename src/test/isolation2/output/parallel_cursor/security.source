@@ -7,6 +7,11 @@ CREATE
 insert into t1 select generate_series(1,100);
 INSERT 100
 
+CREATE OR REPLACE FUNCTION myappend(anyarray, anyelement) RETURNS anyarray AS $$
+SELECT $1 || $2
+$$ LANGUAGE SQL;
+CREATE
+
 -- Test: Should not change gp_session_role and gp_role in retrieve mode
 0R: set gp_session_role to 'utility';
 ERROR:  parameter "gp_session_role" cannot be set after connection start
@@ -37,6 +42,7 @@ ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve
 ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 0R: truncate table t1;
 ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
+-- web external table is also disallowed by this restriction.
 0R: select * from t1;
 ERROR:  Only gp_endpoints view can be accessed by retrieve role
 
@@ -49,7 +55,17 @@ ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve
 0R: COPY t1 to '/tmp/1.cvs';
 ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
 
--- Create UDF
--- Run shell UDF?
-
--- now pg_proc_aclcheck() retriction is removed because some type conversion is needed frequently.
+-- Test: builtin function can be allowed
+0R: select '12'::int;
+ int4 
+------
+ 12   
+(1 row)
+-- Test: UDF can not be allowed
+0R: SELECT myappend(ARRAY[42,6], 21);
+ERROR:  Only builtin function can be called in retrieve mode. (aclchk.c:5058)
+-- Test: Create UDF can not allowed
+0R: CREATE OR REPLACE FUNCTION myappend1(anyarray, anyelement) RETURNS anyarray AS $$
+SELECT $1 || $2
+$$ LANGUAGE SQL;
+ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role

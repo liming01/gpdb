@@ -4,6 +4,10 @@ DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (a INT);
 insert into t1 select generate_series(1,100);
 
+CREATE OR REPLACE FUNCTION myappend(anyarray, anyelement) RETURNS anyarray AS $$
+SELECT $1 || $2
+$$ LANGUAGE SQL;
+
 -- Test: Should not change gp_session_role and gp_role in retrieve mode
 0R: set gp_session_role to 'utility';
 0R: set gp_role to 'utility';
@@ -20,6 +24,7 @@ insert into t1 select generate_series(1,100);
 0R: insert into t1 select generate_series(100,110);
 0R: update t1 set a=a+100 where a<10;
 0R: truncate table t1;
+-- web external table is also disallowed by this restriction.
 0R: select * from t1;
 
 0R: CREATE TABLE t10 (a INT);
@@ -28,7 +33,11 @@ insert into t1 select generate_series(1,100);
 -- copy ... on program ... is also disallowed by this restriction.
 0R: COPY t1 to '/tmp/1.cvs';
 
--- Create UDF
--- Run shell UDF?
-
--- now pg_proc_aclcheck() retriction is removed because some type conversion is needed frequently.
+-- Test: builtin function can be allowed
+0R: select '12'::int;
+-- Test: UDF can not be allowed
+0R: SELECT myappend(ARRAY[42,6], 21);
+-- Test: Create UDF can not allowed
+0R: CREATE OR REPLACE FUNCTION myappend1(anyarray, anyelement) RETURNS anyarray AS $$
+SELECT $1 || $2
+$$ LANGUAGE SQL;
