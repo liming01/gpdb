@@ -27,6 +27,8 @@ extern void reset_transmission_modes(int nestlevel);
 /* in connection.c */
 extern PGconn *GetConnection(ForeignServer *server, UserMapping *user,
 			  bool will_prep_stmt);
+extern PGconn *GetCustomConnection(ForeignServer *server, UserMapping *user,
+			  bool will_prep_stmt, int dbid, bool reusable);
 extern void ReleaseConnection(PGconn *conn);
 extern unsigned int GetCursorNumber(PGconn *conn);
 extern unsigned int GetPrepStmtNumber(PGconn *conn);
