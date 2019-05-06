@@ -1,3 +1,12 @@
+/*
+ * cdbendpoint.c
+ *     Functions to export the query results from endpoints on segments
+ *
+ * Copyright (c) 2018-Present Pivotal Software, Inc.
+ *
+ * reference: https://github.com/greenplum-db/gpdb/wiki/Greenplum-to-Greenplum
+ */
+
 #include "postgres.h"
 
 #include <poll.h>
@@ -24,6 +33,7 @@
  * Cache tuple descriptors for all tokens which have been retrieved in this
  * retrieve session
  */
+
 static FifoConnState RetrieveFifoConns[MAX_ENDPOINT_SIZE] = {};
 static TupleTableSlot *RetrieveTupleSlots[MAX_ENDPOINT_SIZE] = {};
 static int32 RetrieveTokens[MAX_ENDPOINT_SIZE];

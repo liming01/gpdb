@@ -1,3 +1,9 @@
+/*
+ * cdbendpoint.h
+ *
+ * Copyright (c) 2018-Present Pivotal Software, Inc.
+ */
+
 #ifndef CDBENDPOINT_H
 #define CDBENDPOINT_H
 
