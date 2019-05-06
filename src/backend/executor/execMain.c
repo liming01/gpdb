@@ -5004,6 +5004,10 @@ FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 	cxt.estate = estate;
 	cxt.currentSliceId = 0;
 
+	/*
+	 * INTO and PARALLEL CURSOR are handled here because they dispatch but have
+	 * no motion between QD and QEs.
+	 */
 	if (stmt->intoClause != NULL || stmt->copyIntoClause != NULL)
 	{
 		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
@@ -5022,13 +5026,12 @@ FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 		FillSliceGangInfo(currentSlice, numsegments);
 	}
 	else if (parallel_cursor
-			 && !(stmt->planTree->flow->flotype == FLOW_SINGLETON
-				  && stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
+			 && (stmt->planTree->flow->flotype != FLOW_SINGLETON
+				 || stmt->planTree->flow->locustype == CdbLocusType_SegmentGeneral))
 	{
 		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
 		int			numsegments;
 
-		/* FIXME: ->lefttree or planTree? */
 		numsegments = stmt->planTree->flow->numsegments;
 		currentSlice->gangType = GANGTYPE_PRIMARY_READER;
 		FillSliceGangInfo(currentSlice, numsegments);

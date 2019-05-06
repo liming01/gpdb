@@ -2393,8 +2393,8 @@ retry1:
 				 * same thing.
 				 */
 				if (port->cmdline_options != NULL
-					&& strstr(port->cmdline_options,"gp_session_role=retrieve") != 0)
-					assign_gp_session_role(pstrdup("retrieve"), NULL);
+					&& strcasestr(port->cmdline_options,"gp_session_role=retrieve") != 0)
+					SetConfigOption("gp_session_role", pstrdup("retrieve"), PGC_USERSET, PGC_S_CLIENT);
 			}
 
 			else if (strcmp(nameptr, "gpqeid") == 0)
