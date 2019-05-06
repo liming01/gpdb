@@ -759,7 +759,7 @@ parseToken(char *token)
 {
 	int32		token_id = InvalidToken;
 
-	if (token[0] == 't' && token[1] == 'k')
+	if (token[0] == TOKEN_NAME_FORMAT_STR[0] && token[1] == TOKEN_NAME_FORMAT_STR[1])
 	{
 		token_id = atol(token + 2);
 	}
@@ -777,12 +777,9 @@ printToken(int32 token_id)
 {
 	Insist(token_id != InvalidToken);
 
-	char	   *res = palloc(13);
+	char	   *res = palloc(13); /* length 13 = 2('tk') + 10(max value length of int32) +1('\0') */
 
-	//2('TK') + 10(max value length of int32) +1('\0')
-
-		sprintf(res, TOKEN_NAME_FORMAT_STR, token_id);
-
+	sprintf(res, TOKEN_NAME_FORMAT_STR, token_id);
 	return res;
 }
 
