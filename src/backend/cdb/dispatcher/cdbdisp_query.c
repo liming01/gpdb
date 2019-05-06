@@ -1008,7 +1008,7 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		pos += resgroupInfo.len;
 	}
 
-	SetGpToken(token, gp_session_id, currentUserId);
+	SetGpToken(token);
 	tmp = htonl(token);
 	memcpy(pos, &tmp, sizeof(tmp));
 	pos += sizeof(tmp);

@@ -5408,7 +5408,7 @@ PostgresMain(int argc, char *argv[],
 					else
 					{
 						if (multi_process_fetch_token != InvalidToken)
-							SetGpToken(multi_process_fetch_token, session_id, cuid);
+							SetGpToken(multi_process_fetch_token);
 
 						exec_mpp_query(query_string,
 									   serializedQuerytree, serializedQuerytreelen,

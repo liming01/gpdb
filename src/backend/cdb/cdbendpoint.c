@@ -47,7 +47,7 @@ static volatile EndpointDesc *my_shared_endpoint = NULL;
 static slock_t *shared_tokens_lock;
 static slock_t *shared_end_points_lock;
 
-static Token Gp_token = {InvalidToken, InvalidSession, InvalidOid};
+static int32 Gp_token = InvalidToken;
 static enum EndpointRole Gp_endpoint_role = EPR_NONE;
 static bool StatusInAbort = false;
 static bool StatusNeedAck = false;
@@ -88,7 +88,7 @@ make_fifo_conn(void)
 static void
 check_token_valid()
 {
-	if (Gp_role == GP_ROLE_EXECUTE && Gp_token.token == InvalidToken)
+	if (Gp_role == GP_ROLE_EXECUTE && Gp_token == InvalidToken)
 		ep_log(ERROR, "invalid endpoint token");
 }
 
@@ -100,16 +100,16 @@ check_end_point_allocated()
 			   endpoint_role_to_string(Gp_endpoint_role));
 
 	if (!my_shared_endpoint)
-		ep_log(ERROR, "endpoint for token " TOKEN_NAME_FORMAT_STR " is not allocated", Gp_token.token);
+		ep_log(ERROR, "endpoint for token " TOKEN_NAME_FORMAT_STR " is not allocated", Gp_token);
 
 	check_token_valid();
 
 	SpinLockAcquire(shared_end_points_lock);
 
-	if (my_shared_endpoint->token != Gp_token.token)
+	if (my_shared_endpoint->token != Gp_token)
 	{
 		SpinLockRelease(shared_end_points_lock);
-		ep_log(ERROR, "endpoint for token " TOKEN_NAME_FORMAT_STR " is not allocated", Gp_token.token);
+		ep_log(ERROR, "endpoint for token " TOKEN_NAME_FORMAT_STR " is not allocated", Gp_token);
 	}
 
 	SpinLockRelease(shared_end_points_lock);
@@ -126,7 +126,7 @@ create_and_connect_fifo()
 	if (RetrieveFifoConns[CurrentRetrieveToken]->created)
 		return;
 
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
+	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
 
 	if ((mkdir(FIFO_DIRECTORY, S_IRWXU) < 0 && errno != EEXIST) || (mkfifo(fifo_name, 0666) < 0))
 		ep_log(ERROR, "failed to create FIFO %s: %m", fifo_name);
@@ -314,7 +314,7 @@ init_conn_for_receiver()
 
 	make_fifo_conn();
 
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
+	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
 
 	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0)
 		return;
@@ -341,7 +341,7 @@ sender_close()
 {
 	char		fifo_name[MAX_FIFO_NAME_SIZE];
 
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token.token);
+	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
 
 	Assert(RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0);
 
@@ -490,7 +490,7 @@ set_sender_pid()
 	/* find the slot with the same token */
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedEndpoints[i].token == Gp_token.token)
+		if (SharedEndpoints[i].token == Gp_token)
 		{
 			found_idx = i;
 			break;
@@ -502,9 +502,9 @@ set_sender_pid()
 		SharedEndpoints[i].database_id = MyDatabaseId;
 		SharedEndpoints[i].sender_pid = MyProcPid;
 		SharedEndpoints[i].receiver_pid = InvalidPid;
-		SharedEndpoints[i].token = Gp_token.token;
-		SharedEndpoints[i].session_id = Gp_token.session_id;
-		SharedEndpoints[i].user_id = Gp_token.user_id;
+		SharedEndpoints[i].token = Gp_token;
+		SharedEndpoints[i].session_id = gp_session_id;
+		SharedEndpoints[i].user_id = GetUserId();
 		SharedEndpoints[i].attached = Status_NotAttached;
 		SharedEndpoints[i].empty = false;
 		OwnLatch(&SharedEndpoints[i].ack_done);
@@ -556,7 +556,7 @@ retrieve_cancel_action(void)
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedEndpoints[i].token == Gp_token.token && SharedEndpoints[i].receiver_pid == MyProcPid)
+		if (SharedEndpoints[i].token == Gp_token && SharedEndpoints[i].receiver_pid == MyProcPid)
 		{
 			SharedEndpoints[i].receiver_pid = InvalidPid;
 			SharedEndpoints[i].attached = Status_NotAttached;
@@ -787,23 +787,19 @@ printToken(int32 token_id)
 }
 
 void
-SetGpToken(int32 token, int session_id, Oid user_id)
+SetGpToken(int32 token)
 {
-	if (Gp_token.token != InvalidToken)
-		ep_log(ERROR, "endpoint token " TOKEN_NAME_FORMAT_STR " is already set", Gp_token.token);
+	if (Gp_token != InvalidToken)
+		ep_log(ERROR, "endpoint token " TOKEN_NAME_FORMAT_STR " is already set", Gp_token);
 
-	Gp_token.token = token;
-	Gp_token.session_id = session_id;
-	Gp_token.user_id = user_id;
+	Gp_token = token;
 }
 
 void
 ClearGpToken(void)
 {
-	ep_log(LOG, "endpoint token " TOKEN_NAME_FORMAT_STR " is unset", Gp_token.token);
-	Gp_token.token = InvalidToken;
-	Gp_token.session_id = InvalidSession;
-	Gp_token.user_id = InvalidOid;
+	ep_log(LOG, "endpoint token " TOKEN_NAME_FORMAT_STR " is unset", Gp_token);
+	Gp_token = InvalidToken;
 }
 
 void
@@ -829,7 +825,7 @@ ClearEndpointRole(void)
 int32
 GpToken(void)
 {
-	return Gp_token.token;
+	return Gp_token;
 }
 
 enum EndpointRole
@@ -1265,8 +1261,8 @@ AttachEndpoint()
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedEndpoints[i].database_id == MyDatabaseId &&
-			SharedEndpoints[i].token == Gp_token.token &&
-			SharedEndpoints[i].user_id == Gp_token.user_id &&
+			SharedEndpoints[i].token == Gp_token &&
+			SharedEndpoints[i].user_id == GetUserId() &&
 			!SharedEndpoints[i].empty)
 		{
 			if (SharedEndpoints[i].sender_pid == InvalidPid)
@@ -1314,15 +1310,15 @@ AttachEndpoint()
 	if (is_invalid_sendpid)
 	{
 		ep_log(ERROR, "the PARALLEL CURSOR related to endpoint token " TOKEN_NAME_FORMAT_STR " is not EXECUTED",
-			   Gp_token.token);
+			   Gp_token);
 	}
 
 	if (already_attached || is_other_pid)
 		ep_log(ERROR, "endpoint " TOKEN_NAME_FORMAT_STR " is already attached by receiver(pid: %d)",
-			   Gp_token.token, attached_pid);
+			   Gp_token, attached_pid);
 
 	if (!my_shared_endpoint)
-		ep_log(ERROR, "failed to attach non-existing endpoint of token " TOKEN_NAME_FORMAT_STR, Gp_token.token);
+		ep_log(ERROR, "failed to attach non-existing endpoint of token " TOKEN_NAME_FORMAT_STR, Gp_token);
 
 	StatusNeedAck = false;
 
@@ -1332,7 +1328,7 @@ AttachEndpoint()
 	 */
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (RetrieveTokens[i] == Gp_token.token)
+		if (RetrieveTokens[i] == Gp_token)
 		{
 			isFound = true;
 			CurrentRetrieveToken = i;
@@ -1342,7 +1338,7 @@ AttachEndpoint()
 	if (!isFound)
 	{
 		CurrentRetrieveToken = 0;
-		RetrieveTokens[0] = Gp_token.token;
+		RetrieveTokens[0] = Gp_token;
 	}
 	if (!is_self_pid)
 	{
@@ -1364,7 +1360,7 @@ DetachEndpoint(bool reset_pid)
 
 	if (Gp_endpoint_role != EPR_RECEIVER ||
 		!my_shared_endpoint ||
-		Gp_token.token == InvalidToken)
+		Gp_token == InvalidToken)
 		return;
 
 	if (Gp_endpoint_role != EPR_RECEIVER)
@@ -1376,9 +1372,9 @@ DetachEndpoint(bool reset_pid)
 
 	PG_TRY();
 	{
-		if (my_shared_endpoint->token != Gp_token.token)
+		if (my_shared_endpoint->token != Gp_token)
 			ep_log(LOG, "unmatched token, expected %d but it's %d",
-				   Gp_token.token, my_shared_endpoint->token);
+				   Gp_token, my_shared_endpoint->token);
 
 		if (my_shared_endpoint->receiver_pid != MyProcPid)
 			ep_log(ERROR, "unmatched pid, expected %d but it's %d",
@@ -1639,9 +1635,7 @@ AbortEndpoint(void)
 	}
 
 	StatusInAbort = false;
-	Gp_token.token = InvalidToken;
-	Gp_token.session_id = InvalidSession;
-	Gp_token.user_id = InvalidOid;
+	Gp_token = InvalidToken;
 	Gp_endpoint_role = EPR_NONE;
 }
 

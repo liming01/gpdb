@@ -1945,7 +1945,7 @@ UtilityTupleDescriptor(Node *parsetree)
 				if (Gp_role != GP_ROLE_RETRIEVE)
 					elog(ERROR, "RETRIEVE command can only run in retrieve mode");
 
-				SetGpToken(n->token, InvalidSession, GetUserId());
+				SetGpToken(n->token);
 				SetEndpointRole(EPR_RECEIVER);
 				AttachEndpoint();
 

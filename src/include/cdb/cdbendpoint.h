@@ -81,13 +81,6 @@ typedef struct EndpointDesc
 
 typedef EndpointDesc *Endpoint;
 
-typedef struct token
-{
-	int32		token;
-	int			session_id;
-	Oid			user_id;
-}	Token;
-
 /*
  * SharedTokenDesc is a entry to store the information of a token, includes:
  * token: token number
@@ -159,7 +152,7 @@ extern void ClearParallelCursorToken(int32 token);
 extern int32 parseToken(char *token);
 /* Need to pfree() the result */
 extern char *printToken(int32 token_id);
-extern void SetGpToken(int32 token, int session_id, Oid user_id);
+extern void SetGpToken(int32 token);
 extern void ClearGpToken(void);
 extern void SetEndpointRole(enum EndpointRole role);
 extern void ClearEndpointRole(void);
