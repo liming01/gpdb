@@ -1,0 +1,9 @@
+postgres_fdw and gp2gp
+
+The postgres_fdw module provides the foreign-data wrapper postgres_fdw, which
+can be used to access data stored in external PostgreSQL servers.
+
+gp2gp, based on postgres_fdw, provides the foreign-data wrapper which can be
+used to access data from parallel segments of external Greenplum servers.
+
+reference: https://github.com/greenplum-db/gpdb/wiki/Greenplum-to-Greenplum
