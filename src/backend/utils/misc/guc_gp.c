@@ -25,6 +25,7 @@
 #include "access/xlog_internal.h"
 #include "cdb/cdbappendonlyam.h"
 #include "cdb/cdbdisp.h"
+#include "cdb/cdbendpoint.h"
 #include "cdb/cdbhash.h"
 #include "cdb/cdbsreh.h"
 #include "cdb/cdbvars.h"

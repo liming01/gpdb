@@ -186,5 +186,6 @@ extern void RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest);
 extern DestReceiver *CreateEndpointReceiver(void);
 extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
 extern Datum gp_endpoints_status_info(PG_FUNCTION_ARGS);
+extern void assign_gp_endpoints_token_operation(const char *newval, void *extra);
 
 #endif   /* CDBENDPOINT_H */

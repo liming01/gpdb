@@ -44,7 +44,6 @@
 #include "port/atomics.h"
 #include "storage/procarray.h"
 
-#include "cdb/cdbendpoint.h"
 #include "cdb/cdbllize.h"
 #include "utils/faultinjector.h"
 #include "utils/guc.h"
@@ -1523,38 +1522,6 @@ assign_gp_write_shared_snapshot(bool newval, void *extra)
 			}
 
 			PopActiveSnapshot();
-		}
-	}
-}
-
-void
-assign_gp_endpoints_token_operation(const char *newval, void *extra)
-{
-	const char *token = newval+1;
-	int tokenid = atoi(token);
-
-	/* Maybe called in AtEOXact_GUC() to set to default value (i.e. empty string) */
-	if (newval == NULL || strlen(newval) == 0)
-		return;
-
-	if (tokenid != InvalidToken && Gp_role == GP_ROLE_EXECUTE && Gp_is_writer)
-	{
-		switch (newval[0])
-		{
-		case 'p':
-			/* Push endpoint */
-			AllocEndpointOfToken(tokenid);
-			break;
-		case 'f':
-			/* Free endpoint */
-			FreeEndpointOfToken(tokenid);
-			break;
-		case 'u':
-			/* Unset sender pid of endpoint */
-			UnsetSenderPidOfToken(tokenid);
-			break;
-		default:
-			elog(ERROR, "Failed to SET gp_endpoints_token_operation: %s", newval);
 		}
 	}
 }

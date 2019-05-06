@@ -638,6 +638,7 @@ apply_motion(PlannerInfo *root, Plan *plan, Query *query, int cursorOptions)
 		}
 
 		/* Use UNION RECEIVE.  Does not preserve ordering. */
+		/* PARALLEL CURSOR without sort clause has no motion between QD and QEs */
 		else if (!(cursorOptions & CURSOR_OPT_PARALLEL))
 			Insist(focusPlan(plan, false, false));
 	}
