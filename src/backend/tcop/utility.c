@@ -1949,7 +1949,7 @@ UtilityTupleDescriptor(Node *parsetree)
 				SetEndpointRole(EPR_RECEIVER);
 				AttachEndpoint();
 
-				return CreateTupleDescCopy(ResultTupleDesc());
+				return CreateTupleDescCopy(TupleDescOfRetrieve());
 			}
 
 		default:

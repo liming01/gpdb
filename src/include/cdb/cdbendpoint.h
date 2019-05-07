@@ -14,7 +14,7 @@
 
 #define InvalidToken (-1)
 #define InvalidSession (-1)
-#define DummyToken          (0)   /* For fault injection */
+#define DummyToken			(0) /* For fault injection */
 
 #define TOKEN_NAME_FORMAT_STR "tk%010d"
 
@@ -87,8 +87,7 @@ typedef EndpointDesc *Endpoint;
  * session_id: which session created this parallel cursor
  * endpoint_cnt: how many endpoints are created.
  * all_seg: a flag to indicate if the endpoints are on all segments.
- * dbIds is a bitmap, it stores the dbids of every endpoint,
- * its size is 4906 bits(32X128).
+ * dbIds: a bitmap stores the dbids of every endpoint, size is 4906 bits(32X128).
  */
 #define MAX_NWORDS 128
 typedef struct sharedtokendesc
@@ -149,8 +148,9 @@ typedef struct
 
 extern int32 GetUniqueGpToken(void);
 extern void AddParallelCursorToken(int32 token, const char *name, int session_id, Oid user_id, bool all_seg, List *seg_list);
-extern void ClearParallelCursorToken(int32 token);
+extern void RemoveParallelCursorToken(int32 token);
 extern int32 parseToken(char *token);
+
 /* Need to pfree() the result */
 extern char *printToken(int32 token_id);
 extern void SetGpToken(int32 token);
@@ -165,22 +165,11 @@ extern void Token_ShmemInit(void);
 extern void Endpoint_ShmemInit(void);
 extern void AllocEndpointOfToken(int token);
 extern void FreeEndpointOfToken(int token);
-extern void UnsetSenderPidOfToken(int token);
-extern void UnsetSenderPid(void);
-extern void ResetEndpointRecvPid(volatile EndpointDesc * endPointDesc);
-extern void ResetEndpointSendPid(volatile EndpointDesc * endPointDesc);
-extern void ResetEndpointToken(volatile EndpointDesc * endPointDesc);
 extern bool FindEndpointTokenByUser(Oid user_id, const char *token_str);
-extern volatile EndpointDesc *FindEndpointByToken(int token);
+extern void UnsetSenderPidOfToken(int token);
 extern void AttachEndpoint(void);
 extern void DetachEndpoint(bool reset_pid);
-extern TupleDesc ResultTupleDesc(void);
-extern void SendTupdescToFIFO(TupleDesc tupdesc);
-extern void InitConn(void);
-extern void SendTupleSlot(TupleTableSlot *slot);
-extern TupleTableSlot *RecvTupleSlot(void);
-extern void FinishConn(void);
-extern void CloseConn(void);
+extern TupleDesc TupleDescOfRetrieve(void);
 extern void AbortEndpoint(void);
 extern List *GetContentIDsByToken(int token);
 extern void RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest);

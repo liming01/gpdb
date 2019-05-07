@@ -613,7 +613,7 @@ PortalDrop(Portal portal, bool isTopCommit)
 	/* Clear token if it is a parallel cursor */
 	if (portal->parallel_cursor_token != InvalidToken)
 	{
-		ClearParallelCursorToken(portal->parallel_cursor_token);
+		RemoveParallelCursorToken(portal->parallel_cursor_token);
 		portal->parallel_cursor_token = InvalidToken;
 	}
 

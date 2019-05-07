@@ -375,7 +375,7 @@ PerformPortalClose(const char *name)
 	 */
 	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
 	{
-		ClearParallelCursorToken(portal->parallel_cursor_token);
+		RemoveParallelCursorToken(portal->parallel_cursor_token);
 		portal->parallel_cursor_token = InvalidToken;
 	}
 }
