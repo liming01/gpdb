@@ -807,7 +807,7 @@ ClearParallelCursorToken(int32 token)
 					{
 						seg_list = lappend_int(seg_list, dbid_to_contentid(x));
 					}
-					Assert(length(seg_list) == SharedTokens[i].endpoint_cnt);
+					Assert(seg_list->length == SharedTokens[i].endpoint_cnt);
 				}
 			}
 
@@ -1756,7 +1756,7 @@ GetContentIDsByToken(int token)
 				{
 					l = lappend_int(l, dbid_to_contentid(x));
 				}
-				Assert(length(l) == SharedTokens[i].endpoint_cnt);
+				Assert(l->length == SharedTokens[i].endpoint_cnt);
 				break;
 			}
 		}
