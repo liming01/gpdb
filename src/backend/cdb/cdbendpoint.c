@@ -384,27 +384,121 @@ find_endpoint_status(EndpointStatus * status_array, int number,
 	return NULL;
 }
 
+#define BITS_PER_BITMAPWORD 32
+#define WORDNUM(x)	((x) / BITS_PER_BITMAPWORD)
+#define BITNUM(x)	((x) % BITS_PER_BITMAPWORD)
+
+/*
+ * If the dbid is in this bitmap.
+ */
 static bool
-is_dbid_in_token(int16 dbid, SharedToken token)
+dbid_in_bitmap(int32* bitmap, int16 dbid)
 {
-	bool		find = false;
+	if (dbid < 0 || dbid >= sizeof(int32)*8*MAX_NWORDS)
+		elog(ERROR, "invalid dbid");
+	if (bitmap == NULL)
+		elog(ERROR, "invalid dbid bitmap");
 
-	if (token->all_seg)
+	if ((bitmap[WORDNUM(dbid)] & ((uint32) 1 << BITNUM(dbid))) != 0)
 		return true;
-
-	for (int i = 0; i < token->endpoint_cnt; i++)
-	{
-		if (token->dbIds[i] == dbid)
-		{
-			find = true;
-			break;
-		}
-	}
-	return find;
+	return false;
 }
 
 /*
- * Obtain the contentid of a segment by given dbid
+ * Add a dbid into bitmap.
+ */
+static void
+add_dbid_into_bitmap(int32* bitmap, int16 dbid)
+{
+	if (dbid < 0 || dbid >= sizeof(int32)*8*MAX_NWORDS)
+		elog(ERROR, "invalid dbid");
+	if (bitmap == NULL)
+		elog(ERROR, "invalid dbid bitmap");
+
+	bitmap[WORDNUM(dbid)] |= ((uint32) 1 << BITNUM(dbid));
+}
+
+static const uint8 rightmost_one_pos[256] = {
+	0, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	7, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0
+};
+
+/*
+ * Get the next dbid from bitmap.
+ *  The typical pattern is to iterate the dbid bitmap
+ *
+ *		x = -1;
+ *		while ((x = get_next_dbid_from_bitmap(bitmap, x)) >= 0)
+ *			process member x;
+ *	This implementation is copied from bitmapset.c
+ */
+static int
+get_next_dbid_from_bitmap(int32* bitmap, int prevbit)
+{
+	int			wordnum;
+	uint32		mask;
+
+	if (bitmap == NULL)
+		elog(ERROR, "invalid dbid bitmap");
+
+	prevbit++;
+	mask = (~(uint32) 0) << BITNUM(prevbit);
+	for (wordnum = WORDNUM(prevbit); wordnum < MAX_NWORDS; wordnum++)
+	{
+		uint32	w = bitmap[wordnum];
+
+		/* ignore bits before prevbit */
+		w &= mask;
+
+		if (w != 0)
+		{
+			int result;
+
+			result = wordnum * BITS_PER_BITMAPWORD;
+			while ((w & 255) == 0)
+			{
+				w >>= 8;
+				result += 8;
+			}
+			result += rightmost_one_pos[w & 255];
+			return result;
+		}
+
+		/* in subsequent words, consider all bits */
+		mask = (~(bitmapword) 0);
+	}
+	return -2;
+}
+
+/*
+ * End-points with same token can exist in some or all segments.
+ * This function is to determine if the end-point exists in the segment(dbid).
+ */
+static bool
+dbid_has_token(SharedToken token, int16 dbid)
+{
+	if (token->all_seg)
+		return true;
+
+	return dbid_in_bitmap(token->dbIds, dbid);
+}
+
+/*
+ * Obtain the content-id of a segment by given dbid
  */
 static int16
 dbid_to_contentid(int16 dbid)
@@ -519,7 +613,7 @@ set_sender_pid()
 }
 
 static void
-			startup_endpoint_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
+startup_endpoint_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
 {
 	set_sender_pid();
 	InitConn();
@@ -568,10 +662,13 @@ retrieve_cancel_action(void)
 	SpinLockRelease(shared_end_points_lock);
 }
 
+/*
+ * Return true if this end-point exists on QD.
+ */
 static bool
-is_endpoint_on_qd(SharedToken token)
+endpoint_on_qd(SharedToken token)
 {
-	return ((token->endpoint_cnt == 1) && (token->dbIds[0] == MASTER_DBID));
+	return (token->endpoint_cnt == 1) && (dbid_has_token(token, MASTER_DBID));
 }
 
 int32
@@ -654,14 +751,15 @@ AddParallelCursorToken(int32 token, const char *name, int session_id, Oid user_i
 			if (seg_list != NIL)
 			{
 				ListCell   *l;
-				int			idx = 0;
 
 				foreach(l, seg_list)
 				{
 					int16		contentid = lfirst_int(l);
 
-					SharedTokens[i].dbIds[idx] = contentid_get_dbid(contentid, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
-					idx++;
+					add_dbid_into_bitmap(SharedTokens[i].dbIds,
+									contentid_get_dbid(contentid,
+									GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY,
+									false));
 					SharedTokens[i].endpoint_cnt++;
 				}
 			}
@@ -696,7 +794,7 @@ ClearParallelCursorToken(int32 token)
 		if (SharedTokens[i].token == token)
 		{
 			found = true;
-			if (is_endpoint_on_qd(&SharedTokens[i]))
+			if (endpoint_on_qd(&SharedTokens[i]))
 			{
 				endpoint_on_QD = true;
 			}
@@ -704,12 +802,12 @@ ClearParallelCursorToken(int32 token)
 			{
 				if (!SharedTokens[i].all_seg)
 				{
-					for (int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
+					int16 x = -1;
+					while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
 					{
-						int			dbid = SharedTokens[i].dbIds[j];
-
-						seg_list = lappend_int(seg_list, dbid_to_contentid(dbid));
+						seg_list = lappend_int(seg_list, dbid_to_contentid(x));
 					}
+					Assert(length(seg_list) == SharedTokens[i].endpoint_cnt);
 				}
 			}
 
@@ -721,7 +819,7 @@ ClearParallelCursorToken(int32 token)
 			SharedTokens[i].user_id = InvalidOid;
 			SharedTokens[i].endpoint_cnt = 0;
 			SharedTokens[i].all_seg = false;
-			memset(SharedTokens[i].dbIds, 0, sizeof(int16) * SHAREDTOKEN_DBID_NUM);
+			memset(SharedTokens[i].dbIds, 0, sizeof(int32) * MAX_NWORDS);
 			break;
 		}
 	}
@@ -1653,8 +1751,12 @@ GetContentIDsByToken(int token)
 			}
 			else
 			{
-				for (int j = 0; j < SharedTokens[i].endpoint_cnt; j++)
-					l = lappend_int(l, dbid_to_contentid(SharedTokens[i].dbIds[j]));
+				int16 x = -1;
+				while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
+				{
+					l = lappend_int(l, dbid_to_contentid(x));
+				}
+				Assert(length(l) == SharedTokens[i].endpoint_cnt);
 				break;
 			}
 		}
@@ -1897,7 +1999,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		if (entry->token != InvalidToken
 			&& (superuser() || entry->user_id == GetUserId()))
 		{
-			if (is_endpoint_on_qd(entry))
+			if (endpoint_on_qd(entry))
 			{
 				/* one end-point on master */
 				dbinfo = dbid_get_dbinfo(MASTER_DBID);
@@ -1971,7 +2073,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				/* end-points on segments */
 				while ((mystatus->curSegIdx < mystatus->segment_num) &&
 				 ((mystatus->seg_db_list[mystatus->curSegIdx].role != 'p') ||
-				  !is_dbid_in_token(mystatus->seg_db_list[mystatus->curSegIdx].dbid, entry)))
+				  !dbid_has_token(entry, mystatus->seg_db_list[mystatus->curSegIdx].dbid)))
 				{
 					mystatus->curSegIdx++;
 				}

@@ -16,10 +16,9 @@
 #define InvalidSession (-1)
 #define DummyToken          (0)   /* For fault injection */
 
-#define SHAREDTOKEN_DBID_NUM 64
 #define TOKEN_NAME_FORMAT_STR "tk%010d"
 
-#define MAX_ENDPOINT_SIZE	1000
+#define MAX_ENDPOINT_SIZE	1024
 #define MAX_FIFO_NAME_SIZE	100
 #define POLL_FIFO_TIMEOUT	50
 #define FIFO_DIRECTORY "/tmp/gp2gp_fifos"
@@ -88,8 +87,10 @@ typedef EndpointDesc *Endpoint;
  * session_id: which session created this parallel cursor
  * endpoint_cnt: how many endpoints are created.
  * all_seg: a flag to indicate if the endpoints are on all segments.
- * dbIds is a int16 array, It stores the dbids of every endpoint
+ * dbIds is a bitmap, it stores the dbids of every endpoint,
+ * its size is 4906 bits(32X128).
  */
+#define MAX_NWORDS 128
 typedef struct sharedtokendesc
 {
 	int32		token;
@@ -98,7 +99,7 @@ typedef struct sharedtokendesc
 	int			endpoint_cnt;
 	Oid			user_id;
 	bool		all_seg;
-	int16		dbIds[SHAREDTOKEN_DBID_NUM];
+	int32		dbIds[MAX_NWORDS];
 }	SharedTokenDesc;
 
 typedef SharedTokenDesc *SharedToken;
