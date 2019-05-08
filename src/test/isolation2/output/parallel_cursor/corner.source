@@ -1780,3 +1780,44 @@ ROLLBACK
  t               
 (1 row)
 
+-- Test22: parallel cursor and savepoint
+1: BEGIN;
+BEGIN
+1: SAVEPOINT s1;
+SAVEPOINT
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+DECLARE
+1:  SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token        | status 
+--------------+--------
+ token_id1 | INIT   
+ token_id1 | INIT   
+ token_id1 | INIT   
+(3 rows)
+1: ROLLBACK TO s1;
+ROLLBACK
+1: SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token | status 
+-------+--------
+(0 rows)
+
+1: ROLLBACK;
+ROLLBACK
+
+-- Test23: parallel cursor and savepoint
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+DECLARE
+1: SAVEPOINT s1;
+SAVEPOINT
+1: CLOSE c1;
+CLOSE
+1: ROLLBACK TO s1;
+ROLLBACK
+1: SELECT * FROM pg_cursors WHERE name='c1';
+ name | statement | is_holdable | is_binary | is_scrollable | is_parallel | creation_time 
+------+-----------+-------------+-----------+---------------+-------------+---------------
+(0 rows)
+1: COMMIT;
+COMMIT

@@ -356,3 +356,21 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: ROLLBACK;
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
 
+-- Test22: parallel cursor and savepoint
+1: BEGIN;
+1: SAVEPOINT s1;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: ROLLBACK TO s1;
+1: SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+
+1: ROLLBACK;
+
+-- Test23: parallel cursor and savepoint
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+1: SAVEPOINT s1;
+1: CLOSE c1;
+1: ROLLBACK TO s1;
+1: SELECT * FROM pg_cursors WHERE name='c1';
+1: COMMIT;
