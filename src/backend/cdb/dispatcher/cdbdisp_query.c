@@ -1093,7 +1093,8 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 	nSlices = fillSliceVector(sliceTbl, rootIdx, sliceVector, nTotalSlices);
 
 	pQueryParms = cdbdisp_buildPlanQueryParms(queryDesc, planRequiresTxn);
-	pQueryParms->token = portal->parallel_cursor_token;
+	if (portal != NULL)
+		pQueryParms->token = portal->parallel_cursor_token;
 	pQueryParms->sessionId = gp_session_id;
 	queryText = buildGpQueryString(pQueryParms, &queryTextLength);
 
