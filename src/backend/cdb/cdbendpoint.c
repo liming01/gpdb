@@ -963,7 +963,6 @@ send_tuple_slot(TupleTableSlot *slot)
 
 	MemTuple	mtup = ExecFetchSlotMemTuple(slot);
 
-	Assert(is_memtuple(mtup));
 	tupleSize = memtuple_get_size(mtup);
 	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
 	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) &tupleSize, sizeof(int));
@@ -1266,7 +1265,7 @@ SetGpToken(int32 token)
 void
 ClearGpToken(void)
 {
-	ep_log(LOG, "endpoint token " TOKEN_NAME_FORMAT_STR " is unset", Gp_token);
+	ep_log(DEBUG3, "endpoint token " TOKEN_NAME_FORMAT_STR " is unset", Gp_token);
 	Gp_token = InvalidToken;
 }
 
@@ -1280,7 +1279,7 @@ SetEndpointRole(enum EndpointRole role)
 		ep_log(ERROR, "endpoint role %s is already set",
 			   endpoint_role_to_string(Gp_endpoint_role));
 
-	ep_log(LOG, "set endpoint role to %s", endpoint_role_to_string(role));
+	ep_log(DEBUG3, "set endpoint role to %s", endpoint_role_to_string(role));
 
 	Gp_endpoint_role = role;
 }
@@ -1291,7 +1290,7 @@ SetEndpointRole(enum EndpointRole role)
 void
 ClearEndpointRole(void)
 {
-	ep_log(LOG, "unset endpoint role %s", endpoint_role_to_string(Gp_endpoint_role));
+	ep_log(DEBUG3, "unset endpoint role %s", endpoint_role_to_string(Gp_endpoint_role));
 
 	Gp_endpoint_role = EPR_NONE;
 }
