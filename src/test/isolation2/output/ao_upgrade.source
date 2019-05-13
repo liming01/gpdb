@@ -22,7 +22,11 @@ CREATE
 CREATE CAST (bytea AS numeric) WITHOUT FUNCTION;
 CREATE
 
-INSERT INTO ao_upgrade_test VALUES (1, '\x000003000c007a0d'::bytea::numeric),	-- 12.345 (2, '\x00000000'::bytea::numeric),			-- 0 (3, '\x000003400c007a0d'::bytea::numeric),	-- -12.345 (4, '\x010000000100'::bytea::numeric),		-- 10000 (5, '\xfeff0500e803'::bytea::numeric),		-- 0.00001 (6, '\xfeff0900e803'::bytea::numeric),		-- 0.000010000 (7, '\x190000000100'::bytea::numeric),		-- 1e100 (8, '\x010000002400400b'::bytea::numeric),	-- 9! (362880) (9, '\x000000c0'::bytea::numeric);			-- NaN INSERT INTO aocs_upgrade_test VALUES (1, '\x000003000c007a0d'::bytea::numeric),	-- 12.345 (2, '\x00000000'::bytea::numeric),			-- 0 (3, '\x000003400c007a0d'::bytea::numeric),	-- -12.345 (4, '\x010000000100'::bytea::numeric),		-- 10000 (5, '\xfeff0500e803'::bytea::numeric),		-- 0.00001 (6, '\xfeff0900e803'::bytea::numeric),		-- 0.000010000 (7, '\x190000000100'::bytea::numeric),		-- 1e100 (8, '\x010000002400400b'::bytea::numeric),	-- 9! (362880) (9, '\x000000c0'::bytea::numeric);			-- NaN 
+INSERT INTO ao_upgrade_test VALUES (1, '\x000003000c007a0d'::bytea::numeric),	-- 12.345 (2, '\x00000000'::bytea::numeric),			-- 0 (3, '\x000003400c007a0d'::bytea::numeric),	-- -12.345 (4, '\x010000000100'::bytea::numeric),		-- 10000 (5, '\xfeff0500e803'::bytea::numeric),		-- 0.00001 (6, '\xfeff0900e803'::bytea::numeric),		-- 0.000010000 (7, '\x190000000100'::bytea::numeric),		-- 1e100 (8, '\x010000002400400b'::bytea::numeric),	-- 9! (362880) (9, '\x000000c0'::bytea::numeric);			-- NaN
+INSERT 9
+INSERT INTO aocs_upgrade_test VALUES (1, '\x000003000c007a0d'::bytea::numeric),	-- 12.345 (2, '\x00000000'::bytea::numeric),			-- 0 (3, '\x000003400c007a0d'::bytea::numeric),	-- -12.345 (4, '\x010000000100'::bytea::numeric),		-- 10000 (5, '\xfeff0500e803'::bytea::numeric),		-- 0.00001 (6, '\xfeff0900e803'::bytea::numeric),		-- 0.000010000 (7, '\x190000000100'::bytea::numeric),		-- 1e100 (8, '\x010000002400400b'::bytea::numeric),	-- 9! (362880) (9, '\x000000c0'::bytea::numeric);			-- NaN
+INSERT 9
+
 -- For the RLE test case, insert a bunch of identical numerics so they will be
 -- run-length compressed.
 INSERT INTO aocs_rle_upgrade_test (SELECT a, '\x010000002400400b'::bytea::numeric FROM generate_series(1, 10) a);
