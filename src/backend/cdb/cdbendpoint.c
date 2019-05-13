@@ -178,6 +178,7 @@ static void
 create_and_connect_fifo(void)
 {
 	char		fifo_name[MAX_FIFO_NAME_SIZE];
+	char	   *fifo_path;
 	int			flags;
 
 	check_token_valid();
@@ -187,18 +188,20 @@ create_and_connect_fifo(void)
 
 	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
 
-	if ((mkdir(FIFO_DIRECTORY, S_IRWXU) < 0 && errno != EEXIST) || (mkfifo(fifo_name, 0666) < 0))
-		ep_log(ERROR, "failed to create FIFO %s: %m", fifo_name);
+	fifo_path = GetTempFilePath(fifo_name, true);
+
+	if (mkfifo(fifo_path, 0666) < 0)
+		ep_log(ERROR, "failed to create FIFO %s: %m", fifo_path);
 	else
 		RetrieveFifoConns[CurrentRetrieveToken]->created = true;
 
 	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0)
 		return;
 
-	if ((RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
+	if ((RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_path, O_RDWR, 0666)) < 0)
 	{
 		close_endpoint_connection();
-		ep_log(ERROR, "failed to open FIFO %s for writing: %m", fifo_name);
+		ep_log(ERROR, "failed to open FIFO %s for writing: %m", fifo_path);
 	}
 
 	flags = fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_GETFL);
@@ -206,7 +209,7 @@ create_and_connect_fifo(void)
 	if (flags < 0 || fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
 	{
 		close_endpoint_connection();
-		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_name);
+		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_path);
 	}
 }
 
@@ -367,6 +370,7 @@ static void
 init_conn_for_receiver(void)
 {
 	char		fifo_name[MAX_FIFO_NAME_SIZE];
+	char	   *fifo_path;
 	int			flags;
 
 	check_token_valid();
@@ -374,13 +378,14 @@ init_conn_for_receiver(void)
 	make_fifo_conn();
 
 	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
+	fifo_path = GetTempFilePath(fifo_name, false);
 
 	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0)
 		return;
 
-	if ((RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_name, O_RDWR, 0666)) < 0)
+	if ((RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_path, O_RDWR, 0666)) < 0)
 	{
-		ep_log(ERROR, "failed to open FIFO %s for reading: %m", fifo_name);
+		ep_log(ERROR, "failed to open FIFO %s for reading: %m", fifo_path);
 		close_endpoint_connection();
 	}
 
@@ -389,7 +394,7 @@ init_conn_for_receiver(void)
 	if (flags < 0 || fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
 	{
 		close_endpoint_connection();
-		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_name);
+		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_path);
 	}
 
 	RetrieveFifoConns[CurrentRetrieveToken]->created = true;
@@ -399,21 +404,23 @@ static void
 sender_close(void)
 {
 	char		fifo_name[MAX_FIFO_NAME_SIZE];
+	char	   *fifo_path;
 
 	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
+	fifo_path = GetTempFilePath(fifo_name, false);
 
 	Assert(RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0);
 
 	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0 && close(RetrieveFifoConns[CurrentRetrieveToken]->fifo) < 0)
-		ep_log(ERROR, "failed to close FIFO %s: %m", fifo_name);
+		ep_log(ERROR, "failed to close FIFO %s: %m", fifo_path);
 
 	RetrieveFifoConns[CurrentRetrieveToken]->fifo = -1;
 
 	if (!RetrieveFifoConns[CurrentRetrieveToken]->created)
 		return;
 
-	if (unlink(fifo_name) < 0)
-		ep_log(ERROR, "failed to unlink FIFO %s: %m", fifo_name);
+	if (unlink(fifo_path) < 0)
+		ep_log(ERROR, "failed to unlink FIFO %s: %m", fifo_path);
 
 	RetrieveFifoConns[CurrentRetrieveToken]->created = false;
 }

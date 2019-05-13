@@ -168,6 +168,7 @@ installcheck-gpcheckcat:
 	gpcheckcat -A
 $(call recurse,installcheck-world,gpcontrib/gp_replica_check,installcheck)
 $(call recurse,installcheck-world,contrib/pg_upgrade,check)
+$(call recurse,installcheck-world,src/test/isolation2,installcheck-gp2gp)
 
 # Run mock tests, that don't require a running server. Arguably these should
 # be part of [install]check-world, but we treat them more like part of

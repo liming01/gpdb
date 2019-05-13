@@ -21,8 +21,7 @@
 #define MAX_ENDPOINT_SIZE	1024
 #define MAX_FIFO_NAME_SIZE	100
 #define POLL_FIFO_TIMEOUT	50
-#define FIFO_DIRECTORY "/tmp/gp2gp_fifos"
-#define FIFO_NAME_PATTERN "/tmp/gp2gp_fifos/%d_%d"
+#define FIFO_NAME_PATTERN "gp2gp_%d_%d"
 #define SHMEM_TOKEN "SharedMemoryToken"
 #define SHMEM_TOKEN_SLOCK "SharedMemoryTokenSlock"
 #define SHMEM_END_POINT "SharedMemoryEndpoint"
