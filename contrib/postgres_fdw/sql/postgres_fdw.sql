@@ -2,6 +2,8 @@
 -- create FDW objects
 -- ===================================================================
 
+SET optimizer=off;
+
 CREATE EXTENSION postgres_fdw;
 
 CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw;

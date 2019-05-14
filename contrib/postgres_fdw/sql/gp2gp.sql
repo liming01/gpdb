@@ -9,6 +9,8 @@ DROP OPERATOR ===(int, int) CASCADE;
 DROP TABLE loc1;
 -- end_ignore
 
+SET optimizer=off;
+
 CREATE EXTENSION postgres_fdw;
 
 CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw

@@ -1,6 +1,7 @@
 -- ===================================================================
 -- create FDW objects
 -- ===================================================================
+SET optimizer=off;
 CREATE EXTENSION postgres_fdw;
 CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw;
 CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw
@@ -204,7 +205,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET
                Output: c1, c2, c3, c4, c5, c6, c7, c8
                Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1"
  Optimizer: Postgres query optimizer
-(9 rows)
+ Settings: optimizer=off
+(10 rows)
 
 SELECT * FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
  c1  | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
@@ -234,7 +236,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT t1 FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSE
                Output: t1.*, c3, c1
                Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1"
  Optimizer: Postgres query optimizer
-(9 rows)
+ Settings: optimizer=off
+(10 rows)
 
 SELECT t1 FROM ft1 t1 ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
                                              t1                                             
@@ -265,7 +268,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE ((c7 >= '1'::bpchar)) AND (("C 1" = 101)) AND ((c6 = '1'::text))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
  c1  | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
@@ -283,7 +287,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;
          Output: c1, c2, c3, c4, c5, c6, c7, c8, t1.*
          Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 101)) FOR UPDATE
  Optimizer: Postgres query optimizer
-(6 rows)
+ Settings: optimizer=off
+(7 rows)
 
 SELECT * FROM ft1 t1 WHERE c1 = 101 FOR UPDATE;
  c1  | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
@@ -300,7 +305,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;
          Output: c1, c2, c3, c4, c5, c6, c7, c8, t1.*
          Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 102)) FOR SHARE
  Optimizer: Postgres query optimizer
-(6 rows)
+ Settings: optimizer=off
+(7 rows)
 
 SELECT * FROM ft1 t1 WHERE c1 = 102 FOR SHARE;
  c1  | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
@@ -398,7 +404,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = postgres_fdw_a
    Filter: (t1.c1 = postgres_fdw_abs(t1.c2))
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1"
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 === t1.c2;
                                QUERY PLAN                                
@@ -408,7 +415,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 === t1.c2;
    Filter: (t1.c1 === t1.c2)
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1"
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = abs(t1.c2);
                                             QUERY PLAN                                             
@@ -417,7 +425,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = abs(t1.c2);
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = abs(c2)))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = t1.c2;
                                           QUERY PLAN                                          
@@ -426,7 +435,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = t1.c2;
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = c2))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 -- ===================================================================
 -- WHERE with remotely-executable conditions
@@ -438,7 +448,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 1;         -- 
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 100 AND t1.c2 = 0; -- BoolExpr
                                                   QUERY PLAN                                                  
@@ -447,7 +458,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 100 AND t1.c2 
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 100)) AND ((c2 = 0))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NULL;        -- NullTest Greenplum NOT NULL optimization
                 QUERY PLAN                
@@ -456,7 +468,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NULL;        -- 
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    One-Time Filter: false
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NOT NULL;    -- NullTest
                                              QUERY PLAN                                              
@@ -465,7 +478,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NOT NULL;    -- 
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" IS NOT NULL))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE round(abs(c1), 0) = 1; -- FuncExpr
                                                      QUERY PLAN                                                      
@@ -474,7 +488,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE round(abs(c1), 0) = 1;
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE ((round(abs("C 1"), 0) = 1::numeric))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = -c1;          -- OpExpr(l)
                                              QUERY PLAN                                              
@@ -483,7 +498,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = -c1;          -- 
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = (- "C 1")))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE 1 = c1!;           -- OpExpr(r)
                                                 QUERY PLAN                                                
@@ -492,7 +508,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE 1 = c1!;           -- 
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE ((1::numeric = ("C 1" !)))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE (c1 IS NOT NULL) IS DISTINCT FROM (c1 IS NOT NULL); -- DistinctExpr
                                                                  QUERY PLAN                                                                 
@@ -501,7 +518,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE (c1 IS NOT NULL) IS DI
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE ((("C 1" IS NOT NULL) IS DISTINCT FROM ("C 1" IS NOT NULL)))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = ANY(ARRAY[c2, 1, c1 + 0]); -- ScalarArrayOpExpr
                                                         QUERY PLAN                                                         
@@ -510,7 +528,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = ANY(ARRAY[c2, 1, 
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = ANY (ARRAY[c2, 1, ("C 1" + 0)])))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = (ARRAY[c1,c2,3])[1]; -- ArrayRef
                                                       QUERY PLAN                                                      
@@ -519,7 +538,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = (ARRAY[c1,c2,3])[
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = ((ARRAY["C 1", c2, 3])[1])))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  -- check special chars
                                                  QUERY PLAN                                                  
@@ -528,7 +548,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE ((c6 = E'foo''s\\bar'::text))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
                                QUERY PLAN                                
@@ -538,7 +559,8 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't 
    Filter: (t1.c8 = 'foo'::user_enum)
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1"
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 -- parameterized remote path (disabled because Greenplum chooses hash join)
 -- EXPLAIN (VERBOSE, COSTS false)
@@ -697,7 +719,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st1(1, 2);
                Output: t2.c3
                Remote SQL: SELECT c3 FROM "S 1"."T 1" WHERE (("C 1" = 2))
  Optimizer: Postgres query optimizer
-(11 rows)
+ Settings: optimizer=off
+(12 rows)
 
 EXECUTE st1(1, 1);
   c3   |  c3   
@@ -732,7 +755,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st2(10, 20);
                      Filter: (date(t2.c4) = '01-17-1970'::date)
                      Remote SQL: SELECT c3, c4 FROM "S 1"."T 1" WHERE (("C 1" > 10))
  Optimizer: Postgres query optimizer
-(16 rows)
+ Settings: optimizer=off
+(17 rows)
 
 EXECUTE st2(10, 20);
  c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
@@ -766,7 +790,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st3(10, 20);
                      Output: t2.c3
                      Remote SQL: SELECT c3 FROM "S 1"."T 1" WHERE (("C 1" > 10)) AND ((date(c5) = '1970-01-17'::date))
  Optimizer: Postgres query optimizer
-(15 rows)
+ Settings: optimizer=off
+(16 rows)
 
 EXECUTE st3(10, 20);
  c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
@@ -788,7 +813,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                          QUERY PLAN                                          
@@ -797,7 +823,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                          QUERY PLAN                                          
@@ -806,7 +833,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                          QUERY PLAN                                          
@@ -815,7 +843,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
                                          QUERY PLAN                                          
@@ -824,7 +853,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 -- once we try it enough times, should switch to generic plan
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
@@ -834,7 +864,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st4(1);
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = $1::integer))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 -- value of $1 should not be sent to remote
 PREPARE st5(user_enum,int) AS SELECT * FROM ft1 t1 WHERE c8 = $1 and c1 = $2;
@@ -846,7 +877,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
    Filter: (t1.c8 = 'foo'::user_enum)
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                          QUERY PLAN                                          
@@ -856,7 +888,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
    Filter: (t1.c8 = 'foo'::user_enum)
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                          QUERY PLAN                                          
@@ -866,7 +899,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
    Filter: (t1.c8 = 'foo'::user_enum)
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                          QUERY PLAN                                          
@@ -876,7 +910,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
    Filter: (t1.c8 = 'foo'::user_enum)
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                          QUERY PLAN                                          
@@ -886,7 +921,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
    Filter: (t1.c8 = 'foo'::user_enum)
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = 1))
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
                                               QUERY PLAN                                               
@@ -896,7 +932,8 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st5('foo', 1);
    Filter: (t1.c8 = $1)
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = $1::integer))
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 EXECUTE st5('foo', 1);
  c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
@@ -913,7 +950,8 @@ EXPLAIN (VERBOSE, COSTS OFF) EXECUTE st6;
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = c2))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 PREPARE st7 AS INSERT INTO ft1 (c1,c2,c3) VALUES (1001,101,'foo');
 EXPLAIN (VERBOSE, COSTS OFF) EXECUTE st7;
@@ -924,7 +962,8 @@ EXPLAIN (VERBOSE, COSTS OFF) EXECUTE st7;
    ->  Result
          Output: NULL::integer, 1001, 101, 'foo'::text, NULL::timestamp with time zone, NULL::timestamp without time zone, NULL::character varying, 'ft1       '::character(10), NULL::user_enum
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 ALTER TABLE "S 1"."T 1" RENAME TO "T 0";
 ALTER FOREIGN TABLE ft1 OPTIONS (SET table_name 'T 0');
@@ -935,7 +974,8 @@ EXPLAIN (VERBOSE, COSTS OFF) EXECUTE st6;
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 0" WHERE (("C 1" = c2))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 EXECUTE st6;
  c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
@@ -959,7 +999,8 @@ EXPLAIN (VERBOSE, COSTS OFF) EXECUTE st7;
    ->  Result
          Output: NULL::integer, 1001, 101, 'foo'::text, NULL::timestamp with time zone, NULL::timestamp without time zone, NULL::character varying, 'ft1       '::character(10), NULL::user_enum
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 ALTER TABLE "S 1"."T 0" RENAME TO "T 1";
 ALTER FOREIGN TABLE ft1 OPTIONS (SET table_name 'T 1');
@@ -983,7 +1024,8 @@ SELECT * FROM ft1 t1 WHERE t1.tableoid = 'pg_class'::regclass LIMIT 1;
          Filter: (t1.tableoid = 1259::oid)
          Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1"
  Optimizer: Postgres query optimizer
-(7 rows)
+ Settings: optimizer=off
+(8 rows)
 
 --  SELECT * FROM ft1 t1 WHERE t1.tableoid = 'ft1'::regclass LIMIT 1;
 EXPLAIN (VERBOSE, COSTS false)
@@ -996,7 +1038,8 @@ SELECT tableoid::regclass, * FROM ft1 t1 LIMIT 1;
          Output: (tableoid)::regclass, c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1"
  Optimizer: Postgres query optimizer
-(6 rows)
+ Settings: optimizer=off
+(7 rows)
 
 --  SELECT tableoid::regclass, * FROM ft1 t1 LIMIT 1;
 EXPLAIN (VERBOSE, COSTS false)
@@ -1007,7 +1050,8 @@ SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
    Output: c1, c2, c3, c4, c5, c6, c7, c8
    Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE ((ctid = '(0,2)'::tid))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 --  SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
 EXPLAIN (VERBOSE, COSTS false)
@@ -1020,7 +1064,8 @@ SELECT ctid, * FROM ft1 t1 LIMIT 1;
          Output: ctid, c1, c2, c3, c4, c5, c6, c7, c8
          Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8, ctid FROM "S 1"."T 1"
  Optimizer: Postgres query optimizer
-(6 rows)
+ Settings: optimizer=off
+(7 rows)
 
 --  SELECT ctid, * FROM ft1 t1 LIMIT 1;
 -- ===================================================================
@@ -1107,7 +1152,8 @@ explain (verbose, costs off) select * from ft3 where f1 = 'foo';
    Output: f1, f2, f3
    Remote SQL: SELECT f1, f2, f3 FROM public.loct3 WHERE ((f1 = 'foo'::text))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 explain (verbose, costs off) select * from ft3 where f1 COLLATE "C" = 'foo';
                                   QUERY PLAN                                  
@@ -1116,7 +1162,8 @@ explain (verbose, costs off) select * from ft3 where f1 COLLATE "C" = 'foo';
    Output: f1, f2, f3
    Remote SQL: SELECT f1, f2, f3 FROM public.loct3 WHERE ((f1 = 'foo'::text))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 explain (verbose, costs off) select * from ft3 where f2 = 'foo';
                                   QUERY PLAN                                  
@@ -1125,7 +1172,8 @@ explain (verbose, costs off) select * from ft3 where f2 = 'foo';
    Output: f1, f2, f3
    Remote SQL: SELECT f1, f2, f3 FROM public.loct3 WHERE ((f2 = 'foo'::text))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 explain (verbose, costs off) select * from ft3 where f3 = 'foo';
                                   QUERY PLAN                                  
@@ -1134,7 +1182,8 @@ explain (verbose, costs off) select * from ft3 where f3 = 'foo';
    Output: f1, f2, f3
    Remote SQL: SELECT f1, f2, f3 FROM public.loct3 WHERE ((f3 = 'foo'::text))
  Optimizer: Postgres query optimizer
-(4 rows)
+ Settings: optimizer=off
+(5 rows)
 
 -- should be sent to remote (disabled because Greenplum chooses hash join)
 -- explain (verbose, costs off) select * from ft3 f, loct3 l
@@ -1148,7 +1197,8 @@ explain (verbose, costs off) select * from ft3 where f1 COLLATE "POSIX" = 'foo';
    Filter: ((ft3.f1)::text = 'foo'::text)
    Remote SQL: SELECT f1, f2, f3 FROM public.loct3
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 explain (verbose, costs off) select * from ft3 where f1 = 'foo' COLLATE "C";
                     QUERY PLAN                     
@@ -1158,7 +1208,8 @@ explain (verbose, costs off) select * from ft3 where f1 = 'foo' COLLATE "C";
    Filter: (ft3.f1 = 'foo'::text COLLATE "C")
    Remote SQL: SELECT f1, f2, f3 FROM public.loct3
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 explain (verbose, costs off) select * from ft3 where f2 COLLATE "C" = 'foo';
                     QUERY PLAN                     
@@ -1168,7 +1219,8 @@ explain (verbose, costs off) select * from ft3 where f2 COLLATE "C" = 'foo';
    Filter: ((ft3.f2)::text = 'foo'::text)
    Remote SQL: SELECT f1, f2, f3 FROM public.loct3
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 explain (verbose, costs off) select * from ft3 where f2 = 'foo' COLLATE "C";
                     QUERY PLAN                     
@@ -1178,7 +1230,8 @@ explain (verbose, costs off) select * from ft3 where f2 = 'foo' COLLATE "C";
    Filter: (ft3.f2 = 'foo'::text COLLATE "C")
    Remote SQL: SELECT f1, f2, f3 FROM public.loct3
  Optimizer: Postgres query optimizer
-(5 rows)
+ Settings: optimizer=off
+(6 rows)
 
 explain (verbose, costs off) select * from ft3 f, loct3 l
   where f.f3 = l.f3 COLLATE "POSIX" and l.f1 = 'foo';
@@ -1198,7 +1251,8 @@ explain (verbose, costs off) select * from ft3 f, loct3 l
                      Output: l.f1, l.f2, l.f3
                      Index Cond: (l.f1 = 'foo'::text)
  Optimizer: Postgres query optimizer
-(14 rows)
+ Settings: optimizer=off
+(15 rows)
 
 -- ===================================================================
 -- test writable foreign table stuff
