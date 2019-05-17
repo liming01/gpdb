@@ -372,6 +372,7 @@ init_conn_for_receiver(void)
 	char		fifo_name[MAX_FIFO_NAME_SIZE];
 	char	   *fifo_path;
 	int			flags;
+	int			round = 0;
 
 	check_token_valid();
 
@@ -383,7 +384,20 @@ init_conn_for_receiver(void)
 	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0)
 		return;
 
-	if ((RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_path, O_RDWR, 0666)) < 0)
+	/* The sender might be not ready now, retry at here */
+	while (round < 8)
+	{
+		RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_path, O_RDWR, 0666);
+
+		if (RetrieveFifoConns[CurrentRetrieveToken]->fifo >= 0)
+			break;
+		else
+			pg_usleep(100000L); /* wait for 0.1 second */
+
+		round++;
+	}
+
+	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo < 0)
 	{
 		ep_log(ERROR, "failed to open FIFO %s for reading: %m", fifo_path);
 		close_endpoint_connection();
