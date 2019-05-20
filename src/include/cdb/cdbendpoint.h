@@ -62,6 +62,7 @@ enum RetrieveStatus
 typedef enum AttachStatus
 {
 	Status_NotAttached = 0,
+	Status_Prepared,
 	Status_Attached,
 	Status_Finished
 }	AttachStatus;
@@ -73,7 +74,7 @@ typedef struct EndpointDesc
 	pid_t		receiver_pid;
 	int64		token;
 	Latch		ack_done;
-	AttachStatus attached;
+	AttachStatus attach_status;
 	int			session_id;
 	Oid			user_id;
 	bool		empty;
@@ -122,7 +123,7 @@ typedef struct
 {
 	int64		token;
 	int			dbid;
-	AttachStatus attached;
+	AttachStatus attach_status;
 	pid_t		sender_pid;
 }	EndpointStatus;
 

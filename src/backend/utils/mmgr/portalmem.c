@@ -1255,7 +1255,8 @@ pg_cursor(PG_FUNCTION_ARGS)
 		values[2] = BoolGetDatum(portal->cursorOptions & CURSOR_OPT_HOLD);
 		values[3] = BoolGetDatum(portal->cursorOptions & CURSOR_OPT_BINARY);
 		values[4] = BoolGetDatum(portal->cursorOptions & CURSOR_OPT_SCROLL);
-		values[5] = BoolGetDatum(portal->cursorOptions & CURSOR_OPT_PARALLEL);
+		/* Note: CURSOR_OPT_PARALLEL is 0x0100, out of range of the bool (char) */
+		values[5] = BoolGetDatum((portal->cursorOptions & CURSOR_OPT_PARALLEL) != 0);
 		values[6] = TimestampTzGetDatum(portal->creation_time);
 
 		tuplestore_putvalues(tupstore, tupdesc, values, nulls);

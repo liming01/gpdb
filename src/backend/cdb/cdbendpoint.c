@@ -211,6 +211,8 @@ create_and_connect_fifo(void)
 		close_endpoint_connection();
 		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_path);
 	}
+
+	set_attach_status(Status_Prepared);
 }
 
 static void
@@ -607,14 +609,14 @@ static void
 set_attach_status(AttachStatus status)
 {
 	if (Gp_endpoint_role != EPR_SENDER)
-		ep_log(ERROR, "%s could not free endpoint", endpoint_role_to_string(Gp_endpoint_role));
+		ep_log(ERROR, "%s could not set endpoint", endpoint_role_to_string(Gp_endpoint_role));
 
 	if (!my_shared_endpoint && !my_shared_endpoint->empty)
 		ep_log(ERROR, "endpoint doesn't exist");
 
 	SpinLockAcquire(shared_end_points_lock);
 
-	my_shared_endpoint->attached = status;
+	my_shared_endpoint->attach_status = status;
 
 	SpinLockRelease(shared_end_points_lock);
 
@@ -661,7 +663,7 @@ set_sender_pid(void)
 		SharedEndpoints[i].token = Gp_token;
 		SharedEndpoints[i].session_id = gp_session_id;
 		SharedEndpoints[i].user_id = GetUserId();
-		SharedEndpoints[i].attached = Status_NotAttached;
+		SharedEndpoints[i].attach_status = Status_NotAttached;
 		SharedEndpoints[i].empty = false;
 		OwnLatch(&SharedEndpoints[i].ack_done);
 	}
@@ -775,7 +777,7 @@ retrieve_cancel_action(void)
 		if (SharedEndpoints[i].token == Gp_token && SharedEndpoints[i].receiver_pid == MyProcPid)
 		{
 			SharedEndpoints[i].receiver_pid = InvalidPid;
-			SharedEndpoints[i].attached = Status_NotAttached;
+			SharedEndpoints[i].attach_status = Status_NotAttached;
 			pg_signal_backend(SharedEndpoints[i].sender_pid, SIGINT, NULL);
 			break;
 		}
@@ -826,12 +828,12 @@ unset_endpoint_receiver_pid(volatile EndpointDesc * endPointDesc)
 		SpinLockAcquire(shared_end_points_lock);
 
 		receiver_pid = endPointDesc->receiver_pid;
-		is_attached = endPointDesc->attached == Status_Attached;
+		is_attached = endPointDesc->attach_status == Status_Attached;
 
 		if (receiver_pid == MyProcPid)
 		{
 			endPointDesc->receiver_pid = InvalidPid;
-			endPointDesc->attached = Status_NotAttached;
+			endPointDesc->attach_status = Status_NotAttached;
 		}
 
 		SpinLockRelease(shared_end_points_lock);
@@ -1418,7 +1420,7 @@ Endpoint_ShmemInit(void)
 			SharedEndpoints[i].token = InvalidToken;
 			SharedEndpoints[i].session_id = InvalidSession;
 			SharedEndpoints[i].user_id = InvalidOid;
-			SharedEndpoints[i].attached = Status_NotAttached;
+			SharedEndpoints[i].attach_status = Status_NotAttached;
 			SharedEndpoints[i].empty = true;
 
 			InitSharedLatch(&SharedEndpoints[i].ack_done);
@@ -1471,7 +1473,7 @@ AllocEndpointOfToken(int64 token)
 				SharedEndpoints[i].user_id = GetUserId();
 				SharedEndpoints[i].sender_pid = InvalidPid;
 				SharedEndpoints[i].receiver_pid = InvalidPid;
-				SharedEndpoints[i].attached = Status_NotAttached;
+				SharedEndpoints[i].attach_status = Status_NotAttached;
 				SharedEndpoints[i].empty = false;
 			}
 		}
@@ -1521,7 +1523,7 @@ AllocEndpointOfToken(int64 token)
 		SharedEndpoints[i].user_id = GetUserId();
 		SharedEndpoints[i].sender_pid = InvalidPid;
 		SharedEndpoints[i].receiver_pid = InvalidPid;
-		SharedEndpoints[i].attached = Status_NotAttached;
+		SharedEndpoints[i].attach_status = Status_NotAttached;
 		SharedEndpoints[i].empty = false;
 
 		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
@@ -1641,7 +1643,7 @@ AttachEndpoint(void)
 				break;
 			}
 
-			if (SharedEndpoints[i].attached == Status_Attached)
+			if (SharedEndpoints[i].attach_status == Status_Attached)
 			{
 				already_attached = true;
 				attached_pid = SharedEndpoints[i].receiver_pid;
@@ -1666,9 +1668,9 @@ AttachEndpoint(void)
 			}
 
 			/* Not set if Status_Finished */
-			if (SharedEndpoints[i].attached == Status_NotAttached)
+			if (SharedEndpoints[i].attach_status == Status_Prepared)
 			{
-				SharedEndpoints[i].attached = Status_Attached;
+				SharedEndpoints[i].attach_status = Status_Attached;
 			}
 			my_shared_endpoint = &SharedEndpoints[i];
 			break;
@@ -1762,11 +1764,11 @@ DetachEndpoint(bool reset_pid)
 	{
 		my_shared_endpoint->receiver_pid = InvalidPid;
 	}
-	/* Not set if Status_Finished */
 
-	if (my_shared_endpoint->attached == Status_Attached)
+	/* Don't set if Status_Finished */
+	if (my_shared_endpoint->attach_status == Status_Attached)
 	{
-		my_shared_endpoint->attached = Status_NotAttached;
+		my_shared_endpoint->attach_status = Status_Prepared;
 	}
 	ack_done = &my_shared_endpoint->ack_done;
 
@@ -2052,7 +2054,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		CdbPgResults cdb_pgresults = {NULL, 0};
 
-		CdbDispatchCommand("SELECT token,dbid,attached,senderpid FROM pg_catalog.gp_endpoints_status_info()",
+		CdbDispatchCommand("SELECT token,dbid,attach_status,senderpid FROM pg_catalog.gp_endpoints_status_info()",
 					  DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
 
 		if (cdb_pgresults.numResults == 0)
@@ -2083,7 +2085,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				{
 					mystatus->status[idx].token = parseToken(PQgetvalue(result, j, 0));
 					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 1));
-					mystatus->status[idx].attached = atoi(PQgetvalue(result, j, 2));
+					mystatus->status[idx].attach_status = atoi(PQgetvalue(result, j, 2));
 					mystatus->status[idx].sender_pid = atoi(PQgetvalue(result, j, 3));
 					idx++;
 				}
@@ -2124,7 +2126,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				{
 					mystatus->status[mystatus->status_num - cnt + idx].token = entry->token;
 					mystatus->status[mystatus->status_num - cnt + idx].dbid = MASTER_DBID;
-					mystatus->status[mystatus->status_num - cnt + idx].attached = entry->attached;
+					mystatus->status[mystatus->status_num - cnt + idx].attach_status = entry->attach_status;
 					mystatus->status[mystatus->status_num - cnt + idx].sender_pid = entry->sender_pid;
 					idx++;
 				}
@@ -2187,17 +2189,13 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				{
 					char	   *status = NULL;
 
-					switch (ep_status->attached)
+					switch (ep_status->attach_status)
 					{
 						case Status_NotAttached:
-							if (ep_status->sender_pid == InvalidPid)
-							{
-								status = GP_ENDPOINT_STATUS_INIT;
-							}
-							else
-							{
-								status = GP_ENDPOINT_STATUS_READY;
-							}
+							status = GP_ENDPOINT_STATUS_INIT;
+							break;
+						case Status_Prepared:
+							status = GP_ENDPOINT_STATUS_READY;
 							break;
 						case Status_Attached:
 							status = GP_ENDPOINT_STATUS_RETRIEVING;
@@ -2271,17 +2269,13 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					{
 						char	   *status = NULL;
 
-						switch (qe_status->attached)
+						switch (qe_status->attach_status)
 						{
 							case Status_NotAttached:
-								if (qe_status->sender_pid == InvalidPid)
-								{
-									status = GP_ENDPOINT_STATUS_INIT;
-								}
-								else
-								{
-									status = GP_ENDPOINT_STATUS_READY;
-								}
+								status = GP_ENDPOINT_STATUS_INIT;
+								break;
+							case Status_Prepared:
+								status = GP_ENDPOINT_STATUS_READY;
 								break;
 							case Status_Attached:
 								status = GP_ENDPOINT_STATUS_RETRIEVING;
@@ -2360,7 +2354,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 4, "receiverpid",
 						   INT4OID, -1, 0);
 
-		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "attached",
+		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "attach_status",
 						   INT4OID, -1, 0);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "dbid",
@@ -2409,7 +2403,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			nulls[2] = false;
 			values[3] = Int32GetDatum(entry->receiver_pid);
 			nulls[3] = false;
-			values[4] = Int32GetDatum(entry->attached);
+			values[4] = Int32GetDatum(entry->attach_status);
 			nulls[4] = false;
 			values[5] = Int32GetDatum(GpIdentity.dbid);
 			nulls[5] = false;

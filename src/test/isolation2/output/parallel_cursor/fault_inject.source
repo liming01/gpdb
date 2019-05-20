@@ -61,24 +61,24 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
- attached 
-----------
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT attach_status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
+ attach_status 
+---------------
 (0 rows)
 
- attached 
-----------
- 0        
+ attach_status 
+---------------
+ 1             
 (1 row)
 
- attached 
-----------
- 0        
+ attach_status 
+---------------
+ 1             
 (1 row)
 
- attached 
-----------
- 0        
+ attach_status 
+---------------
+ 1             
 (1 row)
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:949)
@@ -206,20 +206,20 @@ CLOSE
 (0 rows)
 -- check no token info on QE after close parallel cursor
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
- token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
--------+------------+-----------+-------------+----------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+---------------+------+-----------+--------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
--------+------------+-----------+-------------+----------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+---------------+------+-----------+--------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
--------+------------+-----------+-------------+----------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+---------------+------+-----------+--------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
--------+------------+-----------+-------------+----------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+---------------+------+-----------+--------
 (0 rows)
 
 1: ROLLBACK;
@@ -276,24 +276,24 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT attached FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
- attached 
-----------
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT attach_status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
+ attach_status 
+---------------
 (0 rows)
 
- attached 
-----------
- 0        
+ attach_status 
+---------------
+ 1             
 (1 row)
 
- attached 
-----------
- 0        
+ attach_status 
+---------------
+ 1             
 (1 row)
 
- attached 
-----------
- 0        
+ attach_status 
+---------------
+ 1             
 (1 row)
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE ALL FROM "@TOKEN2";
 ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c:948)
@@ -421,20 +421,20 @@ CLOSE
 (0 rows)
 -- check no token info on QE after close parallel cursor
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
- token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
--------+------------+-----------+-------------+----------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+---------------+------+-----------+--------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
--------+------------+-----------+-------------+----------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+---------------+------+-----------+--------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
--------+------------+-----------+-------------+----------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+---------------+------+-----------+--------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | attached | dbid | sessionid | userid 
--------+------------+-----------+-------------+----------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+---------------+------+-----------+--------
 (0 rows)
 
 1: ROLLBACK;
