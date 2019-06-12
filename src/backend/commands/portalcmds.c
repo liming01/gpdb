@@ -176,7 +176,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 		portal->parallel_cursor_token = GetUniqueGpToken();
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 		char		cmd[255];
-		sprintf(cmd, "SET gp_endpoints_token_operation='p%" PRId64 "'", portal->parallel_cursor_token);
+		sprintf(cmd, "SET gp_endpoints_token_operation='p" INT64_FORMAT "'", portal->parallel_cursor_token);
 
 		if (!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
 				stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))

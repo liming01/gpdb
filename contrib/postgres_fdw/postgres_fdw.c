@@ -2204,8 +2204,8 @@ fetch_more_data(ForeignScanState *node)
 		fetch_size = 100;
 
 		if (fsstate->is_parallel)
-			snprintf(sql, sizeof(sql), "RETRIEVE %d FROM \""TOKEN_NAME_FORMAT_STR"\"",
-				fetch_size, fsstate->token);
+			snprintf(sql, sizeof(sql), "RETRIEVE %d FROM \"%s\"",
+				fetch_size, printToken(fsstate->token));
 		else
 			snprintf(sql, sizeof(sql), "FETCH %d FROM c%u",
 				fetch_size, fsstate->cursor_number);
@@ -3131,7 +3131,7 @@ wait_endpoints_ready(ForeignScanState *node,
 	PGconn	   *executeConn = fsstate->conn;
 
 	initStringInfo(&buf);
-	appendStringInfo(&buf, "SELECT status FROM gp_endpoints WHERE token = '"TOKEN_NAME_FORMAT_STR"'", token);
+	appendStringInfo(&buf, "SELECT status FROM gp_endpoints WHERE token = '%s'", printToken(token));
 
 	conn = GetConnection(server, user, false);
 

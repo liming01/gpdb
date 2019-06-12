@@ -44,6 +44,8 @@
  * Static variables
  */
 
+static char tokenNameFmtStr[64]= "";
+
 /* Cache tuple descriptors for all tokens which have been retrieved in this
  * retrieve session */
 static FifoConnState RetrieveFifoConns[MAX_ENDPOINT_SIZE] = {};
@@ -159,7 +161,7 @@ check_end_point_allocated(void)
 			   endpoint_role_to_string(Gp_endpoint_role));
 
 	if (!my_shared_endpoint)
-		ep_log(ERROR, "endpoint for token " TOKEN_NAME_FORMAT_STR " is not allocated", Gp_token);
+		ep_log(ERROR, "endpoint for token %s is not allocated", printToken(Gp_token));
 
 	check_token_valid();
 
@@ -168,7 +170,7 @@ check_end_point_allocated(void)
 	if (my_shared_endpoint->token != Gp_token)
 	{
 		SpinLockRelease(shared_end_points_lock);
-		ep_log(ERROR, "endpoint for token " TOKEN_NAME_FORMAT_STR " is not allocated", Gp_token);
+		ep_log(ERROR, "endpoint for token %s is not allocated", printToken(Gp_token));
 	}
 
 	SpinLockRelease(shared_end_points_lock);
@@ -1128,7 +1130,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 					SharedTokens[i].endpoint_cnt++;
 				}
 			}
-			elog(LOG, "added a new token: %" PRId64 ", session id: %d, cursor name: %s, into shared memory",
+			elog(LOG, "added a new token: " INT64_FORMAT ", session id: %d, cursor name: %s, into shared memory",
 				 token, session_id, SharedTokens[i].cursor_name);
 			break;
 		}
@@ -1139,7 +1141,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 	/* no empty entry to save this token */
 	if (i == MAX_ENDPOINT_SIZE)
 	{
-		ep_log(ERROR, "can't add a new token " TOKEN_NAME_FORMAT_STR " into shared memory", token);
+		ep_log(ERROR, "can't add a new token %s into shared memory", printToken(token));
 	}
 
 }
@@ -1180,7 +1182,7 @@ RemoveParallelCursorToken(int64 token)
 				}
 			}
 
-			elog(LOG, "removed token: %" PRId64 ", session id: %d, cursor name: %s from shared memory",
+			elog(LOG, "removed token: " INT64_FORMAT ", session id: %d, cursor name: %s from shared memory",
 			 token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
 			SharedTokens[i].token = InvalidToken;
 			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
@@ -1207,7 +1209,7 @@ RemoveParallelCursorToken(int64 token)
 		{
 			char		cmd[255];
 
-			sprintf(cmd, "SET gp_endpoints_token_operation='f%" PRId64 "'", token);
+			sprintf(cmd, "SET gp_endpoints_token_operation='f" INT64_FORMAT "'", token);
 			if (seg_list != NIL)
 			{
 				/* dispatch to some segments. */
@@ -1221,7 +1223,16 @@ RemoveParallelCursorToken(int64 token)
 		}
 	}
 }
-
+char * 
+getTokenNameFormatStr(void)
+{
+	if (strlen(tokenNameFmtStr)==0)
+	{
+		char *p = INT64_FORMAT;
+		snprintf(tokenNameFmtStr, sizeof(tokenNameFmtStr), "tk%%020%s", p+1);
+	}
+	return tokenNameFmtStr;
+}
 /*
  * Convert the string tk0123456789 to int 0123456789
  */
@@ -1229,8 +1240,9 @@ int64
 parseToken(char *token)
 {
 	int64		token_id = InvalidToken;
+	char* tokenFmtStr = getTokenNameFormatStr();
 
-	if (token[0] == TOKEN_NAME_FORMAT_STR[0] && token[1] == TOKEN_NAME_FORMAT_STR[1])
+	if (token[0] == tokenFmtStr[0] && token[1] == tokenFmtStr[1])
 	{
 		token_id = atoll(token + 2);
 	}
@@ -1254,7 +1266,7 @@ printToken(int64 token_id)
 
 	char	   *res = palloc(23);		/* length 13 = 2('tk') + 20(length of max int64 value) + 1('\0') */
 
-	sprintf(res, TOKEN_NAME_FORMAT_STR, token_id);
+	sprintf(res, getTokenNameFormatStr(), token_id);
 	return res;
 }
 
@@ -1265,7 +1277,7 @@ void
 SetGpToken(int64 token)
 {
 	if (Gp_token != InvalidToken)
-		ep_log(ERROR, "endpoint token " TOKEN_NAME_FORMAT_STR " is already set", Gp_token);
+		ep_log(ERROR, "endpoint token %s is already set", printToken(Gp_token));
 
 	Gp_token = token;
 }
@@ -1276,7 +1288,7 @@ SetGpToken(int64 token)
 void
 ClearGpToken(void)
 {
-	ep_log(DEBUG3, "endpoint token " TOKEN_NAME_FORMAT_STR " is unset", Gp_token);
+	// ep_log(DEBUG3, "endpoint token %s is unset", printToken(Gp_token));
 	Gp_token = InvalidToken;
 }
 
@@ -1601,7 +1613,7 @@ UnsetSenderPidOfToken(int64 token)
 
 	if (!endPointDesc)
 	{
-		ep_log(ERROR, "no valid endpoint info for token %" PRId64 "", token);
+		ep_log(ERROR, "no valid endpoint info for token " INT64_FORMAT "", token);
 	}
 
 	unset_endpoint_sender_pid(endPointDesc);
@@ -1681,16 +1693,16 @@ AttachEndpoint(void)
 
 	if (is_invalid_sendpid)
 	{
-		ep_log(ERROR, "the PARALLEL CURSOR related to endpoint token " TOKEN_NAME_FORMAT_STR " is not EXECUTED",
-			   Gp_token);
+		ep_log(ERROR, "the PARALLEL CURSOR related to endpoint token %s is not EXECUTED",
+			   printToken(Gp_token));
 	}
 
 	if (already_attached || is_other_pid)
-		ep_log(ERROR, "endpoint " TOKEN_NAME_FORMAT_STR " is already attached by receiver(pid: %d)",
-			   Gp_token, attached_pid);
+		ep_log(ERROR, "endpoint %s is already attached by receiver(pid: %d)",
+			   printToken(Gp_token), attached_pid);
 
 	if (!my_shared_endpoint)
-		ep_log(ERROR, "failed to attach non-existing endpoint of token " TOKEN_NAME_FORMAT_STR, Gp_token);
+		ep_log(ERROR, "failed to attach non-existing endpoint of token %s", printToken(Gp_token));
 
 	StatusNeedAck = false;
 
@@ -1746,8 +1758,8 @@ DetachEndpoint(bool reset_pid)
 	PG_TRY();
 	{
 		if (my_shared_endpoint->token != Gp_token)
-			ep_log(LOG, "unmatched token, expected %" PRId64 " but it's %" PRId64 "",
-				   Gp_token, my_shared_endpoint->token);
+			ep_log(LOG, "unmatched token, expected %s but it's %s",
+				   printToken(Gp_token), printToken(my_shared_endpoint->token));
 
 		if (my_shared_endpoint->receiver_pid != MyProcPid)
 			ep_log(ERROR, "unmatched pid, expected %d but it's %d",

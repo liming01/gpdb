@@ -18,12 +18,10 @@
 #define InvalidSession (-1)
 #define DummyToken			(0) /* For fault injection */
 
-#define TOKEN_NAME_FORMAT_STR "tk%020" PRId64
-
 #define MAX_ENDPOINT_SIZE	1024
 #define MAX_FIFO_NAME_SIZE	100
 #define POLL_FIFO_TIMEOUT	50
-#define FIFO_NAME_PATTERN "gp2gp_%d_%" PRId64
+#define FIFO_NAME_PATTERN "gp2gp_%d_"INT64_FORMAT
 #define SHMEM_TOKEN "SharedMemoryToken"
 #define SHMEM_TOKEN_SLOCK "SharedMemoryTokenSlock"
 #define SHMEM_END_POINT "SharedMemoryEndpoint"
@@ -152,9 +150,10 @@ extern int64 GetUniqueGpToken(void);
 extern void AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_id, bool all_seg, List *seg_list);
 extern void RemoveParallelCursorToken(int64 token);
 extern int64 parseToken(char *token);
+extern char* getTokenNameFormatStr(void);
 
 /* Need to pfree() the result */
-extern char *printToken(int64 token_id);
+extern char* printToken(int64 token_id);
 extern void SetGpToken(int64 token);
 extern void ClearGpToken(void);
 extern void SetEndpointRole(enum EndpointRole role);

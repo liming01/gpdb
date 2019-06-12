@@ -1940,7 +1940,7 @@ UtilityTupleDescriptor(Node *parsetree)
 				RetrieveStmt *n = (RetrieveStmt *) parsetree;
 
 				if (n->token <= 0)
-					elog(ERROR, "Invalid token %" PRId64, n->token);
+					elog(ERROR, "Invalid token " INT64_FORMAT, n->token);
 
 				if (Gp_role != GP_ROLE_RETRIEVE)
 					elog(ERROR, "RETRIEVE command can only run in retrieve mode");
