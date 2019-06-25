@@ -173,6 +173,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
 	{
+		AttachOrCreateTokenInfoDSM();
 		portal->parallel_cursor_token = GetUniqueGpToken();
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 		char		cmd[255];
@@ -201,6 +202,12 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 									   GetUserId(),
 									   false,
 									   l);
+//				AddParallelCursorTokenDSM(portal->parallel_cursor_token,
+//									      portal->name,
+//									      gp_session_id,
+//									      GetUserId(),
+//									      false,
+//									      l);
 				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, l, NULL);
 			}
 			else
@@ -212,6 +219,12 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 									   GetUserId(),
 									   true,
 									   NULL);
+//				AddParallelCursorTokenDSM(portal->parallel_cursor_token,
+//									      portal->name,
+//									      gp_session_id,
+//									      GetUserId(),
+//									      true,
+//									      NULL);
 				/* Push token to all segments */
 				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
 			}
@@ -227,7 +240,14 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 								   GetUserId(),
 								   false,
 								   l);
+//			AddParallelCursorTokenDSM(portal->parallel_cursor_token,
+//								      portal->name,
+//								      gp_session_id,
+//								      GetUserId(),
+//								      false,
+//								      l);
 			AllocEndpointOfToken(portal->parallel_cursor_token);
+//			AllocEndpointOfTokenDSM(portal->parallel_cursor_token);
 		}
 	}
 

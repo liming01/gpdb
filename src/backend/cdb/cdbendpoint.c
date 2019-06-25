@@ -31,6 +31,7 @@
 #include "utils/elog.h"
 #include "utils/faultinjector.h"
 #include "utils/fmgroids.h"
+#include "storage/dsm.h"
 
 /*
  * Macros
@@ -109,6 +110,273 @@ static volatile EndpointDesc *find_endpoint_by_token(int64 token);
 static void send_tuple_desc_to_fifo(TupleDesc tupdesc);
 static void send_tuple_slot(TupleTableSlot *slot);
 static TupleTableSlot *receive_tuple_slot(void);
+
+
+static slock_t *shared_token_ctx_lock;
+static dsm_segment* token_info_dsm_seg; // TODO: on detach, clean it.
+static dsm_segment* endpoint_info_dsm_seg; // TODO: on detach, clean it.
+
+static dsm_segment * create_token_info_dsm();
+static dsm_segment * create_endpoint_info_dsm();
+
+void AttachOrCreateTokenInfoDSM(void) {
+    SpinLockAcquire(shared_token_ctx_lock);
+	if (Gp_role == GP_ROLE_DISPATCH) {
+        // Init token info dsm only on QD.
+        dsm_handle token_info_handle = tokenDSMCtx->token_info_handle;
+		if (token_info_handle == DSM_HANDLE_INVALID) {
+			token_info_dsm_seg = create_token_info_dsm();
+			tokenDSMCtx->token_info_handle = dsm_segment_handle(token_info_dsm_seg);
+            SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
+            int			i;
+            for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+            {
+                SharedTokens[i].token = InvalidToken;
+                memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
+                SharedTokens[i].session_id = InvalidSession;
+                SharedTokens[i].user_id = InvalidOid;
+            }
+		} else {
+		    // attach
+            token_info_dsm_seg = dsm_attach(token_info_handle);
+            if (token_info_dsm_seg == NULL)
+                ereport(ERROR,
+                        (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                         errmsg("could not map dynamic shared memory segment")));
+            SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
+		}
+
+	}
+    dsm_handle endpoint_info_handle = tokenDSMCtx->endpoint_info_handle;
+    if (endpoint_info_handle == DSM_HANDLE_INVALID) {
+        endpoint_info_dsm_seg = create_endpoint_info_dsm();
+        tokenDSMCtx->endpoint_info_handle = dsm_segment_handle(endpoint_info_dsm_seg);
+        SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
+        int			i;
+
+        for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+        {
+            SharedEndpoints[i].database_id = InvalidOid;
+            SharedEndpoints[i].sender_pid = InvalidPid;
+            SharedEndpoints[i].receiver_pid = InvalidPid;
+            SharedEndpoints[i].token = InvalidToken;
+            SharedEndpoints[i].session_id = InvalidSession;
+            SharedEndpoints[i].user_id = InvalidOid;
+            SharedEndpoints[i].attach_status = Status_NotAttached;
+            SharedEndpoints[i].empty = true;
+
+            InitSharedLatch(&SharedEndpoints[i].ack_done);
+        }
+    } else {
+        endpoint_info_dsm_seg = dsm_attach(endpoint_info_handle);
+        if (endpoint_info_dsm_seg == NULL)
+            ereport(ERROR,
+                    (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                        errmsg("could not map dynamic shared memory segment")));
+        SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
+    }
+    SpinLockRelease(shared_token_ctx_lock);
+}
+
+void
+AllocEndpointOfTokenDSM(int64 token)
+{
+	int			i;
+	int			found_idx = -1;
+	char	   *token_str;
+
+
+	if (token == InvalidToken)
+		ep_log(ERROR, "allocate endpoint of invalid token ID");
+
+	SpinLockAcquire(shared_end_points_lock);
+
+	/*
+	 * Presume that for any token, only one parallel cursor is activated at
+	 * that time.
+	 */
+	/* find the slot with the same token */
+	Endpoint sharedEndpoints = (Endpoint)dsm_segment_address(endpoint_info_dsm_seg);
+	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (sharedEndpoints[i].token == token)
+		{
+			found_idx = i;
+			break;
+		}
+	}
+
+	/* find a new slot */
+	for (i = 0; i < MAX_ENDPOINT_SIZE && found_idx == -1; ++i)
+	{
+		if (sharedEndpoints[i].empty)
+		{
+			found_idx = i;
+			break;
+		}
+	}
+
+	if (found_idx != -1)
+	{
+		sharedEndpoints[i].database_id = MyDatabaseId;
+		sharedEndpoints[i].token = token;
+		sharedEndpoints[i].session_id = gp_session_id;
+		sharedEndpoints[i].user_id = GetUserId();
+		sharedEndpoints[i].sender_pid = InvalidPid;
+		sharedEndpoints[i].receiver_pid = InvalidPid;
+		sharedEndpoints[i].attach_status = Status_NotAttached;
+		sharedEndpoints[i].empty = false;
+
+		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+
+		token_str = palloc0(21);		/* length 21 = length of max int64 value + '\0' */
+		pg_lltoa(token, token_str);
+		TokensInXact = lappend(TokensInXact, token_str);
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	SpinLockRelease(shared_end_points_lock);
+
+	if (found_idx == -1)
+		ep_log(ERROR, "failed to allocate endpoint");
+}
+
+void
+AddParallelCursorTokenDSM(int64 token, const char *name, int session_id, Oid user_id,
+					      bool all_seg, List *seg_list)
+{
+	int			i;
+
+	Assert(token != InvalidToken && name != NULL
+		   && session_id != InvalidSession);
+
+	SpinLockAcquire(shared_tokens_lock);
+	SharedToken sharedTokens = (SharedToken)dsm_segment_address(token_info_dsm_seg);
+	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (sharedTokens[i].token == InvalidToken)
+		{
+			strncpy(sharedTokens[i].cursor_name, name, strlen(name));
+			sharedTokens[i].session_id = session_id;
+			sharedTokens[i].token = token;
+			sharedTokens[i].user_id = user_id;
+			sharedTokens[i].all_seg = all_seg;
+			if (seg_list != NIL)
+			{
+				ListCell   *l;
+
+				foreach(l, seg_list)
+				{
+					int16		contentid = lfirst_int(l);
+
+					add_dbid_into_bitmap(sharedTokens[i].dbIds,
+										 contentid_get_dbid(contentid,
+															GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY,
+															false));
+					sharedTokens[i].endpoint_cnt++;
+				}
+			}
+			elog(LOG, "added a new token: " INT64_FORMAT ", session id: %d, cursor name: %s, into shared memory",
+				 token, session_id, sharedTokens[i].cursor_name);
+			break;
+		}
+	}
+
+	SpinLockRelease(shared_tokens_lock);
+
+	/* no empty entry to save this token */
+	if (i == MAX_ENDPOINT_SIZE)
+	{
+		ep_log(ERROR, "can't add a new token %s into shared memory", printToken(token));
+	}
+
+}
+
+/*
+ * Test code
+ */
+
+void Token_DSM_CTX_ShmemInit(void) {
+	bool is_shmem_ready;
+
+	tokenDSMCtx = (TokenDSMCtx *)
+		ShmemInitStruct(SHMEM_TOKENDSMCTX,
+						sizeof(TokenDSMCtx),
+						&is_shmem_ready);
+	Assert(is_shmem_ready || !IsUnderPostmaster);
+
+	if (!is_shmem_ready)
+	{
+		tokenDSMCtx->token_info_handle = DSM_HANDLE_INVALID;
+		tokenDSMCtx->endpoint_info_handle = DSM_HANDLE_INVALID;
+	}
+
+	shared_token_ctx_lock = (slock_t *)
+		ShmemInitStruct(SHMEM_TOKEN_CTX_SLOCK,
+						sizeof(slock_t),
+						&is_shmem_ready);
+
+	Assert(is_shmem_ready || !IsUnderPostmaster);
+
+	if (!is_shmem_ready)
+		SpinLockInit(shared_token_ctx_lock);
+
+    shared_tokens_lock = (slock_t *)
+        ShmemInitStruct(SHMEM_TOKEN_SLOCK,
+                        sizeof(slock_t),
+                        &is_shmem_ready);
+
+    Assert(is_shmem_ready || !IsUnderPostmaster);
+
+    if (!is_shmem_ready)
+        SpinLockInit(shared_tokens_lock);
+
+    shared_end_points_lock = (slock_t *)
+        ShmemInitStruct(SHMEM_END_POINT_SLOCK,
+                        sizeof(slock_t),
+                        &is_shmem_ready);
+
+    Assert(is_shmem_ready || !IsUnderPostmaster);
+
+    if (!is_shmem_ready)
+        SpinLockInit(shared_end_points_lock);
+}
+
+static struct dsm_segment * create_token_info_dsm() {
+	// Calculate size of the dsm
+	Size		size;
+	dsm_segment *dsm_seg = NULL;
+
+
+	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(SharedTokenDesc));
+	dsm_seg = dsm_create(size);
+	if (dsm_seg == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                 errmsg("could not create dynamic shared memory segment")));
+	}
+    dsm_pin_mapping(dsm_seg);
+	// on_dsm_detach if needed.
+	return dsm_seg;
+}
+
+static struct dsm_segment * create_endpoint_info_dsm() {
+	// Calculate size of the dsm
+	Size		size;
+    dsm_segment *dsm_seg = NULL;
+
+	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(EndpointDesc));
+    dsm_seg = dsm_create(size);
+	if (dsm_seg == NULL) {
+        ereport(ERROR,
+                (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                 errmsg("could not create dynamic shared memory segment")));
+	}
+    dsm_pin_mapping(dsm_seg);
+    // on_dsm_detach if needed.
+    return dsm_seg;
+}
+
 
 /*
  * Extern functions
@@ -1576,7 +1844,7 @@ bool
 FindEndpointTokenByUser(Oid user_id, const char *token_str)
 {
 	bool		isFound = false;
-
+    AttachOrCreateTokenInfoDSM();
 	SpinLockAcquire(shared_end_points_lock);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -2443,6 +2711,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 void
 assign_gp_endpoints_token_operation(const char *newval, void *extra)
 {
+
 	const char *token = newval + 1;
 	int64		tokenid = atoll(token);
 
@@ -2456,11 +2725,13 @@ assign_gp_endpoints_token_operation(const char *newval, void *extra)
 
 	if (tokenid != InvalidToken && Gp_role == GP_ROLE_EXECUTE && Gp_is_writer)
 	{
+        AttachOrCreateTokenInfoDSM();
 		switch (newval[0])
 		{
 			case 'p':
 				/* Push endpoint */
 				AllocEndpointOfToken(tokenid);
+//				AllocEndpointOfTokenDSM(tokenid);
 				break;
 			case 'f':
 				/* Free endpoint */

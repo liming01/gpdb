@@ -345,7 +345,6 @@ retrieve_role_authentication(Port *port)
 	 * password is the token
 	 */
 	owner_uid = get_role_oid(port->user_name, false);
-
 	if (!FindEndpointTokenByUser(owner_uid, passwd))
 	{
 		elog(LOG, "libpq connection skips RETRIEVE role authentication"

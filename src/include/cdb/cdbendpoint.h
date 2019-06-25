@@ -13,6 +13,7 @@
 #include "nodes/parsenodes.h"
 #include "storage/latch.h"
 #include "tcop/dest.h"
+#include "storage/dsm.h"
 
 #define InvalidToken (-1)
 #define InvalidSession (-1)
@@ -178,5 +179,20 @@ extern DestReceiver *CreateEndpointReceiver(void);
 extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
 extern Datum gp_endpoints_status_info(PG_FUNCTION_ARGS);
 extern void assign_gp_endpoints_token_operation(const char *newval, void *extra);
+
+#define SHMEM_TOKENDSMCTX "ShareTokenDSMCTX"
+#define SHMEM_TOKEN_CTX_SLOCK "SharedMemoryTokenCTXSlock"
+
+typedef struct TokenDSMCtx {
+	dsm_handle token_info_handle;
+	dsm_handle endpoint_info_handle;
+} TokenDSMCtx;
+
+static TokenDSMCtx* tokenDSMCtx;
+
+extern void Token_DSM_CTX_ShmemInit(void);
+extern void AttachOrCreateTokenInfoDSM(void);
+extern void AddParallelCursorTokenDSM(int64 token, const char *name, int session_id, Oid user_id, bool all_seg, List *seg_list);
+extern void AllocEndpointOfTokenDSM(int64 token);
 
 #endif   /* CDBENDPOINT_H */
