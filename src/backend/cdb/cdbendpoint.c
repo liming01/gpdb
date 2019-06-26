@@ -172,9 +172,11 @@ void AttachOrCreateTokenInfoDSM(void) {
 				if (token_info_dsm_seg == NULL) {
 					token_attach_error = true;
 				} else {
+				    dsm_pin_mapping(token_info_dsm_seg);
 					SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
 				}
 			}
+			elog(LOG, "attach to token_info_dsm_seg AAAAAAAAAAAAA");
         }
 	}
     dsm_handle endpoint_info_handle = tokenDSMCtx->endpoint_info_handle;
@@ -204,9 +206,11 @@ void AttachOrCreateTokenInfoDSM(void) {
 			if (endpoint_info_dsm_seg == NULL) {
 				endpoint_attach_error = true;
 			} else {
+                dsm_pin_mapping(endpoint_info_dsm_seg);
 				SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
 			}
 		}
+        elog(LOG, "attach to endpoint_info_dsm_seg AAAAAAAAAAAAA");
 	}
     SpinLockRelease(shared_token_ctx_lock);
 	if (token_attach_error) {
