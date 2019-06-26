@@ -193,7 +193,5 @@ static TokenDSMCtx* tokenDSMCtx;
 
 extern void Token_DSM_CTX_ShmemInit(void);
 extern void AttachOrCreateTokenInfoDSM(void);
-extern void AddParallelCursorTokenDSM(int64 token, const char *name, int session_id, Oid user_id, bool all_seg, List *seg_list);
-extern void AllocEndpointOfTokenDSM(int64 token);
 
 #endif   /* CDBENDPOINT_H */

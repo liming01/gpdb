@@ -244,124 +244,6 @@ void AttachOrCreateTokenInfoDSM(void) {
 	}
 }
 
-void
-AllocEndpointOfTokenDSM(int64 token)
-{
-	int			i;
-	int			found_idx = -1;
-	char	   *token_str;
-
-
-	if (token == InvalidToken)
-		ep_log(ERROR, "allocate endpoint of invalid token ID");
-
-	SpinLockAcquire(shared_end_points_lock);
-
-	/*
-	 * Presume that for any token, only one parallel cursor is activated at
-	 * that time.
-	 */
-	/* find the slot with the same token */
-	Endpoint sharedEndpoints = (Endpoint)dsm_segment_address(endpoint_info_dsm_seg);
-	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (sharedEndpoints[i].token == token)
-		{
-			found_idx = i;
-			break;
-		}
-	}
-
-	/* find a new slot */
-	for (i = 0; i < MAX_ENDPOINT_SIZE && found_idx == -1; ++i)
-	{
-		if (sharedEndpoints[i].empty)
-		{
-			found_idx = i;
-			break;
-		}
-	}
-
-	if (found_idx != -1)
-	{
-		sharedEndpoints[i].database_id = MyDatabaseId;
-		sharedEndpoints[i].token = token;
-		sharedEndpoints[i].session_id = gp_session_id;
-		sharedEndpoints[i].user_id = GetUserId();
-		sharedEndpoints[i].sender_pid = InvalidPid;
-		sharedEndpoints[i].receiver_pid = InvalidPid;
-		sharedEndpoints[i].attach_status = Status_NotAttached;
-		sharedEndpoints[i].empty = false;
-
-		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-
-		token_str = palloc0(21);		/* length 21 = length of max int64 value + '\0' */
-		pg_lltoa(token, token_str);
-		TokensInXact = lappend(TokensInXact, token_str);
-		MemoryContextSwitchTo(oldcontext);
-	}
-
-	SpinLockRelease(shared_end_points_lock);
-
-	if (found_idx == -1)
-		ep_log(ERROR, "failed to allocate endpoint");
-}
-
-void
-AddParallelCursorTokenDSM(int64 token, const char *name, int session_id, Oid user_id,
-					      bool all_seg, List *seg_list)
-{
-	int			i;
-
-	Assert(token != InvalidToken && name != NULL
-		   && session_id != InvalidSession);
-
-	SpinLockAcquire(shared_tokens_lock);
-	SharedToken sharedTokens = (SharedToken)dsm_segment_address(token_info_dsm_seg);
-	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (sharedTokens[i].token == InvalidToken)
-		{
-			strncpy(sharedTokens[i].cursor_name, name, strlen(name));
-			sharedTokens[i].session_id = session_id;
-			sharedTokens[i].token = token;
-			sharedTokens[i].user_id = user_id;
-			sharedTokens[i].all_seg = all_seg;
-			if (seg_list != NIL)
-			{
-				ListCell   *l;
-
-				foreach(l, seg_list)
-				{
-					int16		contentid = lfirst_int(l);
-
-					add_dbid_into_bitmap(sharedTokens[i].dbIds,
-										 contentid_get_dbid(contentid,
-															GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY,
-															false));
-					sharedTokens[i].endpoint_cnt++;
-				}
-			}
-			elog(LOG, "added a new token: " INT64_FORMAT ", session id: %d, cursor name: %s, into shared memory",
-				 token, session_id, sharedTokens[i].cursor_name);
-			break;
-		}
-	}
-
-	SpinLockRelease(shared_tokens_lock);
-
-	/* no empty entry to save this token */
-	if (i == MAX_ENDPOINT_SIZE)
-	{
-		ep_log(ERROR, "can't add a new token %s into shared memory", printToken(token));
-	}
-
-}
-
-/*
- * Test code
- */
-
 void Token_DSM_CTX_ShmemInit(void) {
 	bool is_shmem_ready;
 
@@ -2345,7 +2227,7 @@ RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
 
 	if (RetrieveStatus[CurrentRetrieveToken] < RETRIEVE_STATUS_FINISH)
 	{
-		init_endpoint_connection();
+		//init_endpoint_connection();
 
 		while (retrieve_count > 0)
 		{
