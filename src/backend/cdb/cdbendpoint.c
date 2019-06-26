@@ -137,15 +137,7 @@ static void detach_endpoint_dsm_seg(void) {
 	}
 }
 
-static void
-parallel_cusor_dsm_exit(int code, Datum arg)
-{
-	detach_token_dsm_seg();
-	detach_endpoint_dsm_seg();
-}
-
 void AttachOrCreateTokenInfoDSM(void) {
-	bool attached = false;
 	bool token_attach_error = false;
 	bool endpoint_attach_error = false;
     SpinLockAcquire(shared_token_ctx_lock);
@@ -153,7 +145,6 @@ void AttachOrCreateTokenInfoDSM(void) {
         // Init token info dsm only on QD.
         dsm_handle token_info_handle = tokenDSMCtx->token_info_handle;
         if (token_info_dsm_seg == NULL) {
-			attached = true;
 			if (token_info_handle == DSM_HANDLE_INVALID) {
 				token_info_dsm_seg = create_token_info_dsm();
 				tokenDSMCtx->token_info_handle = dsm_segment_handle(token_info_dsm_seg);
@@ -181,7 +172,6 @@ void AttachOrCreateTokenInfoDSM(void) {
 	}
     dsm_handle endpoint_info_handle = tokenDSMCtx->endpoint_info_handle;
 	if (endpoint_info_dsm_seg == NULL) {
-		attached = true;
 		if (endpoint_info_handle == DSM_HANDLE_INVALID) {
 			endpoint_info_dsm_seg = create_endpoint_info_dsm();
 			tokenDSMCtx->endpoint_info_handle = dsm_segment_handle(endpoint_info_dsm_seg);
@@ -222,9 +212,6 @@ void AttachOrCreateTokenInfoDSM(void) {
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("could not map dynamic shared memory segment")));
-	}
-	if (attached) {
-		on_proc_exit(parallel_cusor_dsm_exit, 0);
 	}
 }
 
