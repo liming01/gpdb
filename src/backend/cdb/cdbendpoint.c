@@ -121,7 +121,7 @@ static dsm_segment * create_endpoint_info_dsm();
 
 static void detach_token_dsm_seg(void) {
 	if (token_info_dsm_seg != NULL) {
-		dsm_unpin_mapping(token_info_dsm_seg);
+//		dsm_unpin_mapping(token_info_dsm_seg);
 		dsm_detach(token_info_dsm_seg);
 		token_info_dsm_seg = NULL;
 		elog(LOG, "detach_token_dsm_seg +++++++++++++++++");
@@ -130,7 +130,7 @@ static void detach_token_dsm_seg(void) {
 
 static void detach_endpoint_dsm_seg(void) {
 	if (endpoint_info_dsm_seg != NULL) {
-		dsm_unpin_mapping(endpoint_info_dsm_seg);
+//		dsm_unpin_mapping(endpoint_info_dsm_seg);
 		dsm_detach(endpoint_info_dsm_seg);
 		endpoint_info_dsm_seg = NULL;
         elog(LOG, "detach_endpoint_dsm_seg ++++++++++++++++++");
