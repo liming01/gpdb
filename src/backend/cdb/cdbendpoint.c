@@ -639,6 +639,7 @@ static void
 retry_read(int fifo, char *data, int len)
 {
 	shm_mq_result res;
+	void *temp_data = NULL;
 
 	//for (;;)
 	//{
@@ -646,11 +647,12 @@ retry_read(int fifo, char *data, int len)
 	CHECK_FOR_INTERRUPTS();
 
 	Size actual_size;
-	res = shm_mq_receive(inputqh, &actual_size, (void **) &data, false);
+	res = shm_mq_receive(inputqh, &actual_size, &temp_data, false);
+
 	if (res != SHM_MQ_SUCCESS || actual_size != len)
 		ep_log(ERROR, "fail to receive data from shared message queue, length:%d", len);
 	//}
-
+	memcpy(data, temp_data, actual_size);
 	return;
 
 #if 0
