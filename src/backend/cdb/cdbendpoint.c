@@ -32,6 +32,8 @@
 #include "utils/faultinjector.h"
 #include "utils/fmgroids.h"
 #include "storage/dsm.h"
+#include "storage/shm_mq.h"
+#include "storage/shm_toc.h"
 
 /*
  * Macros
@@ -67,6 +69,11 @@ static enum EndpointRole Gp_endpoint_role = EPR_NONE;
 static bool StatusInAbort = false;
 static bool StatusNeedAck = false;
 static int64 CurrentRetrieveToken = 0;
+
+static shm_mq *inputq = NULL;
+static shm_mq *outputq = NULL;
+static shm_mq_handle *inputqh = NULL;
+static shm_mq_handle *outputqh = NULL;
 
 /*
  * Static functions
@@ -198,6 +205,7 @@ void AttachOrCreateTokenInfoDSM(void) {
 				SharedEndpoints[i].sender_pid = InvalidPid;
 				SharedEndpoints[i].receiver_pid = InvalidPid;
 				SharedEndpoints[i].token = InvalidToken;
+				SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
 				SharedEndpoints[i].session_id = InvalidSession;
 				SharedEndpoints[i].user_id = InvalidOid;
 				SharedEndpoints[i].attach_status = Status_NotAttached;
@@ -540,6 +548,27 @@ create_and_connect_fifo(void)
 		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_path);
 	}
 
+		dsm_segment * seg;
+		seg = dsm_create(160*1024);
+
+		SpinLockAcquire(shared_end_points_lock);
+
+		my_shared_endpoint->handle = dsm_segment_handle(seg);
+
+		SpinLockRelease(shared_end_points_lock);
+
+		shm_toc    *toc;
+		toc = shm_toc_create(my_shared_endpoint->token, dsm_segment_address(seg), 160*1024);
+
+		shm_mq     *mq;
+		mq = shm_mq_create(shm_toc_allocate(toc, (Size) 128*1024), (Size) 128*1024);
+		shm_toc_insert(toc, 1, mq);
+		shm_mq_set_sender(mq, MyProc);
+
+		outputq = mq;
+
+		outputqh = shm_mq_attach(outputq, seg, NULL);
+
 	set_attach_status(Status_Prepared);
 }
 
@@ -554,6 +583,17 @@ init_conn_for_sender(void)
 static void
 retry_write(int fifo, char *data, int len)
 {
+	shm_mq_result res;
+
+	/* Notice any interrupts that have occurred. */
+	CHECK_FOR_INTERRUPTS();
+
+	res = shm_mq_send(outputqh, len, data, false);
+	if (res != SHM_MQ_SUCCESS)
+		ep_log(ERROR, "fail to send data to shared message queue, length:%d", len);
+
+	return;
+#if 0
 	int			wr;
 	int			curr = 0;
 
@@ -592,11 +632,27 @@ retry_write(int fifo, char *data, int len)
 		if (wr & WL_POSTMASTER_DEATH)
 			proc_exit(0);
 	}
+#endif
 }
 
 static void
 retry_read(int fifo, char *data, int len)
 {
+	shm_mq_result res;
+
+	//for (;;)
+	//{
+	/* Notice any interrupts that have occurred. */
+	CHECK_FOR_INTERRUPTS();
+
+	res = shm_mq_receive(inputqh, (Size *)&len, (void *)data, false);
+	if (res != SHM_MQ_SUCCESS)
+		ep_log(ERROR, "fail to receive data from shared message queue, length:%d", len);
+	//}
+
+	return;
+
+#if 0
 	int			rdRet;
 	int			curr = 0;
 	struct pollfd fds;
@@ -631,6 +687,7 @@ retry_read(int fifo, char *data, int len)
 		else
 			ep_log(ERROR, "could not read from FIFO: %m");
 	}
+#endif
 }
 
 static void
@@ -721,11 +778,20 @@ init_conn_for_receiver(void)
 
 	flags = fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_GETFL);
 
+#if 0
 	if (flags < 0 || fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
 	{
 		close_endpoint_connection();
 		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_path);
 	}
+#endif
+
+	dsm_segment * seg = dsm_attach(my_shared_endpoint->handle);
+	shm_toc * toc = shm_toc_attach(Gp_token, dsm_segment_address(seg));
+	shm_mq     *mq = shm_toc_lookup(toc, 1);
+	shm_mq_set_receiver(mq, MyProc);
+	inputq = mq;
+	inputqh = shm_mq_attach(inputq, seg, NULL);
 
 	RetrieveFifoConns[CurrentRetrieveToken]->created = true;
 }
@@ -1242,6 +1308,7 @@ unset_endpoint(volatile EndpointDesc * endPointDesc)
 
 	endPointDesc->database_id = InvalidOid;
 	endPointDesc->token = InvalidToken;
+	endPointDesc->handle = DSM_HANDLE_INVALID;
 	endPointDesc->session_id = InvalidSession;
 	endPointDesc->user_id = InvalidOid;
 	endPointDesc->empty = true;
@@ -1757,6 +1824,7 @@ Endpoint_ShmemInit(void)
 			SharedEndpoints[i].sender_pid = InvalidPid;
 			SharedEndpoints[i].receiver_pid = InvalidPid;
 			SharedEndpoints[i].token = InvalidToken;
+			SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
 			SharedEndpoints[i].session_id = InvalidSession;
 			SharedEndpoints[i].user_id = InvalidOid;
 			SharedEndpoints[i].attach_status = Status_NotAttached;
@@ -1808,6 +1876,7 @@ AllocEndpointOfToken(int64 token)
 				/* pretend to set a valid token */
 				SharedEndpoints[i].database_id = MyDatabaseId;
 				SharedEndpoints[i].token = DummyToken;
+				SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
 				SharedEndpoints[i].session_id = gp_session_id;
 				SharedEndpoints[i].user_id = GetUserId();
 				SharedEndpoints[i].sender_pid = InvalidPid;
@@ -1824,6 +1893,7 @@ AllocEndpointOfToken(int64 token)
 			if (SharedEndpoints[i].token == DummyToken)
 			{
 				SharedEndpoints[i].token = InvalidToken;
+				SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
 				SharedEndpoints[i].empty = true;
 			}
 		}

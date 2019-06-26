@@ -72,6 +72,7 @@ typedef struct EndpointDesc
 	pid_t		sender_pid;
 	pid_t		receiver_pid;
 	int64		token;
+	dsm_handle	handle;
 	Latch		ack_done;
 	AttachStatus attach_status;
 	int			session_id;
