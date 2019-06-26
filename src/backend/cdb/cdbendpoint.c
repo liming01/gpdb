@@ -113,69 +113,115 @@ static TupleTableSlot *receive_tuple_slot(void);
 
 
 static slock_t *shared_token_ctx_lock;
-static dsm_segment* token_info_dsm_seg; // TODO: on detach, clean it.
-static dsm_segment* endpoint_info_dsm_seg; // TODO: on detach, clean it.
+static dsm_segment* token_info_dsm_seg = NULL;
+static dsm_segment* endpoint_info_dsm_seg = NULL;
 
 static dsm_segment * create_token_info_dsm();
 static dsm_segment * create_endpoint_info_dsm();
 
+static void detach_token_dsm_seg(void) {
+	if (token_info_dsm_seg != NULL) {
+		dsm_unpin_mapping(token_info_dsm_seg);
+		dsm_detach(token_info_dsm_seg);
+		token_info_dsm_seg = NULL;
+		elog(LOG, "detach_token_dsm_seg +++++++++++++++++");
+	}
+}
+
+static void detach_endpoint_dsm_seg(void) {
+	if (endpoint_info_dsm_seg != NULL) {
+		dsm_unpin_mapping(endpoint_info_dsm_seg);
+		dsm_detach(endpoint_info_dsm_seg);
+		endpoint_info_dsm_seg = NULL;
+        elog(LOG, "detach_endpoint_dsm_seg ++++++++++++++++++");
+	}
+}
+
+static void
+parallel_cusor_dsm_exit(int code, Datum arg)
+{
+	detach_token_dsm_seg();
+	detach_endpoint_dsm_seg();
+}
+
 void AttachOrCreateTokenInfoDSM(void) {
+	bool attached = false;
+	bool token_attach_error = false;
+	bool endpoint_attach_error = false;
     SpinLockAcquire(shared_token_ctx_lock);
 	if (Gp_role == GP_ROLE_DISPATCH) {
         // Init token info dsm only on QD.
         dsm_handle token_info_handle = tokenDSMCtx->token_info_handle;
-		if (token_info_handle == DSM_HANDLE_INVALID) {
-			token_info_dsm_seg = create_token_info_dsm();
-			tokenDSMCtx->token_info_handle = dsm_segment_handle(token_info_dsm_seg);
-            SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
-            int			i;
-            for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-            {
-                SharedTokens[i].token = InvalidToken;
-                memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
-                SharedTokens[i].session_id = InvalidSession;
-                SharedTokens[i].user_id = InvalidOid;
-            }
-		} else {
-		    // attach
-            token_info_dsm_seg = dsm_attach(token_info_handle);
-            if (token_info_dsm_seg == NULL)
-                ereport(ERROR,
-                        (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                         errmsg("could not map dynamic shared memory segment")));
-            SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
-		}
-
+        if (token_info_dsm_seg == NULL) {
+			attached = true;
+			if (token_info_handle == DSM_HANDLE_INVALID) {
+				token_info_dsm_seg = create_token_info_dsm();
+				tokenDSMCtx->token_info_handle = dsm_segment_handle(token_info_dsm_seg);
+				SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
+				int			i;
+				for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+				{
+					SharedTokens[i].token = InvalidToken;
+					memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
+					SharedTokens[i].session_id = InvalidSession;
+					SharedTokens[i].user_id = InvalidOid;
+				}
+			} else {
+				// attach
+				token_info_dsm_seg = dsm_attach(token_info_handle);
+				if (token_info_dsm_seg == NULL) {
+					token_attach_error = true;
+				} else {
+					SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
+				}
+			}
+        }
 	}
     dsm_handle endpoint_info_handle = tokenDSMCtx->endpoint_info_handle;
-    if (endpoint_info_handle == DSM_HANDLE_INVALID) {
-        endpoint_info_dsm_seg = create_endpoint_info_dsm();
-        tokenDSMCtx->endpoint_info_handle = dsm_segment_handle(endpoint_info_dsm_seg);
-        SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
-        int			i;
+	if (endpoint_info_dsm_seg == NULL) {
+		attached = true;
+		if (endpoint_info_handle == DSM_HANDLE_INVALID) {
+			endpoint_info_dsm_seg = create_endpoint_info_dsm();
+			tokenDSMCtx->endpoint_info_handle = dsm_segment_handle(endpoint_info_dsm_seg);
+			SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
+			int			i;
 
-        for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-        {
-            SharedEndpoints[i].database_id = InvalidOid;
-            SharedEndpoints[i].sender_pid = InvalidPid;
-            SharedEndpoints[i].receiver_pid = InvalidPid;
-            SharedEndpoints[i].token = InvalidToken;
-            SharedEndpoints[i].session_id = InvalidSession;
-            SharedEndpoints[i].user_id = InvalidOid;
-            SharedEndpoints[i].attach_status = Status_NotAttached;
-            SharedEndpoints[i].empty = true;
+			for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+			{
+				SharedEndpoints[i].database_id = InvalidOid;
+				SharedEndpoints[i].sender_pid = InvalidPid;
+				SharedEndpoints[i].receiver_pid = InvalidPid;
+				SharedEndpoints[i].token = InvalidToken;
+				SharedEndpoints[i].session_id = InvalidSession;
+				SharedEndpoints[i].user_id = InvalidOid;
+				SharedEndpoints[i].attach_status = Status_NotAttached;
+				SharedEndpoints[i].empty = true;
 
-            InitSharedLatch(&SharedEndpoints[i].ack_done);
-        }
-    } else {
-        endpoint_info_dsm_seg = dsm_attach(endpoint_info_handle);
-        if (endpoint_info_dsm_seg == NULL)
-            ereport(ERROR,
-                    (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                        errmsg("could not map dynamic shared memory segment")));
-        SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
-    }
+				InitSharedLatch(&SharedEndpoints[i].ack_done);
+			}
+		} else {
+			endpoint_info_dsm_seg = dsm_attach(endpoint_info_handle);
+			if (endpoint_info_dsm_seg == NULL) {
+				endpoint_attach_error = true;
+			} else {
+				SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
+			}
+		}
+	}
     SpinLockRelease(shared_token_ctx_lock);
+	if (token_attach_error) {
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("could not map dynamic shared memory segment")));
+	}
+	if (endpoint_attach_error) {
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("could not map dynamic shared memory segment")));
+	}
+	if (attached) {
+		on_proc_exit(parallel_cusor_dsm_exit, 0);
+	}
 }
 
 void
@@ -1490,6 +1536,7 @@ RemoveParallelCursorToken(int64 token)
 			}
 		}
 	}
+	detach_token_dsm_seg();
 }
 char * 
 getTokenNameFormatStr(void)
@@ -1833,6 +1880,7 @@ FreeEndpointOfToken(int64 token)
 		return;
 
 	unset_endpoint(endPointDesc);
+	detach_endpoint_dsm_seg();
 }
 
 /*
