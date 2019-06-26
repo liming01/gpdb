@@ -645,8 +645,9 @@ retry_read(int fifo, char *data, int len)
 	/* Notice any interrupts that have occurred. */
 	CHECK_FOR_INTERRUPTS();
 
-	res = shm_mq_receive(inputqh, (Size *)&len, (void *)data, false);
-	if (res != SHM_MQ_SUCCESS)
+	Size actual_size;
+	res = shm_mq_receive(inputqh, &actual_size, (void **) &data, false);
+	if (res != SHM_MQ_SUCCESS || actual_size != len)
 		ep_log(ERROR, "fail to receive data from shared message queue, length:%d", len);
 	//}
 
