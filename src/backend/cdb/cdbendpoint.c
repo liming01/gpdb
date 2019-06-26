@@ -121,7 +121,6 @@ static dsm_segment * create_endpoint_info_dsm();
 
 static void detach_token_dsm_seg(void) {
 	if (token_info_dsm_seg != NULL) {
-//		dsm_unpin_mapping(token_info_dsm_seg);
 		dsm_detach(token_info_dsm_seg);
 		token_info_dsm_seg = NULL;
 		elog(LOG, "detach_token_dsm_seg +++++++++++++++++");
@@ -130,14 +129,27 @@ static void detach_token_dsm_seg(void) {
 
 static void detach_endpoint_dsm_seg(void) {
 	if (endpoint_info_dsm_seg != NULL) {
-//		dsm_unpin_mapping(endpoint_info_dsm_seg);
 		dsm_detach(endpoint_info_dsm_seg);
 		endpoint_info_dsm_seg = NULL;
         elog(LOG, "detach_endpoint_dsm_seg ++++++++++++++++++");
 	}
 }
 
+static void on_endpoint_dsm_destroy_callback (dsm_segment* seg, Datum arg) {
+	SpinLockAcquire(shared_token_ctx_lock);
+	tokenDSMCtx->endpoint_info_handle = DSM_HANDLE_INVALID;
+	SpinLockRelease(shared_token_ctx_lock);
+}
+
+static void on_token_dsm_destroy_callback (dsm_segment* seg, Datum arg) {
+	SpinLockAcquire(shared_token_ctx_lock);
+	tokenDSMCtx->token_info_handle = DSM_HANDLE_INVALID;
+	SpinLockRelease(shared_token_ctx_lock);
+}
+
 void AttachOrCreateTokenInfoDSM(void) {
+	bool token_attached = false;
+	bool endpoint_attached = false;
 	bool token_attach_error = false;
 	bool endpoint_attach_error = false;
     SpinLockAcquire(shared_token_ctx_lock);
@@ -149,6 +161,7 @@ void AttachOrCreateTokenInfoDSM(void) {
 				token_info_dsm_seg = create_token_info_dsm();
 				tokenDSMCtx->token_info_handle = dsm_segment_handle(token_info_dsm_seg);
 				SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
+				token_attached = true;
 				int			i;
 				for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 				{
@@ -163,6 +176,7 @@ void AttachOrCreateTokenInfoDSM(void) {
 				if (token_info_dsm_seg == NULL) {
 					token_attach_error = true;
 				} else {
+					token_attached = true;
 				    dsm_pin_mapping(token_info_dsm_seg);
 					SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
 				}
@@ -176,8 +190,8 @@ void AttachOrCreateTokenInfoDSM(void) {
 			endpoint_info_dsm_seg = create_endpoint_info_dsm();
 			tokenDSMCtx->endpoint_info_handle = dsm_segment_handle(endpoint_info_dsm_seg);
 			SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
+			endpoint_attached = true;
 			int			i;
-
 			for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 			{
 				SharedEndpoints[i].database_id = InvalidOid;
@@ -196,6 +210,7 @@ void AttachOrCreateTokenInfoDSM(void) {
 			if (endpoint_info_dsm_seg == NULL) {
 				endpoint_attach_error = true;
 			} else {
+				endpoint_attached = true;
                 dsm_pin_mapping(endpoint_info_dsm_seg);
 				SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
 			}
@@ -212,6 +227,12 @@ void AttachOrCreateTokenInfoDSM(void) {
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("could not map dynamic shared memory segment")));
+	}
+	if (token_attached) {
+		on_dsm_destroy(token_info_dsm_seg, on_token_dsm_destroy_callback, 0);
+	}
+	if (endpoint_attached) {
+		on_dsm_destroy(endpoint_info_dsm_seg, on_endpoint_dsm_destroy_callback, 0);
 	}
 }
 

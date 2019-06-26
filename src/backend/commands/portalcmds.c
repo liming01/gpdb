@@ -388,16 +388,6 @@ PerformPortalClose(const char *name)
 	 * Note: PortalCleanup is called as a side-effect, if not already done.
 	 */
 	PortalDrop(portal, false);
-
-	/*
-	 * Clear related token in shared memory,
-	 * if it is a parallel cursor
-	 */
-	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
-	{
-		RemoveParallelCursorToken(portal->parallel_cursor_token);
-		portal->parallel_cursor_token = InvalidToken;
-	}
 }
 
 /*

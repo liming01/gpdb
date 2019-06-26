@@ -52,8 +52,12 @@ extern dsm_handle dsm_segment_handle(dsm_segment *seg);
 typedef void (*on_dsm_detach_callback) (dsm_segment *, Datum arg);
 extern void on_dsm_detach(dsm_segment *seg,
 			  on_dsm_detach_callback function, Datum arg);
+extern void on_dsm_destroy(dsm_segment *seg,
+                           on_dsm_detach_callback function, Datum arg);
 extern void cancel_on_dsm_detach(dsm_segment *seg,
 					 on_dsm_detach_callback function, Datum arg);
+extern void cancel_on_dsm_destroy(dsm_segment *seg,
+                                  on_dsm_detach_callback function, Datum arg);
 extern void reset_on_dsm_detach(void);
 
 #endif   /* DSM_H */
