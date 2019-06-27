@@ -56,8 +56,8 @@ static TupleTableSlot *RetrieveTupleSlots[MAX_ENDPOINT_SIZE] = {};
 static int64 RetrieveTokens[MAX_ENDPOINT_SIZE];
 static int RetrieveStatus[MAX_ENDPOINT_SIZE];
 
-static SharedTokenDesc *SharedTokens;
-static EndpointDesc *SharedEndpoints;
+static SharedTokenDesc *SharedTokens = NULL;
+static EndpointDesc *SharedEndpoints = NULL;
 static List *TokensInXact = NIL;
 static volatile EndpointDesc *my_shared_endpoint = NULL;
 
@@ -129,6 +129,7 @@ static void detach_token_dsm_seg(void) {
 	if (token_info_dsm_seg != NULL) {
 		dsm_detach(token_info_dsm_seg);
 		token_info_dsm_seg = NULL;
+		SharedTokens = NULL;
 		elog(LOG, "detach_token_dsm_seg +++++++++++++++++");
 	}
 }
@@ -137,6 +138,7 @@ static void detach_endpoint_dsm_seg(void) {
 	if (endpoint_info_dsm_seg != NULL) {
 		dsm_detach(endpoint_info_dsm_seg);
 		endpoint_info_dsm_seg = NULL;
+		SharedEndpoints = NULL;
         elog(LOG, "detach_endpoint_dsm_seg ++++++++++++++++++");
 	}
 }
@@ -1048,6 +1050,10 @@ find_endpoint_by_token(int64 token)
 	EndpointDesc *res = NULL;
 
 	SpinLockAcquire(shared_end_points_lock);
+	if (SharedEndpoints == NULL) {
+		SpinLockRelease(shared_end_points_lock);
+		return res;
+	}
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
