@@ -61,8 +61,9 @@ static EndpointDesc *SharedEndpoints;
 static List *TokensInXact = NIL;
 static volatile EndpointDesc *my_shared_endpoint = NULL;
 
-static slock_t *shared_tokens_lock;
+static slock_t *shared_tokens_lock; // TODO: Should use LWLock.
 static slock_t *shared_end_points_lock;
+static slock_t *shared_token_ctx_lock;
 
 static int64 Gp_token = InvalidToken;
 static enum EndpointRole Gp_endpoint_role = EPR_NONE;
@@ -119,9 +120,9 @@ static void send_tuple_slot(TupleTableSlot *slot);
 static TupleTableSlot *receive_tuple_slot(void);
 
 
-static slock_t *shared_token_ctx_lock;
 static dsm_segment* token_info_dsm_seg = NULL;
 static dsm_segment* endpoint_info_dsm_seg = NULL;
+static dsm_segment* mq_dsm_seg = NULL;
 
 static dsm_segment * create_token_info_dsm();
 static dsm_segment * create_endpoint_info_dsm();
@@ -154,7 +155,7 @@ static void on_token_dsm_destroy_callback (dsm_segment* seg, Datum arg) {
 	SpinLockRelease(shared_token_ctx_lock);
 }
 
-void AttachOrCreateTokenInfoDSM(void) {
+void AttachOrCreateTokenInfoDSM(bool* is_token_attached, bool* is_endpoint_attached) {
 	bool token_attached = false;
 	bool endpoint_attached = false;
 	bool token_attach_error = false;
@@ -166,16 +167,20 @@ void AttachOrCreateTokenInfoDSM(void) {
         if (token_info_dsm_seg == NULL) {
 			if (token_info_handle == DSM_HANDLE_INVALID) {
 				token_info_dsm_seg = create_token_info_dsm();
-				tokenDSMCtx->token_info_handle = dsm_segment_handle(token_info_dsm_seg);
-				SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
-				token_attached = true;
-				int			i;
-				for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-				{
-					SharedTokens[i].token = InvalidToken;
-					memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
-					SharedTokens[i].session_id = InvalidSession;
-					SharedTokens[i].user_id = InvalidOid;
+				if (token_info_dsm_seg == NULL) {
+					token_attach_error = true;
+				} else {
+					tokenDSMCtx->token_info_handle = dsm_segment_handle(token_info_dsm_seg);
+					SharedTokens = (SharedToken) dsm_segment_address(token_info_dsm_seg);
+					token_attached = true;
+					int			i;
+					for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+					{
+						SharedTokens[i].token = InvalidToken;
+						memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
+						SharedTokens[i].session_id = InvalidSession;
+						SharedTokens[i].user_id = InvalidOid;
+					}
 				}
 			} else {
 				// attach
@@ -195,23 +200,26 @@ void AttachOrCreateTokenInfoDSM(void) {
 	if (endpoint_info_dsm_seg == NULL) {
 		if (endpoint_info_handle == DSM_HANDLE_INVALID) {
 			endpoint_info_dsm_seg = create_endpoint_info_dsm();
-			tokenDSMCtx->endpoint_info_handle = dsm_segment_handle(endpoint_info_dsm_seg);
-			SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
-			endpoint_attached = true;
-			int			i;
-			for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-			{
-				SharedEndpoints[i].database_id = InvalidOid;
-				SharedEndpoints[i].sender_pid = InvalidPid;
-				SharedEndpoints[i].receiver_pid = InvalidPid;
-				SharedEndpoints[i].token = InvalidToken;
-				SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
-				SharedEndpoints[i].session_id = InvalidSession;
-				SharedEndpoints[i].user_id = InvalidOid;
-				SharedEndpoints[i].attach_status = Status_NotAttached;
-				SharedEndpoints[i].empty = true;
-
-				InitSharedLatch(&SharedEndpoints[i].ack_done);
+			if (endpoint_info_dsm_seg == NULL) {
+				endpoint_attach_error = true;
+			} else {
+				tokenDSMCtx->endpoint_info_handle = dsm_segment_handle(endpoint_info_dsm_seg);
+				SharedEndpoints = (Endpoint) dsm_segment_address(endpoint_info_dsm_seg);
+				endpoint_attached = true;
+				int			i;
+				for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+				{
+					SharedEndpoints[i].database_id = InvalidOid;
+					SharedEndpoints[i].sender_pid = InvalidPid;
+					SharedEndpoints[i].receiver_pid = InvalidPid;
+					SharedEndpoints[i].token = InvalidToken;
+					SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
+					SharedEndpoints[i].session_id = InvalidSession;
+					SharedEndpoints[i].user_id = InvalidOid;
+					SharedEndpoints[i].attach_status = Status_NotAttached;
+					SharedEndpoints[i].empty = true;
+					InitSharedLatch(&SharedEndpoints[i].ack_done);
+				}
 			}
 		} else {
 			endpoint_info_dsm_seg = dsm_attach(endpoint_info_handle);
@@ -229,18 +237,24 @@ void AttachOrCreateTokenInfoDSM(void) {
 	if (token_attach_error) {
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("could not map dynamic shared memory segment")));
+					errmsg("could not create / map dynamic shared memory segment")));
 	}
 	if (endpoint_attach_error) {
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("could not map dynamic shared memory segment")));
+				 errmsg("could not create / map dynamic shared memory segment")));
 	}
 	if (token_attached) {
 		on_dsm_destroy(token_info_dsm_seg, on_token_dsm_destroy_callback, 0);
 	}
 	if (endpoint_attached) {
 		on_dsm_destroy(endpoint_info_dsm_seg, on_endpoint_dsm_destroy_callback, 0);
+	}
+	if (is_token_attached != NULL) {
+		*is_token_attached = token_attached;
+	}
+	if (is_endpoint_attached != NULL) {
+		*is_endpoint_attached = endpoint_attached;
 	}
 }
 
@@ -298,12 +312,9 @@ static struct dsm_segment * create_token_info_dsm() {
 
 	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(SharedTokenDesc));
 	dsm_seg = dsm_create(size);
-	if (dsm_seg == NULL) {
-        ereport(ERROR,
-                (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                 errmsg("could not create dynamic shared memory segment")));
+	if (dsm_seg != NULL) {
+		dsm_pin_mapping(dsm_seg);
 	}
-    dsm_pin_mapping(dsm_seg);
 	// on_dsm_detach if needed.
 	return dsm_seg;
 }
@@ -315,12 +326,9 @@ static struct dsm_segment * create_endpoint_info_dsm() {
 
 	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(EndpointDesc));
     dsm_seg = dsm_create(size);
-	if (dsm_seg == NULL) {
-        ereport(ERROR,
-                (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-                 errmsg("could not create dynamic shared memory segment")));
+	if (dsm_seg != NULL) {
+		dsm_pin_mapping(dsm_seg);
 	}
-    dsm_pin_mapping(dsm_seg);
     // on_dsm_detach if needed.
     return dsm_seg;
 }
@@ -430,17 +438,16 @@ create_and_connect_fifo(void)
 		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_path);
 	}
 
-		dsm_segment * seg;
-		seg = dsm_create(160*1024);
+		mq_dsm_seg = dsm_create(160*1024);
 
 		SpinLockAcquire(shared_end_points_lock);
 
-		my_shared_endpoint->handle = dsm_segment_handle(seg);
+		my_shared_endpoint->handle = dsm_segment_handle(mq_dsm_seg);
 
 		SpinLockRelease(shared_end_points_lock);
 
 		shm_toc    *toc;
-		toc = shm_toc_create(my_shared_endpoint->token, dsm_segment_address(seg), 160*1024);
+		toc = shm_toc_create(my_shared_endpoint->token, dsm_segment_address(mq_dsm_seg), 160*1024);
 
 		shm_mq     *mq;
 		mq = shm_mq_create(shm_toc_allocate(toc, (Size) 128*1024), (Size) 128*1024);
@@ -449,7 +456,7 @@ create_and_connect_fifo(void)
 
 		outputq = mq;
 
-		outputqh = shm_mq_attach(outputq, seg, NULL);
+		outputqh = shm_mq_attach(outputq, mq_dsm_seg, NULL);
 
 	set_attach_status(Status_Prepared);
 }
@@ -671,12 +678,12 @@ init_conn_for_receiver(void)
 	}
 #endif
 
-	dsm_segment * seg = dsm_attach(my_shared_endpoint->handle);
-	shm_toc * toc = shm_toc_attach(Gp_token, dsm_segment_address(seg));
+	mq_dsm_seg = dsm_attach(my_shared_endpoint->handle);
+	shm_toc * toc = shm_toc_attach(Gp_token, dsm_segment_address(mq_dsm_seg));
 	shm_mq     *mq = shm_toc_lookup(toc, 1);
 	shm_mq_set_receiver(mq, MyProc);
 	inputq = mq;
-	inputqh = shm_mq_attach(inputq, seg, NULL);
+	inputqh = shm_mq_attach(inputq, mq_dsm_seg, NULL);
 
 	RetrieveFifoConns[CurrentRetrieveToken]->created = true;
 }
@@ -704,6 +711,7 @@ sender_close(void)
 		ep_log(ERROR, "failed to unlink FIFO %s: %m", fifo_path);
 
 	RetrieveFifoConns[CurrentRetrieveToken]->created = false;
+	dsm_detach(mq_dsm_seg);
 }
 
 static void
@@ -714,6 +722,7 @@ receiver_close(void)
 
 	RetrieveFifoConns[CurrentRetrieveToken]->fifo = -1;
 	RetrieveFifoConns[CurrentRetrieveToken]->created = false;
+	dsm_detach(mq_dsm_seg);
 }
 
 static EndpointStatus *
@@ -1859,7 +1868,7 @@ bool
 FindEndpointTokenByUser(Oid user_id, const char *token_str)
 {
 	bool		isFound = false;
-    AttachOrCreateTokenInfoDSM();
+    AttachOrCreateTokenInfoDSM(NULL, NULL);
 	SpinLockAcquire(shared_end_points_lock);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -2288,6 +2297,10 @@ CreateEndpointReceiver(void)
 Datum
 gp_endpoints_info(PG_FUNCTION_ARGS)
 {
+	// Attach to the token info dsm if in other sessions.
+	bool is_token_attached, is_endpoint_attached;
+	AttachOrCreateTokenInfoDSM(&is_token_attached, &is_endpoint_attached);
+
 	FuncCallContext *funcctx;
 	EndpointsInfo *mystatus;
 	MemoryContext oldcontext;
@@ -2608,7 +2621,12 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		}
 	}
 	SpinLockRelease(shared_tokens_lock);
-
+    if (is_endpoint_attached) {
+        detach_endpoint_dsm_seg();
+    }
+	if (is_token_attached) {
+		detach_token_dsm_seg();
+	}
 	SRF_RETURN_DONE(funcctx);
 }
 
@@ -2619,6 +2637,10 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 Datum
 gp_endpoints_status_info(PG_FUNCTION_ARGS)
 {
+	// Attach to the token info dsm if in other sessions.
+	bool is_token_attached, is_endpoint_attached;
+	AttachOrCreateTokenInfoDSM(&is_token_attached, &is_endpoint_attached);
+
 	FuncCallContext *funcctx;
 	EndpointsStatusInfo *mystatus;
 	MemoryContext oldcontext;
@@ -2717,6 +2739,12 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	}
 	SpinLockRelease(shared_end_points_lock);
 
+	if (is_endpoint_attached) {
+		detach_endpoint_dsm_seg();
+	}
+	if (is_token_attached) {
+		detach_token_dsm_seg();
+	}
 	SRF_RETURN_DONE(funcctx);
 }
 
@@ -2740,13 +2768,12 @@ assign_gp_endpoints_token_operation(const char *newval, void *extra)
 
 	if (tokenid != InvalidToken && Gp_role == GP_ROLE_EXECUTE && Gp_is_writer)
 	{
-        AttachOrCreateTokenInfoDSM();
+        AttachOrCreateTokenInfoDSM(NULL, NULL);
 		switch (newval[0])
 		{
 			case 'p':
 				/* Push endpoint */
 				AllocEndpointOfToken(tokenid);
-//				AllocEndpointOfTokenDSM(tokenid);
 				break;
 			case 'f':
 				/* Free endpoint */

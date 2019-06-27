@@ -192,6 +192,6 @@ typedef struct TokenDSMCtx {
 static TokenDSMCtx* tokenDSMCtx;
 
 extern void Token_DSM_CTX_ShmemInit(void);
-extern void AttachOrCreateTokenInfoDSM(void);
+extern void AttachOrCreateTokenInfoDSM(bool* is_token_attached, bool* is_endpoint_attached);
 
 #endif   /* CDBENDPOINT_H */
