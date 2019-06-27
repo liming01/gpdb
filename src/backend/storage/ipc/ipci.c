@@ -374,9 +374,6 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		dsm_postmaster_startup(shim);
 
 	/* Initialize token and endpoint shared memory */
-//	if (Gp_role == GP_ROLE_DISPATCH)
-//		Token_ShmemInit();
-//	Endpoint_ShmemInit();
 	Token_DSM_CTX_ShmemInit();
 
 	/*

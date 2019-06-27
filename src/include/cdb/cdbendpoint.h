@@ -108,16 +108,7 @@ typedef SharedTokenDesc *SharedToken;
 typedef struct
 {
 	DestReceiver pub;			/* publicly-known function pointers */
-}	DR_fifo_printtup;
-
-typedef struct FifoConnStateData
-{
-	int32		fifo;
-	bool		finished;
-	bool		created;
-}	FifoConnStateData;
-
-typedef FifoConnStateData *FifoConnState;
+}	DR_mq_printtup;
 
 typedef struct
 {
@@ -164,8 +155,6 @@ extern int64 GpToken(void);
 extern enum EndpointRole EndpointRole(void);
 extern Size Token_ShmemSize(void);
 extern Size Endpoint_ShmemSize(void);
-extern void Token_ShmemInit(void);
-extern void Endpoint_ShmemInit(void);
 extern void AllocEndpointOfToken(int64 token);
 extern void FreeEndpointOfToken(int64 token);
 extern bool FindEndpointTokenByUser(Oid user_id, const char *token_str);

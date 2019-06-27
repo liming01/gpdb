@@ -51,7 +51,7 @@ static char tokenNameFmtStr[64]= "";
 
 /* Cache tuple descriptors for all tokens which have been retrieved in this
  * retrieve session */
-static FifoConnState RetrieveFifoConns[MAX_ENDPOINT_SIZE] = {};
+static bool MessageSendFinished[MAX_ENDPOINT_SIZE];
 static TupleTableSlot *RetrieveTupleSlots[MAX_ENDPOINT_SIZE] = {};
 static int64 RetrieveTokens[MAX_ENDPOINT_SIZE];
 static int RetrieveStatus[MAX_ENDPOINT_SIZE];
@@ -71,8 +71,7 @@ static bool StatusInAbort = false;
 static bool StatusNeedAck = false;
 static int64 CurrentRetrieveToken = 0;
 
-static shm_mq *inputq = NULL;
-static shm_mq *outputq = NULL;
+static shm_mq *message_queue = NULL;
 static shm_mq_handle *inputqh = NULL;
 static shm_mq_handle *outputqh = NULL;
 
@@ -81,13 +80,12 @@ static shm_mq_handle *outputqh = NULL;
  */
 
 static const char *endpoint_role_to_string(enum EndpointRole role);
-static void make_fifo_conn(void);
 static void check_token_valid(void);
 static void check_end_point_allocated(void);
-static void create_and_connect_fifo(void);
+static void create_and_connect_mq(void);
 static void init_conn_for_sender(void);
-static void retry_write(int fifo, char *data, int len);
-static void retry_read(int fifo, char *data, int len);
+static void message_write(char *data, int len);
+static void message_read(char *data, int len);
 static void sender_finish(void);
 static void receiver_finish(void);
 static void init_conn_for_receiver(void);
@@ -104,10 +102,10 @@ static void set_sender_pid(void);
 static void init_endpoint_connection(void);
 static void finish_endpoint_connection(void);
 static void close_endpoint_connection(void);
-static void startup_endpoint_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo);
+static void startup_endpoint_mq(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo);
 static void send_slot_to_endpoint_receiver(TupleTableSlot *slot, DestReceiver *self);
-static void shutdown_endpoint_fifo(DestReceiver *self);
-static void destroy_endpoint_fifo(DestReceiver *self);
+static void shutdown_endpoint_mq(DestReceiver *self);
+static void destroy_endpoint_mq(DestReceiver *self);
 static void retrieve_cancel_action(void);
 static bool endpoint_on_qd(SharedToken token);
 static void unset_sender_pid(void);
@@ -115,7 +113,7 @@ static void unset_endpoint_receiver_pid(volatile EndpointDesc * endPointDesc);
 static void unset_endpoint_sender_pid(volatile EndpointDesc * endPointDesc);
 static void unset_endpoint(volatile EndpointDesc * endPointDesc);
 static volatile EndpointDesc *find_endpoint_by_token(int64 token);
-static void send_tuple_desc_to_fifo(TupleDesc tupdesc);
+static void send_tuple_desc_to_mq(TupleDesc tupdesc);
 static void send_tuple_slot(TupleTableSlot *slot);
 static TupleTableSlot *receive_tuple_slot(void);
 
@@ -358,17 +356,6 @@ endpoint_role_to_string(enum EndpointRole role)
 	}
 }
 
-static void
-make_fifo_conn(void)
-{
-	RetrieveFifoConns[CurrentRetrieveToken] = (FifoConnState) palloc(sizeof(FifoConnStateData));
-
-	Assert(RetrieveFifoConns[CurrentRetrieveToken]);
-
-	RetrieveFifoConns[CurrentRetrieveToken]->fifo = -1;
-	RetrieveFifoConns[CurrentRetrieveToken]->created = false;
-	RetrieveFifoConns[CurrentRetrieveToken]->finished = false;
-}
 
 static void
 check_token_valid(void)
@@ -401,63 +388,31 @@ check_end_point_allocated(void)
 }
 
 static void
-create_and_connect_fifo(void)
+create_and_connect_mq(void)
 {
-	char		fifo_name[MAX_FIFO_NAME_SIZE];
-	char	   *fifo_path;
-	int			flags;
-
 	check_token_valid();
 
-	if (RetrieveFifoConns[CurrentRetrieveToken]->created)
+	if (message_queue != NULL)
 		return;
 
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
-
-	fifo_path = GetTempFilePath(fifo_name, true);
-
-	if (mkfifo(fifo_path, 0666) < 0)
-		ep_log(ERROR, "failed to create FIFO %s: %m", fifo_path);
-	else
-		RetrieveFifoConns[CurrentRetrieveToken]->created = true;
-
-	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0)
-		return;
-
-	if ((RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_path, O_RDWR, 0666)) < 0)
-	{
-		close_endpoint_connection();
-		ep_log(ERROR, "failed to open FIFO %s for writing: %m", fifo_path);
-	}
-
-	flags = fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_GETFL);
-
-	if (flags < 0 || fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
-	{
-		close_endpoint_connection();
-		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_path);
-	}
-
-		mq_dsm_seg = dsm_create(160*1024);
-
-		SpinLockAcquire(shared_end_points_lock);
-
-		my_shared_endpoint->handle = dsm_segment_handle(mq_dsm_seg);
-
+	SpinLockAcquire(shared_end_points_lock);
+	mq_dsm_seg = dsm_create(160*1024);
+	if (mq_dsm_seg == NULL) {
 		SpinLockRelease(shared_end_points_lock);
+		close_endpoint_connection();
+		ep_log(ERROR, "failed to create shared message queue for send tuples.");
+	}
+	my_shared_endpoint->handle = dsm_segment_handle(mq_dsm_seg);
+	SpinLockRelease(shared_end_points_lock);
 
-		shm_toc    *toc;
-		toc = shm_toc_create(my_shared_endpoint->token, dsm_segment_address(mq_dsm_seg), 160*1024);
-
-		shm_mq     *mq;
-		mq = shm_mq_create(shm_toc_allocate(toc, (Size) 128*1024), (Size) 128*1024);
-		shm_toc_insert(toc, 1, mq);
-		shm_mq_set_sender(mq, MyProc);
-
-		outputq = mq;
-
-		outputqh = shm_mq_attach(outputq, mq_dsm_seg, NULL);
-
+	shm_toc    *toc;
+	toc = shm_toc_create(my_shared_endpoint->token, dsm_segment_address(mq_dsm_seg), 160*1024);
+	shm_mq     *mq;
+	mq = shm_mq_create(shm_toc_allocate(toc, (Size) 128*1024), (Size) 128*1024);
+	shm_toc_insert(toc, 1, mq);
+	shm_mq_set_sender(mq, MyProc);
+	message_queue = mq;
+	outputqh = shm_mq_attach(message_queue, mq_dsm_seg, NULL);
 	set_attach_status(Status_Prepared);
 }
 
@@ -465,121 +420,41 @@ static void
 init_conn_for_sender(void)
 {
 	check_end_point_allocated();
-	make_fifo_conn();
-	create_and_connect_fifo();
+	MessageSendFinished[CurrentRetrieveToken] = false;
+	create_and_connect_mq();
 }
 
 static void
-retry_write(int fifo, char *data, int len)
-{
+message_write(char *data, int len) {
 	shm_mq_result res;
 
 	/* Notice any interrupts that have occurred. */
 	CHECK_FOR_INTERRUPTS();
 
 	res = shm_mq_send(outputqh, len, data, false);
-	if (res != SHM_MQ_SUCCESS)
+	if (res != SHM_MQ_SUCCESS) {
+		close_endpoint_connection();
 		ep_log(ERROR, "fail to send data to shared message queue, length:%d", len);
-
-	return;
-#if 0
-	int			wr;
-	int			curr = 0;
-
-	while (len > 0)
-	{
-		int			wrtRet;
-
-		CHECK_FOR_INTERRUPTS();
-		ResetLatch(&my_shared_endpoint->ack_done);
-
-		wrtRet = write(fifo, &data[curr], len);
-		if (wrtRet > 0)
-		{
-			curr += wrtRet;
-			len -= wrtRet;
-			continue;
-		}
-		else if (wrtRet == 0 && errno == EINTR)
-			continue;
-		else
-		{
-			if (errno != EAGAIN && errno != EWOULDBLOCK)
-				ep_log(ERROR, "could not write to FIFO: %m");
-		}
-
-		wr = WaitLatchOrSocket(&my_shared_endpoint->ack_done,
-							   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_WRITEABLE | WL_TIMEOUT | WL_SOCKET_READABLE,
-							   fifo,
-							   POLL_FIFO_TIMEOUT);
-
-		/*
-		 * Data is not sent out, so ack_done is not expected
-		 */
-		Assert(!(wr & WL_LATCH_SET));
-
-		if (wr & WL_POSTMASTER_DEATH)
-			proc_exit(0);
 	}
-#endif
 }
 
 static void
-retry_read(int fifo, char *data, int len)
+message_read(char *data, int len)
 {
 	shm_mq_result res;
 	void *temp_data = NULL;
 
-	//for (;;)
-	//{
-	/* Notice any interrupts that have occurred. */
 	CHECK_FOR_INTERRUPTS();
 
 	Size actual_size;
 	res = shm_mq_receive(inputqh, &actual_size, &temp_data, false);
 
-	if (res != SHM_MQ_SUCCESS || actual_size != len)
+	if (res != SHM_MQ_SUCCESS || actual_size != len) {
+		close_endpoint_connection();
 		ep_log(ERROR, "fail to receive data from shared message queue, length:%d", len);
-	//}
-	memcpy(data, temp_data, actual_size);
-	return;
-
-#if 0
-	int			rdRet;
-	int			curr = 0;
-	struct pollfd fds;
-
-	fds.fd = fifo;
-	fds.events = POLLIN;
-
-	while (len > 0)
-	{
-		int			pollRet;
-
-		do
-		{
-			CHECK_FOR_INTERRUPTS();
-			pollRet = poll(&fds, 1, POLL_FIFO_TIMEOUT);
-		}
-		while (pollRet == 0 || (pollRet < 0 && (errno == EINTR || errno == EAGAIN)));
-
-		if (pollRet < 0)
-			ep_log(ERROR, "failed to poll during reading: %m");
-
-		rdRet = read(fifo, &data[curr], len);
-		if (rdRet >= 0)
-		{
-			curr += rdRet;
-			len -= rdRet;
-		}
-		else if (rdRet == 0 && errno == EINTR)
-			continue;
-		else if (errno == EAGAIN || errno == EWOULDBLOCK)
-			continue;
-		else
-			ep_log(ERROR, "could not read from FIFO: %m");
 	}
-#endif
+
+	memcpy(data, temp_data, actual_size);
 }
 
 static void
@@ -587,7 +462,7 @@ sender_finish(void)
 {
 	char		cmd = 'F';
 
-	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
+	message_write(&cmd, 1);
 
 	while (true)
 	{
@@ -648,81 +523,42 @@ receiver_finish(void)
 static void
 init_conn_for_receiver(void)
 {
-	char		fifo_name[MAX_FIFO_NAME_SIZE];
-	char	   *fifo_path;
-	int			flags;
-
 	check_token_valid();
-
-	make_fifo_conn();
-
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
-	fifo_path = GetTempFilePath(fifo_name, false);
-
-	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0)
+	MessageSendFinished[CurrentRetrieveToken] = false;
+	if (message_queue)
 		return;
 
-	if ((RetrieveFifoConns[CurrentRetrieveToken]->fifo = open(fifo_path, O_RDWR, 0666)) < 0)
-	{
-		ep_log(ERROR, "failed to open FIFO %s for reading: %m", fifo_path);
-		close_endpoint_connection();
-	}
-
-	flags = fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_GETFL);
-
-#if 0
-	if (flags < 0 || fcntl(RetrieveFifoConns[CurrentRetrieveToken]->fifo, F_SETFL, flags | O_NONBLOCK) < 0)
-	{
-		close_endpoint_connection();
-		ep_log(ERROR, "failed to set FIFO %s nonblock: %m", fifo_path);
-	}
-#endif
-
 	mq_dsm_seg = dsm_attach(my_shared_endpoint->handle);
+	if (mq_dsm_seg == NULL) {
+		close_endpoint_connection();
+		ep_log(ERROR, "attach to shared message queue failed.");
+	}
+
 	shm_toc * toc = shm_toc_attach(Gp_token, dsm_segment_address(mq_dsm_seg));
 	shm_mq     *mq = shm_toc_lookup(toc, 1);
 	shm_mq_set_receiver(mq, MyProc);
-	inputq = mq;
-	inputqh = shm_mq_attach(inputq, mq_dsm_seg, NULL);
-
-	RetrieveFifoConns[CurrentRetrieveToken]->created = true;
+	message_queue = mq;
+	inputqh = shm_mq_attach(message_queue, mq_dsm_seg, NULL);
 }
 
 static void
 sender_close(void)
 {
-	char		fifo_name[MAX_FIFO_NAME_SIZE];
-	char	   *fifo_path;
-
-	snprintf(fifo_name, sizeof(fifo_name), FIFO_NAME_PATTERN, GpIdentity.segindex, Gp_token);
-	fifo_path = GetTempFilePath(fifo_name, false);
-
-	Assert(RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0);
-
-	if (RetrieveFifoConns[CurrentRetrieveToken]->fifo > 0 && close(RetrieveFifoConns[CurrentRetrieveToken]->fifo) < 0)
-		ep_log(ERROR, "failed to close FIFO %s: %m", fifo_path);
-
-	RetrieveFifoConns[CurrentRetrieveToken]->fifo = -1;
-
-	if (!RetrieveFifoConns[CurrentRetrieveToken]->created)
-		return;
-
-	if (unlink(fifo_path) < 0)
-		ep_log(ERROR, "failed to unlink FIFO %s: %m", fifo_path);
-
-	RetrieveFifoConns[CurrentRetrieveToken]->created = false;
-	dsm_detach(mq_dsm_seg);
+	if (mq_dsm_seg != NULL) {
+		dsm_detach(mq_dsm_seg);
+		mq_dsm_seg = NULL;
+		message_queue = NULL;
+	}
 }
 
 static void
 receiver_close(void)
 {
-	if (close(RetrieveFifoConns[CurrentRetrieveToken]->fifo) < 0)
-		ep_log(ERROR, "failed to close FIFO: %m");
-
-	RetrieveFifoConns[CurrentRetrieveToken]->fifo = -1;
-	RetrieveFifoConns[CurrentRetrieveToken]->created = false;
-	dsm_detach(mq_dsm_seg);
+	if (mq_dsm_seg != NULL) {
+		dsm_detach(mq_dsm_seg);
+		mq_dsm_seg = NULL;
+		message_queue = NULL;
+	}
 }
 
 static EndpointStatus *
@@ -994,16 +830,14 @@ finish_endpoint_connection(void)
 		default:
 			ep_log(ERROR, "invalid endpoint role");
 	}
-
-	RetrieveFifoConns[CurrentRetrieveToken]->finished = true;
+	MessageSendFinished[CurrentRetrieveToken] = true;
 }
 
 static void
 close_endpoint_connection(void)
 {
-	Assert(RetrieveFifoConns[CurrentRetrieveToken]);
 
-	if (!RetrieveFifoConns[CurrentRetrieveToken]->finished)
+	if (!MessageSendFinished[CurrentRetrieveToken])
 		ep_log(ERROR, "data are finished reading");
 
 	check_token_valid();
@@ -1019,17 +853,15 @@ close_endpoint_connection(void)
 		default:
 			ep_log(ERROR, "invalid endpoint role");
 	}
-
-	pfree(RetrieveFifoConns[CurrentRetrieveToken]);
-	RetrieveFifoConns[CurrentRetrieveToken] = NULL;
+	MessageSendFinished[CurrentRetrieveToken] = false;
 }
 
 static void
-startup_endpoint_fifo(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
+startup_endpoint_mq(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
 {
 	set_sender_pid();
 	init_endpoint_connection();
-	send_tuple_desc_to_fifo(typeinfo);
+	send_tuple_desc_to_mq(typeinfo);
 }
 
 static void
@@ -1039,7 +871,7 @@ send_slot_to_endpoint_receiver(TupleTableSlot *slot, DestReceiver *self)
 }
 
 static void
-shutdown_endpoint_fifo(DestReceiver *self)
+shutdown_endpoint_mq(DestReceiver *self)
 {
 	finish_endpoint_connection();
 	close_endpoint_connection();
@@ -1047,7 +879,7 @@ shutdown_endpoint_fifo(DestReceiver *self)
 }
 
 static void
-destroy_endpoint_fifo(DestReceiver *self)
+destroy_endpoint_mq(DestReceiver *self)
 {
 	pfree(self);
 }
@@ -1235,13 +1067,13 @@ find_endpoint_by_token(int64 token)
  * Send the tuple description for retrieve statement to FIFO
  */
 static void
-send_tuple_desc_to_fifo(TupleDesc tupdesc)
+send_tuple_desc_to_mq(TupleDesc tupdesc)
 {
-	Assert(RetrieveFifoConns[CurrentRetrieveToken]);
+	Assert(message_queue);
 
 	char		cmd = 'D';
 
-	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
+	message_write(&cmd, 1);
 	TupleDescNode *node = makeNode(TupleDescNode);
 
 	node->natts = tupdesc->natts;
@@ -1249,8 +1081,8 @@ send_tuple_desc_to_fifo(TupleDesc tupdesc)
 	int			tupdesc_len = 0;
 	char	   *tupdesc_str = nodeToBinaryStringFast(node, &tupdesc_len);
 
-	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) &tupdesc_len, 4);
-	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, tupdesc_str, tupdesc_len);
+	message_write((char *) &tupdesc_len, 4);
+	message_write(tupdesc_str, tupdesc_len);
 }
 
 static void
@@ -1265,31 +1097,29 @@ send_tuple_slot(TupleTableSlot *slot)
 	MemTuple	mtup = ExecFetchSlotMemTuple(slot);
 
 	tupleSize = memtuple_get_size(mtup);
-	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
-	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) &tupleSize, sizeof(int));
-	retry_write(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) mtup, tupleSize);
+	message_write(&cmd, 1);
+	message_write((char *) &tupleSize, sizeof(int));
+	message_write((char *) mtup, tupleSize);
 }
 
 static TupleTableSlot *
 receive_tuple_slot(void)
 {
 	char		cmd;
-	int			fifo;
 	TupleTableSlot *slot;
 	int			tupleSize = 0;
 	MemTuple	mtup;
 
-	Assert(RetrieveFifoConns[CurrentRetrieveToken]);
+	Assert(message_queue);
 	Assert(RetrieveTupleSlots[CurrentRetrieveToken]);
 
 	ExecClearTuple(RetrieveTupleSlots[CurrentRetrieveToken]);
 
-	fifo = RetrieveFifoConns[CurrentRetrieveToken]->fifo;
 	slot = RetrieveTupleSlots[CurrentRetrieveToken];
 
 	while (true)
 	{
-		retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
+		message_read(&cmd, 1);
 
 		if (cmd == 'F')
 		{
@@ -1298,7 +1128,7 @@ receive_tuple_slot(void)
 		}
 
 		Assert(cmd == 'T');
-		retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) &tupleSize, sizeof(int));
+		message_read((char *) &tupleSize, sizeof(int));
 		Assert(tupleSize > 0);
 
 		HOLD_INTERRUPTS();
@@ -1306,7 +1136,7 @@ receive_tuple_slot(void)
 		RESUME_INTERRUPTS();
 
 		mtup = palloc(tupleSize);
-		retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) mtup, tupleSize);
+		message_read((char *) mtup, tupleSize);
 		slot->PRIVATE_tts_memtuple = mtup;
 		ExecStoreVirtualTuple(slot);
 
@@ -1647,99 +1477,6 @@ Endpoint_ShmemSize(void)
 }
 
 /*
- * Initialize the token shared memory, only QD needs it
- *
- * Only QD queries the UDF gp_endpoints_info()
- */
-void
-Token_ShmemInit(void)
-{
-	bool		is_shmem_ready;
-	Size		size;
-
-	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(SharedTokenDesc));
-
-	SharedTokens = (SharedTokenDesc *)
-		ShmemInitStruct(SHMEM_TOKEN,
-						size,
-						&is_shmem_ready);
-
-	Assert(is_shmem_ready || !IsUnderPostmaster);
-
-	if (!is_shmem_ready)
-	{
-		int			i;
-
-		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-		{
-			SharedTokens[i].token = InvalidToken;
-			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
-			SharedTokens[i].session_id = InvalidSession;
-			SharedTokens[i].user_id = InvalidOid;
-		}
-	}
-
-	shared_tokens_lock = (slock_t *)
-		ShmemInitStruct(SHMEM_TOKEN_SLOCK,
-						sizeof(slock_t),
-						&is_shmem_ready);
-
-	Assert(is_shmem_ready || !IsUnderPostmaster);
-
-	if (!is_shmem_ready)
-		SpinLockInit(shared_tokens_lock);
-}
-
-/*
- * Initialize the endpoint shared memory
- */
-void
-Endpoint_ShmemInit(void)
-{
-	bool		is_shmem_ready;
-	Size		size;
-
-	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(EndpointDesc));
-
-	SharedEndpoints = (EndpointDesc *)
-		ShmemInitStruct(SHMEM_END_POINT,
-						size,
-						&is_shmem_ready);
-
-	Assert(is_shmem_ready || !IsUnderPostmaster);
-
-	if (!is_shmem_ready)
-	{
-		int			i;
-
-		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-		{
-			SharedEndpoints[i].database_id = InvalidOid;
-			SharedEndpoints[i].sender_pid = InvalidPid;
-			SharedEndpoints[i].receiver_pid = InvalidPid;
-			SharedEndpoints[i].token = InvalidToken;
-			SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
-			SharedEndpoints[i].session_id = InvalidSession;
-			SharedEndpoints[i].user_id = InvalidOid;
-			SharedEndpoints[i].attach_status = Status_NotAttached;
-			SharedEndpoints[i].empty = true;
-
-			InitSharedLatch(&SharedEndpoints[i].ack_done);
-		}
-	}
-
-	shared_end_points_lock = (slock_t *)
-		ShmemInitStruct(SHMEM_END_POINT_SLOCK,
-						sizeof(slock_t),
-						&is_shmem_ready);
-
-	Assert(is_shmem_ready || !IsUnderPostmaster);
-
-	if (!is_shmem_ready)
-		SpinLockInit(shared_end_points_lock);
-}
-
-/*
  * Allocate an endpoint slot of the shared memory
  */
 void
@@ -2024,7 +1761,7 @@ AttachEndpoint(void)
 }
 
 /*
- * When detach endpoint, if this process have not yet finish this fifo reading,
+ * When detach endpoint, if this process have not yet finish this mq reading,
  * then don't reset it's pid, so that we can know the process is the first time
  * of attaching endpoint (need to re-read tuple descriptor).
  *
@@ -2108,15 +1845,15 @@ TupleDescOfRetrieve(void)
 
 		init_endpoint_connection();
 
-		Assert(RetrieveFifoConns[CurrentRetrieveToken]);
-		retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, &cmd, 1);
+		Assert(message_queue);
+		message_read(&cmd, 1);
 		if (cmd == 'D')
 		{
-			retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, (char *) &len, 4);
+			message_read((char *) &len, 4);
 
 			char	   *tupdescnode_str = palloc(len);
 
-			retry_read(RetrieveFifoConns[CurrentRetrieveToken]->fifo, tupdescnode_str, len);
+			message_read(tupdescnode_str, len);
 
 			tupdescnode = (TupleDescNode *) readNodeFromBinaryString(tupdescnode_str, len);
 			if (RetrieveTupleSlots[CurrentRetrieveToken] != NULL)
@@ -2147,12 +1884,12 @@ AbortEndpoint(void)
 	switch (Gp_endpoint_role)
 	{
 		case EPR_SENDER:
-			if (RetrieveFifoConns[CurrentRetrieveToken])
+			if (mq_dsm_seg != NULL)
 				sender_close();
 			unset_sender_pid();
 			break;
 		case EPR_RECEIVER:
-			if (RetrieveFifoConns[CurrentRetrieveToken])
+			if (mq_dsm_seg != NULL)
 				receiver_close();
 			retrieve_cancel_action();
 			DetachEndpoint(true);
@@ -2280,12 +2017,12 @@ RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
 DestReceiver *
 CreateEndpointReceiver(void)
 {
-	DR_fifo_printtup *self = (DR_fifo_printtup *) palloc0(sizeof(DR_fifo_printtup));
+	DR_mq_printtup *self = (DR_mq_printtup *) palloc0(sizeof(DR_mq_printtup));
 
 	self->pub.receiveSlot = send_slot_to_endpoint_receiver;
-	self->pub.rStartup = startup_endpoint_fifo;
-	self->pub.rShutdown = shutdown_endpoint_fifo;
-	self->pub.rDestroy = destroy_endpoint_fifo;
+	self->pub.rStartup = startup_endpoint_mq;
+	self->pub.rShutdown = shutdown_endpoint_mq;
+	self->pub.rDestroy = destroy_endpoint_mq;
 	self->pub.mydest = DestEndpoint;
 
 	return (DestReceiver *) self;
