@@ -408,7 +408,7 @@ create_and_connect_mq(void)
 	}
 	my_shared_endpoint->handle = dsm_segment_handle(dsm_seg);
 	SpinLockRelease(shared_end_points_lock);
-
+    dsm_pin_mapping(dsm_seg);
 	shm_toc    *toc;
 	toc = shm_toc_create(my_shared_endpoint->token, dsm_segment_address(dsm_seg), 160*1024);
 	shm_mq     *mq;
@@ -540,6 +540,7 @@ init_conn_for_receiver(void)
 		close_endpoint_connection();
 		ep_log(ERROR, "attach to shared message queue failed.");
 	}
+	dsm_pin_mapping(dsm_seg);
 	shm_toc * toc = shm_toc_attach(Gp_token, dsm_segment_address(dsm_seg));
 	shm_mq     *mq = shm_toc_lookup(toc, 1);
 	shm_mq_set_receiver(mq, MyProc);
@@ -1011,6 +1012,7 @@ unset_endpoint_sender_pid(volatile EndpointDesc * endPointDesc)
 		if (pid == MyProcPid)
 		{
 			endPointDesc->sender_pid = InvalidPid;
+			ResetLatch(&endPointDesc->ack_done); // TODO: Please note reset the lacth once EXECUTE PARALLEL CURSOR done.
 			DisownLatch(&endPointDesc->ack_done);
 		}
 
