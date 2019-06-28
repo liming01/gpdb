@@ -2018,7 +2018,6 @@ RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
 		}
 
 		finish_endpoint_connection();
-		close_endpoint_connection();
 	}
 
 
