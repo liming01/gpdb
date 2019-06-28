@@ -14,6 +14,7 @@
 #include "storage/latch.h"
 #include "tcop/dest.h"
 #include "storage/dsm.h"
+#include "storage/shm_mq.h"
 
 #define InvalidToken (-1)
 #define InvalidSession (-1)
@@ -109,6 +110,13 @@ typedef struct
 {
 	DestReceiver pub;			/* publicly-known function pointers */
 }	DR_mq_printtup;
+
+typedef struct MessageQueueData
+{
+	dsm_segment*   mq_seg;
+	shm_mq_handle* mq_handle;
+	bool		   finished;
+}	MessageQueueData;
 
 typedef struct
 {

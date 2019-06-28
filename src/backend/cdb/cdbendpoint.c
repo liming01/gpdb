@@ -32,7 +32,6 @@
 #include "utils/faultinjector.h"
 #include "utils/fmgroids.h"
 #include "storage/dsm.h"
-#include "storage/shm_mq.h"
 #include "storage/shm_toc.h"
 
 /*
@@ -51,7 +50,7 @@ static char tokenNameFmtStr[64]= "";
 
 /* Cache tuple descriptors for all tokens which have been retrieved in this
  * retrieve session */
-static bool MessageSendFinished[MAX_ENDPOINT_SIZE];
+static MessageQueueData MessageQueues[MAX_ENDPOINT_SIZE];
 static TupleTableSlot *RetrieveTupleSlots[MAX_ENDPOINT_SIZE] = {};
 static int64 RetrieveTokens[MAX_ENDPOINT_SIZE];
 static int RetrieveStatus[MAX_ENDPOINT_SIZE];
@@ -71,15 +70,15 @@ static bool StatusInAbort = false;
 static bool StatusNeedAck = false;
 static int64 CurrentRetrieveToken = 0;
 
-static shm_mq *message_queue = NULL;
-static shm_mq_handle *inputqh = NULL;
-static shm_mq_handle *outputqh = NULL;
+static dsm_segment* token_info_dsm_seg = NULL;
+static dsm_segment* endpoint_info_dsm_seg = NULL;
 
 /*
  * Static functions
  */
 
 static const char *endpoint_role_to_string(enum EndpointRole role);
+static void init_mq_conn_data(void);
 static void check_token_valid(void);
 static void check_end_point_allocated(void);
 static void create_and_connect_mq(void);
@@ -116,11 +115,6 @@ static volatile EndpointDesc *find_endpoint_by_token(int64 token);
 static void send_tuple_desc_to_mq(TupleDesc tupdesc);
 static void send_tuple_slot(TupleTableSlot *slot);
 static TupleTableSlot *receive_tuple_slot(void);
-
-
-static dsm_segment* token_info_dsm_seg = NULL;
-static dsm_segment* endpoint_info_dsm_seg = NULL;
-static dsm_segment* mq_dsm_seg = NULL;
 
 static dsm_segment * create_token_info_dsm();
 static dsm_segment * create_endpoint_info_dsm();
@@ -358,6 +352,13 @@ endpoint_role_to_string(enum EndpointRole role)
 	}
 }
 
+static void
+init_mq_conn_data(void)
+{
+	MessageQueues[CurrentRetrieveToken].mq_seg = NULL;
+	MessageQueues[CurrentRetrieveToken].mq_handle = NULL;
+	MessageQueues[CurrentRetrieveToken].finished = false;
+}
 
 static void
 check_token_valid(void)
@@ -394,35 +395,36 @@ create_and_connect_mq(void)
 {
 	check_token_valid();
 
-	if (message_queue != NULL)
+	if (MessageQueues[CurrentRetrieveToken].mq_handle != NULL)
 		return;
 
+	dsm_segment* dsm_seg;
 	SpinLockAcquire(shared_end_points_lock);
-	mq_dsm_seg = dsm_create(160*1024);
-	if (mq_dsm_seg == NULL) {
+	dsm_seg = dsm_create(160*1024);
+	if (dsm_seg == NULL) {
 		SpinLockRelease(shared_end_points_lock);
 		close_endpoint_connection();
 		ep_log(ERROR, "failed to create shared message queue for send tuples.");
 	}
-	my_shared_endpoint->handle = dsm_segment_handle(mq_dsm_seg);
+	my_shared_endpoint->handle = dsm_segment_handle(dsm_seg);
 	SpinLockRelease(shared_end_points_lock);
 
 	shm_toc    *toc;
-	toc = shm_toc_create(my_shared_endpoint->token, dsm_segment_address(mq_dsm_seg), 160*1024);
+	toc = shm_toc_create(my_shared_endpoint->token, dsm_segment_address(dsm_seg), 160*1024);
 	shm_mq     *mq;
 	mq = shm_mq_create(shm_toc_allocate(toc, (Size) 128*1024), (Size) 128*1024);
 	shm_toc_insert(toc, 1, mq);
 	shm_mq_set_sender(mq, MyProc);
-	message_queue = mq;
-	outputqh = shm_mq_attach(message_queue, mq_dsm_seg, NULL);
+	MessageQueues[CurrentRetrieveToken].mq_handle = shm_mq_attach(mq, dsm_seg, NULL);
 	set_attach_status(Status_Prepared);
+	MessageQueues[CurrentRetrieveToken].mq_seg = dsm_seg;
 }
 
 static void
 init_conn_for_sender(void)
 {
 	check_end_point_allocated();
-	MessageSendFinished[CurrentRetrieveToken] = false;
+	init_mq_conn_data();
 	create_and_connect_mq();
 }
 
@@ -433,7 +435,7 @@ message_write(char *data, int len) {
 	/* Notice any interrupts that have occurred. */
 	CHECK_FOR_INTERRUPTS();
 
-	res = shm_mq_send(outputqh, len, data, false);
+	res = shm_mq_send(MessageQueues[CurrentRetrieveToken].mq_handle, len, data, false);
 	if (res != SHM_MQ_SUCCESS) {
 		close_endpoint_connection();
 		ep_log(ERROR, "fail to send data to shared message queue, length:%d", len);
@@ -449,7 +451,7 @@ message_read(char *data, int len)
 	CHECK_FOR_INTERRUPTS();
 
 	Size actual_size;
-	res = shm_mq_receive(inputqh, &actual_size, &temp_data, false);
+	res = shm_mq_receive(MessageQueues[CurrentRetrieveToken].mq_handle, &actual_size, &temp_data, false);
 
 	if (res != SHM_MQ_SUCCESS || actual_size != len) {
 		close_endpoint_connection();
@@ -526,40 +528,42 @@ static void
 init_conn_for_receiver(void)
 {
 	check_token_valid();
-	MessageSendFinished[CurrentRetrieveToken] = false;
-	if (message_queue)
+	init_mq_conn_data();
+	if (MessageQueues[CurrentRetrieveToken].mq_handle)
 		return;
 
-	mq_dsm_seg = dsm_attach(my_shared_endpoint->handle);
-	if (mq_dsm_seg == NULL) {
+	dsm_segment* dsm_seg;
+	SpinLockAcquire(shared_end_points_lock);
+	dsm_seg = dsm_attach(my_shared_endpoint->handle);
+	SpinLockRelease(shared_end_points_lock);
+	if (dsm_seg == NULL) {
 		close_endpoint_connection();
 		ep_log(ERROR, "attach to shared message queue failed.");
 	}
-
-	shm_toc * toc = shm_toc_attach(Gp_token, dsm_segment_address(mq_dsm_seg));
+	shm_toc * toc = shm_toc_attach(Gp_token, dsm_segment_address(dsm_seg));
 	shm_mq     *mq = shm_toc_lookup(toc, 1);
 	shm_mq_set_receiver(mq, MyProc);
-	message_queue = mq;
-	inputqh = shm_mq_attach(message_queue, mq_dsm_seg, NULL);
+	MessageQueues[CurrentRetrieveToken].mq_handle = shm_mq_attach(mq, dsm_seg, NULL);
+	MessageQueues[CurrentRetrieveToken].mq_seg = dsm_seg;
 }
 
 static void
 sender_close(void)
 {
-	if (mq_dsm_seg != NULL) {
-		dsm_detach(mq_dsm_seg);
-		mq_dsm_seg = NULL;
-		message_queue = NULL;
+	if (MessageQueues[CurrentRetrieveToken].mq_seg != NULL) {
+		dsm_detach(MessageQueues[CurrentRetrieveToken].mq_seg);
+		MessageQueues[CurrentRetrieveToken].mq_seg = NULL;
+		MessageQueues[CurrentRetrieveToken].mq_handle = NULL;
 	}
 }
 
 static void
 receiver_close(void)
 {
-	if (mq_dsm_seg != NULL) {
-		dsm_detach(mq_dsm_seg);
-		mq_dsm_seg = NULL;
-		message_queue = NULL;
+	if (MessageQueues[CurrentRetrieveToken].mq_seg != NULL) {
+		dsm_detach(MessageQueues[CurrentRetrieveToken].mq_seg);
+		MessageQueues[CurrentRetrieveToken].mq_seg = NULL;
+		MessageQueues[CurrentRetrieveToken].mq_handle = NULL;
 	}
 }
 
@@ -756,6 +760,8 @@ set_sender_pid(void)
 	int			i;
 	int			found_idx = -1;
 
+	Assert(SharedEndpoints);
+
 	if (Gp_endpoint_role != EPR_SENDER)
 		ep_log(ERROR, "%s could not allocate endpoint slot",
 			   endpoint_role_to_string(Gp_endpoint_role));
@@ -832,14 +838,14 @@ finish_endpoint_connection(void)
 		default:
 			ep_log(ERROR, "invalid endpoint role");
 	}
-	MessageSendFinished[CurrentRetrieveToken] = true;
+	MessageQueues[CurrentRetrieveToken].finished = true;
 }
 
 static void
 close_endpoint_connection(void)
 {
 
-	if (!MessageSendFinished[CurrentRetrieveToken])
+	if (!MessageQueues[CurrentRetrieveToken].finished)
 		ep_log(ERROR, "data are finished reading");
 
 	check_token_valid();
@@ -855,7 +861,7 @@ close_endpoint_connection(void)
 		default:
 			ep_log(ERROR, "invalid endpoint role");
 	}
-	MessageSendFinished[CurrentRetrieveToken] = false;
+	MessageQueues[CurrentRetrieveToken].finished = false;
 }
 
 static void
@@ -889,6 +895,7 @@ destroy_endpoint_mq(DestReceiver *self)
 static void
 retrieve_cancel_action(void)
 {
+	Assert(SharedEndpoints);
 	if (Gp_endpoint_role != EPR_RECEIVER)
 		ep_log(ERROR, "receiver cancel action is triggered by accident");
 
@@ -1075,7 +1082,7 @@ find_endpoint_by_token(int64 token)
 static void
 send_tuple_desc_to_mq(TupleDesc tupdesc)
 {
-	Assert(message_queue);
+	Assert(MessageQueues[CurrentRetrieveToken].mq_handle);
 
 	char		cmd = 'D';
 
@@ -1116,7 +1123,7 @@ receive_tuple_slot(void)
 	int			tupleSize = 0;
 	MemTuple	mtup;
 
-	Assert(message_queue);
+	Assert(MessageQueues[CurrentRetrieveToken].mq_handle);
 	Assert(RetrieveTupleSlots[CurrentRetrieveToken]);
 
 	ExecClearTuple(RetrieveTupleSlots[CurrentRetrieveToken]);
@@ -1157,7 +1164,7 @@ int64
 GetUniqueGpToken(void)
 {
 	int64		token;
-
+	Assert(SharedTokens);
 	SpinLockAcquire(shared_tokens_lock);
 
 	/* The random number sequences in the same second are the same */
@@ -1192,6 +1199,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 
 	Assert(token != InvalidToken && name != NULL
 		   && session_id != InvalidSession);
+	Assert(SharedTokens);
 
 	SpinLockAcquire(shared_tokens_lock);
 
@@ -1279,7 +1287,7 @@ RemoveParallelCursorToken(int64 token)
 	bool		endpoint_on_QD = false,
 				found = false;
 	List	   *seg_list = NIL;
-
+	Assert(SharedTokens);
 	SpinLockAcquire(shared_tokens_lock);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -1495,7 +1503,7 @@ AllocEndpointOfToken(int64 token)
 
 	if (token == InvalidToken)
 		ep_log(ERROR, "allocate endpoint of invalid token ID");
-
+	Assert(SharedEndpoints);
 	SpinLockAcquire(shared_end_points_lock);
 
 #ifdef FAULT_INJECTOR
@@ -1612,6 +1620,7 @@ FindEndpointTokenByUser(Oid user_id, const char *token_str)
 {
 	bool		isFound = false;
     AttachOrCreateTokenInfoDSM(NULL, NULL);
+	Assert(SharedEndpoints);
 	SpinLockAcquire(shared_end_points_lock);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -1675,6 +1684,7 @@ AttachEndpoint(void)
 
 	check_token_valid();
 
+	Assert(SharedEndpoints);
 	SpinLockAcquire(shared_end_points_lock);
 
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -1851,7 +1861,7 @@ TupleDescOfRetrieve(void)
 
 		init_endpoint_connection();
 
-		Assert(message_queue);
+		Assert(MessageQueues[CurrentRetrieveToken].mq_handle);
 		message_read(&cmd, 1);
 		if (cmd == 'D')
 		{
@@ -1890,12 +1900,12 @@ AbortEndpoint(void)
 	switch (Gp_endpoint_role)
 	{
 		case EPR_SENDER:
-			if (mq_dsm_seg != NULL)
+			if (MessageQueues[CurrentRetrieveToken].mq_seg != NULL)
 				sender_close();
 			unset_sender_pid();
 			break;
 		case EPR_RECEIVER:
-			if (mq_dsm_seg != NULL)
+			if (MessageQueues[CurrentRetrieveToken].mq_seg != NULL)
 				receiver_close();
 			retrieve_cancel_action();
 			DetachEndpoint(true);
@@ -1931,7 +1941,7 @@ List *
 GetContentIDsByToken(int64 token)
 {
 	List	   *l = NIL;
-
+	Assert(SharedTokens);
 	SpinLockAcquire(shared_tokens_lock);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
@@ -2191,7 +2201,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 	funcctx = SRF_PERCALL_SETUP();
 	mystatus = funcctx->user_fctx;
-
+	Assert(SharedTokens);
 	/*
 	 * build detailed token information
 	 */
