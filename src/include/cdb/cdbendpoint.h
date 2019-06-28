@@ -17,6 +17,7 @@
 #include "storage/shm_mq.h"
 
 #define InvalidToken (-1)
+#define InvalidTokenIndex (-1)
 #define InvalidSession (-1)
 #define DummyToken			(0) /* For fault injection */
 

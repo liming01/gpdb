@@ -50,7 +50,7 @@ static char tokenNameFmtStr[64]= "";
 
 /* Cache tuple descriptors for all tokens which have been retrieved in this
  * retrieve session */
-static MessageQueueData MessageQueues[MAX_ENDPOINT_SIZE];
+static MessageQueueData MessageQueues[MAX_ENDPOINT_SIZE] = {};
 static TupleTableSlot *RetrieveTupleSlots[MAX_ENDPOINT_SIZE] = {};
 static int64 RetrieveTokens[MAX_ENDPOINT_SIZE];
 static int RetrieveStatus[MAX_ENDPOINT_SIZE];
@@ -550,7 +550,7 @@ init_conn_for_receiver(void)
 static void
 sender_close(void)
 {
-	if (MessageQueues[CurrentRetrieveToken].mq_seg != NULL) {
+	if (CurrentRetrieveToken != InvalidTokenIndex && MessageQueues[CurrentRetrieveToken].mq_seg != NULL) {
 		dsm_detach(MessageQueues[CurrentRetrieveToken].mq_seg);
 		MessageQueues[CurrentRetrieveToken].mq_seg = NULL;
 		MessageQueues[CurrentRetrieveToken].mq_handle = NULL;
@@ -560,7 +560,7 @@ sender_close(void)
 static void
 receiver_close(void)
 {
-	if (MessageQueues[CurrentRetrieveToken].mq_seg != NULL) {
+	if (CurrentRetrieveToken != InvalidTokenIndex && MessageQueues[CurrentRetrieveToken].mq_seg != NULL) {
 		dsm_detach(MessageQueues[CurrentRetrieveToken].mq_seg);
 		MessageQueues[CurrentRetrieveToken].mq_seg = NULL;
 		MessageQueues[CurrentRetrieveToken].mq_handle = NULL;
@@ -1675,6 +1675,7 @@ AttachEndpoint(void)
 										 * attached to this token before */
 	bool		is_invalid_sendpid = false;
 	pid_t		attached_pid = InvalidPid;
+	CurrentRetrieveToken = InvalidTokenIndex;
 
 	if (Gp_endpoint_role != EPR_RECEIVER)
 		ep_log(ERROR, "%s could not attach endpoint", endpoint_role_to_string(Gp_endpoint_role));
