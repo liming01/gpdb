@@ -119,7 +119,7 @@ static TupleTableSlot *receive_tuple_slot(void);
 static dsm_segment * create_token_info_dsm();
 static dsm_segment * create_endpoint_info_dsm();
 
-static void detach_token_dsm_seg(void) {
+static void detach_token_dsm_seg(int code, Datum arg) {
 	if (token_info_dsm_seg != NULL) {
 		dsm_detach(token_info_dsm_seg);
 		token_info_dsm_seg = NULL;
@@ -128,7 +128,7 @@ static void detach_token_dsm_seg(void) {
 	}
 }
 
-static void detach_endpoint_dsm_seg(void) {
+static void detach_endpoint_dsm_seg(int code, Datum arg) {
 	if (endpoint_info_dsm_seg != NULL) {
 		dsm_detach(endpoint_info_dsm_seg);
 		endpoint_info_dsm_seg = NULL;
@@ -239,9 +239,11 @@ void AttachOrCreateTokenInfoDSM(bool* is_token_attached, bool* is_endpoint_attac
 				 errmsg("could not create / map dynamic shared memory segment")));
 	}
 	if (token_attached) {
+        before_shmem_exit(detach_token_dsm_seg, (Datum)0);
 		on_dsm_destroy(token_info_dsm_seg, on_token_dsm_destroy_callback, 0);
 	}
 	if (endpoint_attached) {
+        before_shmem_exit(detach_endpoint_dsm_seg, (Datum)0);
 		on_dsm_destroy(endpoint_info_dsm_seg, on_endpoint_dsm_destroy_callback, 0);
 	}
 	if (is_token_attached != NULL) {
@@ -503,7 +505,7 @@ sender_finish(void)
 		wr = WaitLatch(&my_shared_endpoint->ack_done,
 					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
 					   POLL_FIFO_TIMEOUT);
-
+        ResetLatch(&my_shared_endpoint->ack_done);
 		if (wr & WL_TIMEOUT)
 			continue;
 
@@ -1012,7 +1014,6 @@ unset_endpoint_sender_pid(volatile EndpointDesc * endPointDesc)
 		if (pid == MyProcPid)
 		{
 			endPointDesc->sender_pid = InvalidPid;
-			ResetLatch(&endPointDesc->ack_done); // TODO: Please note reset the lacth once EXECUTE PARALLEL CURSOR done.
 			DisownLatch(&endPointDesc->ack_done);
 		}
 
@@ -1355,8 +1356,8 @@ RemoveParallelCursorToken(int64 token)
 			}
 		}
 	}
-	detach_token_dsm_seg();
 }
+
 char * 
 getTokenNameFormatStr(void)
 {
@@ -1609,7 +1610,6 @@ FreeEndpointOfToken(int64 token)
 		return;
 
 	unset_endpoint(endPointDesc);
-	detach_endpoint_dsm_seg();
 }
 
 /*
@@ -2377,10 +2377,10 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	}
 	SpinLockRelease(shared_tokens_lock);
     if (is_endpoint_attached) {
-        detach_endpoint_dsm_seg();
+        detach_endpoint_dsm_seg(0, (Datum)0);
     }
 	if (is_token_attached) {
-		detach_token_dsm_seg();
+		detach_token_dsm_seg(0, (Datum)0);
 	}
 	SRF_RETURN_DONE(funcctx);
 }
@@ -2495,10 +2495,10 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	SpinLockRelease(shared_end_points_lock);
 
 	if (is_endpoint_attached) {
-		detach_endpoint_dsm_seg();
+		detach_endpoint_dsm_seg(0, (Datum)0);
 	}
 	if (is_token_attached) {
-		detach_token_dsm_seg();
+		detach_token_dsm_seg(0, (Datum)0);
 	}
 	SRF_RETURN_DONE(funcctx);
 }
