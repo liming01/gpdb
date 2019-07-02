@@ -2046,6 +2046,31 @@ CreateEndpointReceiver(void)
 	return (DestReceiver *) self;
 }
 
+static AttachStatus status_string_to_enum(char* status)
+{
+	Assert(status);
+	if (strcmp(status, GP_ENDPOINT_STATUS_INIT) == 0)
+	{
+		return Status_NotAttached;
+	}
+	else if (strcmp(status, GP_ENDPOINT_STATUS_READY) == 0)
+	{
+		return Status_Prepared;
+	}
+	else if (strcmp(status, GP_ENDPOINT_STATUS_RETRIEVING) == 0)
+	{
+		return Status_Attached;
+	}
+	else if (strcmp(status, GP_ENDPOINT_STATUS_FINISH) == 0)
+	{
+		return Status_Finished;
+	}
+	else {
+		ep_log(ERROR, "unknown end point status %s", status);
+		return Status_NotAttached;
+	}
+}
+
 /*
  * On QD, display all the endpoints information in shared memory
  */
@@ -2148,7 +2173,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				{
 					mystatus->status[idx].token = parseToken(PQgetvalue(result, j, 0));
 					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 1));
-					mystatus->status[idx].attach_status = atoi(PQgetvalue(result, j, 2));
+					mystatus->status[idx].attach_status = status_string_to_enum(PQgetvalue(result, j, 2));
 					mystatus->status[idx].sender_pid = atoi(PQgetvalue(result, j, 3));
 					idx++;
 				}
@@ -2427,7 +2452,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 						   INT4OID, -1, 0);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "attach_status",
-						   INT4OID, -1, 0);
+						   TEXTOID, -1, 0);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "dbid",
 						   INT4OID, -1, 0);
@@ -2464,10 +2489,10 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 
 		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
 		{
+			char	   *status = NULL;
 			char	   *token = printToken(entry->token);
 
 			values[0] = CStringGetTextDatum(token);
-
 			nulls[0] = false;
 			values[1] = Int32GetDatum(entry->database_id);
 			nulls[1] = false;
@@ -2475,7 +2500,22 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			nulls[2] = false;
 			values[3] = Int32GetDatum(entry->receiver_pid);
 			nulls[3] = false;
-			values[4] = Int32GetDatum(entry->attach_status);
+			switch (entry->attach_status)
+			{
+				case Status_NotAttached:
+					status = GP_ENDPOINT_STATUS_INIT;
+					break;
+				case Status_Prepared:
+					status = GP_ENDPOINT_STATUS_READY;
+					break;
+				case Status_Attached:
+					status = GP_ENDPOINT_STATUS_RETRIEVING;
+					break;
+				case Status_Finished:
+					status = GP_ENDPOINT_STATUS_FINISH;
+					break;
+			}
+			values[4] = CStringGetTextDatum(status);
 			nulls[4] = false;
 			values[5] = Int32GetDatum(GpIdentity.dbid);
 			nulls[5] = false;
