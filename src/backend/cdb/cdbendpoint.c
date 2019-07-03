@@ -2142,7 +2142,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		CdbPgResults cdb_pgresults = {NULL, 0};
 
-		CdbDispatchCommand("SELECT token,dbid,attach_status,senderpid FROM pg_catalog.gp_endpoints_status_info()",
+		CdbDispatchCommand("SELECT token,dbid,status,senderpid FROM pg_catalog.gp_endpoints_status_info()",
 					  DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
 
 		if (cdb_pgresults.numResults == 0)
@@ -2451,7 +2451,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 4, "receiverpid",
 						   INT4OID, -1, 0);
 
-		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "attach_status",
+		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "status",
 						   TEXTOID, -1, 0);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "dbid",

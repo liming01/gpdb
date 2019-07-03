@@ -27,7 +27,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT attach_status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
 
 1<:
@@ -60,7 +60,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 1: @out_sh ' TOKEN2=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN2}/${NL}s/${TOKEN2}/token_id2/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
 1&: EXECUTE PARALLEL CURSOR c2;
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT attach_status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE ALL FROM "@TOKEN2";
 
 1<:

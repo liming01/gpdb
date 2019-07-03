@@ -1,6 +1,1 @@
-test: parallel_cursor/explain
-test: parallel_cursor/syntax
 test: parallel_cursor/status
-test: parallel_cursor/corner
-test: parallel_cursor/fault_inject
-test: parallel_cursor/security
