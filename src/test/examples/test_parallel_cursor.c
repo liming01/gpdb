@@ -267,7 +267,7 @@ main(int argc, char **argv)
 
 LABEL_RETRY:
 		/* check that this endpoint is ready to be retrieved. */
-		snprintf(sql, sizeof(sql), "SELECT 1 FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='%s' AND senderpid<>-1;", token);
+		snprintf(sql, sizeof(sql), "SELECT 1 FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='%s' and status='READY';", token);
 		printf("\nExec SQL: %s\n", sql);
 		res1 = PQexec(endpoint_conns[i], sql);
 		if (PQresultStatus(res1) != PGRES_TUPLES_OK)
