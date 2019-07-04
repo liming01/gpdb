@@ -4,3 +4,4 @@ test: parallel_cursor/status
 test: parallel_cursor/corner
 test: parallel_cursor/fault_inject
 test: parallel_cursor/security
+test: parallel_cursor/privilege
