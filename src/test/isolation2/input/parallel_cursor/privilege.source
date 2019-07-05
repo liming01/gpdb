@@ -63,7 +63,7 @@ RESET SESSION AUTHORIZATION;
 1: END;
 
 
---------- Test3: Admin should NOT be be able to retrieve from other's parallel cursor
+--------- Test3: Admin should NOT be able to retrieve from other's parallel cursor
 --- c1 is declared and executed by u1
 1: SET SESSION AUTHORIZATION u1;
 1: BEGIN;
@@ -88,7 +88,7 @@ RESET SESSION AUTHORIZATION;
 1: END;
 
 
---------- Test4: Admin should be be able to close parallel cursor
+--------- Test4: Admin should be able to close parallel cursor
 --- c1 is declared and executed by u1
 1: SET SESSION AUTHORIZATION u1;
 1: BEGIN;
@@ -131,7 +131,6 @@ RESET SESSION AUTHORIZATION;
 
 
 --------- Test6: u2 should NOT be able to execute other u1's parallel cursor if it cannot access t1
---- FIXME: This test doesn't work for now. Similar as the admin case.
 --- c1 is declared by u1
 1: SET SESSION AUTHORIZATION u1;
 1: BEGIN;
