@@ -2079,6 +2079,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 {
 	// Attach to the token info dsm if in other sessions.
 	bool is_token_attached, is_endpoint_attached;
+	bool is_all = PG_GETARG_BOOL(0);
 	AttachOrCreateTokenInfoDSM(&is_token_attached, &is_endpoint_attached);
 
 	FuncCallContext *funcctx;
@@ -2247,117 +2248,39 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		{
 			if (endpoint_on_qd(entry))
 			{
-				/* one end-point on master */
-				dbinfo = dbid_get_dbinfo(MASTER_DBID);
-
-				char	   *token = printToken(entry->token);
-
-				values[0] = CStringGetTextDatum(token);
-				nulls[0] = false;
-				values[1] = CStringGetTextDatum(entry->cursor_name);
-				nulls[1] = false;
-				values[2] = Int32GetDatum(entry->session_id);
-				nulls[2] = false;
-				values[3] = CStringGetTextDatum(dbinfo->hostname);
-				nulls[3] = false;
-				values[4] = Int32GetDatum(dbinfo->port);
-				nulls[4] = false;
-				values[5] = Int32GetDatum(MASTER_DBID);
-				nulls[5] = false;
-				values[6] = ObjectIdGetDatum(entry->user_id);
-				nulls[6] = false;
-
-				/*
-				 * find out the status of end-point
-				 */
-				EndpointStatus *ep_status = find_endpoint_status(mystatus->status, mystatus->status_num,
-												  entry->token, MASTER_DBID);
-
-				if (ep_status != NULL)
+				if (gp_session_id == entry->session_id || is_all)
 				{
-					char	   *status = NULL;
+					/* one end-point on master */
+					dbinfo = dbid_get_dbinfo(MASTER_DBID);
 
-					switch (ep_status->attach_status)
-					{
-						case Status_NotAttached:
-							status = GP_ENDPOINT_STATUS_INIT;
-							break;
-						case Status_Prepared:
-							status = GP_ENDPOINT_STATUS_READY;
-							break;
-						case Status_Attached:
-							status = GP_ENDPOINT_STATUS_RETRIEVING;
-							break;
-						case Status_Finished:
-							status = GP_ENDPOINT_STATUS_FINISH;
-							break;
-					}
-					values[7] = CStringGetTextDatum(status);
-					nulls[7] = false;
-				}
-				else
-				{
-					values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_RELEASED);
-					nulls[7] = false;
-				}
-
-				tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-				result = HeapTupleGetDatum(tuple);
-				mystatus->curTokenIdx++;
-				SpinLockRelease(shared_tokens_lock);
-				SRF_RETURN_NEXT(funcctx, result);
-				pfree(token);
-			}
-			else
-			{
-				/* end-points on segments */
-				while ((mystatus->curSegIdx < mystatus->segment_num) &&
-				 ((mystatus->seg_db_list[mystatus->curSegIdx].role != 'p') ||
-				  !dbid_has_token(entry, mystatus->seg_db_list[mystatus->curSegIdx].dbid)))
-				{
-					mystatus->curSegIdx++;
-				}
-
-				if (mystatus->curSegIdx == mystatus->segment_num)
-				{
-					/* go to the next token */
-					mystatus->curTokenIdx++;
-					mystatus->curSegIdx = 0;
-				}
-				else if (mystatus->seg_db_list[mystatus->curSegIdx].role == 'p'
-						 && mystatus->curSegIdx < mystatus->segment_num)
-				{
-					/* get a primary segment and return this token and segment */
 					char	   *token = printToken(entry->token);
 
 					values[0] = CStringGetTextDatum(token);
-					nulls[0] = false;
+					nulls[0]  = false;
 					values[1] = CStringGetTextDatum(entry->cursor_name);
-					nulls[1] = false;
+					nulls[1]  = false;
 					values[2] = Int32GetDatum(entry->session_id);
-					nulls[2] = false;
-					values[3] = CStringGetTextDatum(mystatus->seg_db_list[mystatus->curSegIdx].hostname);
-					nulls[3] = false;
-					values[4] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].port);
-					nulls[4] = false;
-					values[5] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].dbid);
-					nulls[5] = false;
+					nulls[2]  = false;
+					values[3] = CStringGetTextDatum(dbinfo->hostname);
+					nulls[3]  = false;
+					values[4] = Int32GetDatum(dbinfo->port);
+					nulls[4]  = false;
+					values[5] = Int32GetDatum(MASTER_DBID);
+					nulls[5]  = false;
 					values[6] = ObjectIdGetDatum(entry->user_id);
-					nulls[6] = false;
+					nulls[6]  = false;
 
 					/*
 					 * find out the status of end-point
 					 */
-					EndpointStatus *qe_status = find_endpoint_status(mystatus->status,
-														mystatus->status_num,
-																entry->token,
-							mystatus->seg_db_list[mystatus->curSegIdx].dbid);
+					EndpointStatus *ep_status = find_endpoint_status(mystatus->status, mystatus->status_num,
+													  entry->token, MASTER_DBID);
 
-					if (qe_status != NULL)
+					if (ep_status != NULL)
 					{
 						char	   *status = NULL;
 
-						switch (qe_status->attach_status)
+						switch (ep_status->attach_status)
 						{
 							case Status_NotAttached:
 								status = GP_ENDPOINT_STATUS_INIT;
@@ -2381,17 +2304,115 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						nulls[7] = false;
 					}
 
-					mystatus->curSegIdx++;
+					mystatus->curTokenIdx++;
 					tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-					if (mystatus->curSegIdx == mystatus->segment_num)
-					{
-						mystatus->curTokenIdx++;
-						mystatus->curSegIdx = 0;
-					}
 					result = HeapTupleGetDatum(tuple);
 					SpinLockRelease(shared_tokens_lock);
 					SRF_RETURN_NEXT(funcctx, result);
 					pfree(token);
+				}
+				else
+				{
+					mystatus->curTokenIdx++;
+				}
+			}
+			else
+			{
+				/* end-points on segments */
+				while ((mystatus->curSegIdx < mystatus->segment_num) &&
+				 ((mystatus->seg_db_list[mystatus->curSegIdx].role != 'p') ||
+				  !dbid_has_token(entry, mystatus->seg_db_list[mystatus->curSegIdx].dbid)))
+				{
+					mystatus->curSegIdx++;
+				}
+
+				if (mystatus->curSegIdx == mystatus->segment_num)
+				{
+					/* go to the next token */
+					mystatus->curTokenIdx++;
+					mystatus->curSegIdx = 0;
+				}
+				else if (mystatus->seg_db_list[mystatus->curSegIdx].role == 'p'
+						 && mystatus->curSegIdx < mystatus->segment_num)
+				{
+					if (gp_session_id == entry->session_id || is_all)
+					{
+						/* get a primary segment and return this token and segment */
+						char	   *token = printToken(entry->token);
+
+						values[0] = CStringGetTextDatum(token);
+						nulls[0]  = false;
+						values[1] = CStringGetTextDatum(entry->cursor_name);
+						nulls[1]  = false;
+						values[2] = Int32GetDatum(entry->session_id);
+						nulls[2]  = false;
+						values[3] = CStringGetTextDatum(mystatus->seg_db_list[mystatus->curSegIdx].hostname);
+						nulls[3]  = false;
+						values[4] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].port);
+						nulls[4]  = false;
+						values[5] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].dbid);
+						nulls[5]  = false;
+						values[6] = ObjectIdGetDatum(entry->user_id);
+						nulls[6]  = false;
+
+						/*
+						 * find out the status of end-point
+						 */
+						EndpointStatus *qe_status = find_endpoint_status(mystatus->status,
+															mystatus->status_num,
+																	entry->token,
+								mystatus->seg_db_list[mystatus->curSegIdx].dbid);
+
+						if (qe_status != NULL)
+						{
+							char	   *status = NULL;
+
+							switch (qe_status->attach_status)
+							{
+								case Status_NotAttached:
+									status = GP_ENDPOINT_STATUS_INIT;
+									break;
+								case Status_Prepared:
+									status = GP_ENDPOINT_STATUS_READY;
+									break;
+								case Status_Attached:
+									status = GP_ENDPOINT_STATUS_RETRIEVING;
+									break;
+								case Status_Finished:
+									status = GP_ENDPOINT_STATUS_FINISH;
+									break;
+							}
+							values[7] = CStringGetTextDatum(status);
+							nulls[7] = false;
+						}
+						else
+						{
+							values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_RELEASED);
+							nulls[7] = false;
+						}
+
+						mystatus->curSegIdx++;
+						if (mystatus->curSegIdx == mystatus->segment_num)
+						{
+							mystatus->curTokenIdx++;
+							mystatus->curSegIdx = 0;
+						}
+
+						tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+						result = HeapTupleGetDatum(tuple);
+						SpinLockRelease(shared_tokens_lock);
+						SRF_RETURN_NEXT(funcctx, result);
+						pfree(token);
+					}
+					else
+					{
+						mystatus->curSegIdx++;
+						if (mystatus->curSegIdx == mystatus->segment_num)
+						{
+							mystatus->curTokenIdx++;
+							mystatus->curSegIdx = 0;
+						}
+					}
 				}
 			}
 		}

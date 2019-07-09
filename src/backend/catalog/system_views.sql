@@ -395,7 +395,7 @@ CREATE VIEW pg_timezone_names AS
     SELECT * FROM pg_timezone_names();
 
 CREATE VIEW gp_endpoints AS
-    SELECT * FROM gp_endpoints_info();
+    SELECT * FROM gp_endpoints_info(false);
 
 -- Statistics views
 
