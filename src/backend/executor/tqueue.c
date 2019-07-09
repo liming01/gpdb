@@ -271,7 +271,7 @@ tqueueReceiveSlot(TupleTableSlot *slot, DestReceiver *self)
 		for (i = 0; i < tupledesc->natts; i++)
 		{
 			/* Ignore nulls and types that don't need special handling. */
-			if (slot->tts_isnull[i] || remapinfo[i] == NULL)
+			if (slot->PRIVATE_tts_isnull[i] || remapinfo[i] == NULL)
 				continue;
 
 			/* Switch to temporary memory context to avoid leaking. */
@@ -286,7 +286,7 @@ tqueueReceiveSlot(TupleTableSlot *slot, DestReceiver *self)
 			}
 
 			/* Examine the value. */
-			TQExamine(tqueue, remapinfo[i], slot->tts_values[i]);
+			TQExamine(tqueue, remapinfo[i], slot->PRIVATE_tts_values[i]);
 		}
 
 		/* If we used the temp context, reset it and restore prior context. */
@@ -434,7 +434,6 @@ TQExamineRecord(TQueueDestReceiver *tqueue, RecordRemapInfo *remapinfo,
 		isnull = (bool *) palloc(tupledesc->natts * sizeof(bool));
 		tdata.t_len = HeapTupleHeaderGetDatumLength(tup);
 		ItemPointerSetInvalid(&(tdata.t_self));
-		tdata.t_tableOid = InvalidOid;
 		tdata.t_data = tup;
 		heap_deform_tuple(&tdata, tupledesc, values, isnull);
 
@@ -524,10 +523,11 @@ TQSendRecordInfo(TQueueDestReceiver *tqueue, int32 typmod, TupleDesc tupledesc)
 		/* Hash table entries are just typmods */
 		ctl.keysize = sizeof(int32);
 		ctl.entrysize = sizeof(int32);
+		ctl.hash = int32_hash;
 		ctl.hcxt = tqueue->mycontext;
 		tqueue->recordhtab = hash_create("tqueue sender record type hashtable",
 										 100, &ctl,
-									  HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+									  HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
 	}
 
 	/* Have we already seen this record type?  If not, must report it. */
@@ -742,7 +742,6 @@ TupleQueueHandleDataMessage(TupleQueueReader *reader,
 	 * (which had better be sufficiently aligned).
 	 */
 	ItemPointerSetInvalid(&htup.t_self);
-	htup.t_tableOid = InvalidOid;
 	htup.t_len = nbytes;
 	htup.t_data = data;
 
@@ -1018,7 +1017,6 @@ TQRemapRecord(TupleQueueReader *reader, RecordRemapInfo *remapinfo,
 
 		/* Copy tuple, possibly remapping contained fields. */
 		ItemPointerSetInvalid(&htup.t_self);
-		htup.t_tableOid = InvalidOid;
 		htup.t_len = HeapTupleHeaderGetDatumLength(tup);
 		htup.t_data = tup;
 		atup = TQRemapTuple(reader,
@@ -1096,10 +1094,11 @@ TupleQueueHandleControlMessage(TupleQueueReader *reader, Size nbytes,
 		MemSet(&ctl, 0, sizeof(ctl));
 		ctl.keysize = sizeof(int32);
 		ctl.entrysize = sizeof(RecordTypmodMap);
+		ctl.hash = int32_hash;
 		ctl.hcxt = reader->mycontext;
 		reader->typmodmap = hash_create("tqueue receiver record type hashtable",
 										100, &ctl,
-									  HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+									  HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
 	}
 
 	/* Create map entry. */
