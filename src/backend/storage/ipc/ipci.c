@@ -206,11 +206,10 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		/* size of expand version */
 		size = add_size(size, GpExpandVersionShmemSize());
 
-		elog(DEBUG3, "invoking IpcMemoryCreate(size=%zu)", size);
-
 		/* size of token and endpoint shared memory */
-		size = add_size(size, Token_ShmemSize());
 		size = add_size(size, Endpoint_ShmemSize());
+
+		elog(DEBUG3, "invoking IpcMemoryCreate(size=%zu)", size);
 
 		/*
 		 * Create the shmem segment
@@ -374,7 +373,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		dsm_postmaster_startup(shim);
 
 	/* Initialize token and endpoint shared memory */
-	Token_DSM_CTX_ShmemInit();
+	Endpoint_CTX_ShmemInit();
 
 	/*
 	 * Now give loadable modules a chance to set up their shmem allocations

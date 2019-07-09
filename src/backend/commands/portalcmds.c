@@ -173,7 +173,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
 	{
-		AttachOrCreateTokenInfoDSM(NULL, NULL);
+		AttachOrCreateEndpointAndTokenDSM();
 		portal->parallel_cursor_token = GetUniqueGpToken();
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 		char		cmd[255];
