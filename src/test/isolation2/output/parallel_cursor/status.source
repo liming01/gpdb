@@ -12,7 +12,7 @@ INSERT 100
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -1134,3 +1134,49 @@ ROLLBACK
  ?column? | ?column? | status 
 ----------+----------+--------
 (0 rows)
+
+---------- Test8: Status visibilities for different sessions
+1: BEGIN;
+BEGIN
+1: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+1: @out_sh 'get_cell SESSION81 3 2 && get_cell TOKEN81 3 1 && match_sub session81 $SESSION81 token81 $TOKEN81': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
+ token                  | sessionid | status
+------------------------+-----------+--------
+ token81 | session81         | INIT
+ token81 | session81         | INIT
+ token81 | session81         | INIT
+(3 rows)
+-- Session 2 can only see its own cursors by default.
+2: BEGIN;
+BEGIN
+2: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+2: @out_sh 'get_cell SESSION82 3 2 && get_cell TOKEN82 3 1 && match_sub session82 $SESSION82 token82 $TOKEN82': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
+ token                  | sessionid | status
+------------------------+-----------+--------
+ token82 | session82         | INIT
+ token82 | session82         | INIT
+ token82 | session82         | INIT
+(3 rows)
+-- Session 2 can only see all cursors with gp_endpoints_info(true).
+2: SELECT token,sessionid,status FROM gp_endpoints_info(true) WHERE cursorname='c8';
+ token                  | sessionid | status 
+------------------------+-----------+--------
+ token81 | session81         | INIT   
+ token81 | session81         | INIT   
+ token81 | session81         | INIT   
+ token82 | session82         | INIT   
+ token82 | session82         | INIT   
+ token82 | session82         | INIT   
+(6 rows)
+
+1: CLOSE c8;
+CLOSE
+1: END;
+END
+2: CLOSE c8;
+CLOSE
+2: END;
+END
+

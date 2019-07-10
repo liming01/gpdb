@@ -7,7 +7,7 @@ insert into t1 select generate_series(1,100);
 --------- Test1: Basic test for parallel retrieve interface & close cursor
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
@@ -189,3 +189,20 @@ insert into t1 select generate_series(1,100);
 -- check no endpoint info
 2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c7' AND token='@TOKEN7';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
+
+---------- Test8: Status visibilities for different sessions
+1: BEGIN;
+1: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh 'get_cell SESSION81 3 2 && get_cell TOKEN81 3 1 && match_sub session81 $SESSION81 token81 $TOKEN81': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
+-- Session 2 can only see its own cursors by default.
+2: BEGIN;
+2: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
+2: @out_sh 'get_cell SESSION82 3 2 && get_cell TOKEN82 3 1 && match_sub session82 $SESSION82 token82 $TOKEN82': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
+-- Session 2 can only see all cursors with gp_endpoints_info(true).
+2: SELECT token,sessionid,status FROM gp_endpoints_info(true) WHERE cursorname='c8';
+
+1: CLOSE c8;
+1: END;
+2: CLOSE c8;
+2: END;
+

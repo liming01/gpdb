@@ -61,13 +61,18 @@ class GlobalShellExecutor(object):
         self.v_cnt = 0
         self.sh_proc = subprocess.Popen(['/bin/bash'], stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # Set env var ${NL} because "\n" can not be converted to new line for unknown escaping reason
-        cmd = ''' export NL='\n';\n'''
-        self.sh_proc.stdin.write(cmd)
-        self.sh_proc.stdin.flush()
-
         self.poller = select.poll()
         self.poller.register(self.sh_proc.stdout, select.POLLIN)
+
+        # Set env var ${NL} because "\n" can not be converted to new line for unknown escaping reason
+        cmd = '''
+        export NL='\n' &&
+        source ./utils.sh ;
+        echo "<<quit$?>>"
+        '''
+        self.sh_proc.stdin.write(cmd)
+        self.sh_proc.stdin.flush()
+        self.readlines_nonblock(cmd)
 
     def terminate(self):
         if self.sh_proc == None:
@@ -131,12 +136,9 @@ class GlobalShellExecutor(object):
     def exec_global_shell_with_orig_str(self, input, sh_cmd, is_trip_output_end_blanklines):
         self.v_cnt = 1 + self.v_cnt
         escape_in = input.replace('\'', "'\\''")
-        # replace env variable to specific one for not to effect each others
-        sh_cmd = sh_cmd.replace("$RAW_STR", "$RAW_STR%d" % self.v_cnt)
-        sh_cmd = sh_cmd.replace("${RAW_STR}", "${RAW_STR%d}" % self.v_cnt)
-        # send shell cmd
-        cmd = ''' export RAW_STR%d='%s' && %s''' % (
-            self.v_cnt, escape_in, sh_cmd)
+        # send shell cmd and set the temp RAW_STR
+        cmd = ''' export RAW_STR%d='%s' && export RAW_STR=$RAW_STR%d && %s ; unset RAW_STR ''' % (
+            self.v_cnt, escape_in, self.v_cnt, sh_cmd)
         return self.exec_global_shell(cmd, is_trip_output_end_blanklines)
 
     # extrac shell shell, sql part from one line with format: @header '': SQL
@@ -811,6 +813,8 @@ class SQLIsolationTestCase:
           The env var ${MATCHSUBS} is used to store the matchsubs section so that we can store it into initfile when
           this test case file is finished executing.
         - Sample 2: replaceing "@TOKEN1" by generated token which is fetch in sample1
+
+        There are some helper functions which will be sourced automatically to make above cases easier. See utils.sh for more information.
 
         Catalog Modification:
 
