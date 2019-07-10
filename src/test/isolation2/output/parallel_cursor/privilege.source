@@ -321,20 +321,20 @@ SET
 
 SET
 *R: SELECT * FROM gp_endpoints_status_info();
- token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
--------+------------+-----------+-------------+---------------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+--------+------+-----------+--------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
--------+------------+-----------+-------------+---------------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+--------+------+-----------+--------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
--------+------------+-----------+-------------+---------------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+--------+------+-----------+--------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | attach_status | dbid | sessionid | userid 
--------+------------+-----------+-------------+---------------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
+-------+------------+-----------+-------------+--------+------+-----------+--------
 (0 rows)
 
 --- u2 is not able to retrieve from u1's endpoints in RETRIEVE mode
