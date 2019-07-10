@@ -939,17 +939,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 		 */
 		exec_identity = getGpExecIdentity(queryDesc, direction, estate);
 
-		/*
-		 * When run a root slice, and it is a parallel cursor, it means
-		 * QD become the end point for connection. It is true, for
-		 * instance, SELECT * FROM foo LIMIT 10, and the result should
-		 * go out from QD.
-		 */
-		if (EndpointRole() == EPR_SENDER)
-		{
-			endpointDest = CreateDestReceiver(DestEndpoint);
-			(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
-		}
+
 
 		if (exec_identity == GP_IGNORE)
 		{
@@ -986,6 +976,22 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 		}
 		else if (exec_identity == GP_ROOT_SLICE)
 		{
+
+			/*
+			 * When run a root slice, and it is a parallel cursor, it means
+			 * QD become the end point for connection. It is true, for
+			 * instance, SELECT * FROM foo LIMIT 10, and the result should
+			 * go out from QD.
+			 *
+			 * For the scenario: endpoint on QE, the query plan is changed,
+			 * the root slice also exists on QE.
+			 */
+			if (EndpointRole() == EPR_SENDER)
+			{
+				endpointDest = CreateDestReceiver(DestEndpoint);
+				(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
+			}
+
 			/*
 			 * Run a root slice
 			 * It corresponds to the "normal" path through the executor
@@ -1064,7 +1070,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	/*
 	 * shutdown tuple receiver, if we started it
 	 */
-	if (EndpointRole() == EPR_SENDER)
+	if (EndpointRole() == EPR_SENDER && endpointDest!=NULL)
 	{
 		(*endpointDest->rShutdown) (endpointDest);
 		(*endpointDest->rDestroy) (endpointDest);
