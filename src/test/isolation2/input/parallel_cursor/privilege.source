@@ -24,13 +24,13 @@ RESET SESSION AUTHORIZATION;
 --- adminuser should be able to see all the endpoints declared by u1 with status INIT
 2: SET SESSION AUTHORIZATION adminuser;
 2: SELECT current_user;
-2: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT gp_endpoints.token, pg_user.usename, gp_endpoints.status FROM gp_endpoints, pg_user WHERE gp_endpoints.userid = pg_user.usesysid;
+2: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
 
 --- execute the cursor by u1
 1&: EXECUTE PARALLEL CURSOR c1;
 
 --- adminuser should be able to see the cursor status change to READY
-2: SELECT gp_endpoints.token, pg_user.usename, gp_endpoints.status FROM gp_endpoints, pg_user WHERE gp_endpoints.userid = pg_user.usesysid;
+2: SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
 
 --- adminuser should be able to see all endpoints declared by u1 in retrieved mode
 *R: SET SESSION AUTHORIZATION adminuser;
@@ -70,7 +70,7 @@ RESET SESSION AUTHORIZATION;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 1&: EXECUTE PARALLEL CURSOR c1;
 
-2: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT gp_endpoints.token, pg_user.usename, gp_endpoints.status FROM gp_endpoints, pg_user WHERE gp_endpoints.userid = pg_user.usesysid;
+2: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
 
 --- adminuser should NOT be able to retrieve from other's parallel cursor
 --- FIXME: The error message "ERROR:  failed to attach non-existing endpoint of token
@@ -104,11 +104,11 @@ RESET SESSION AUTHORIZATION;
 1: SET SESSION AUTHORIZATION u1;
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT gp_endpoints.token, pg_user.usename, gp_endpoints.status FROM gp_endpoints, pg_user WHERE gp_endpoints.userid = pg_user.usesysid;
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
 
 --- u2 is not able to see u1's endpoints on master
 1: SET SESSION AUTHORIZATION u2;
-1: SELECT * from gp_endpoints;
+1: SELECT * from gp_endpoints_info(true);
 
 --- execute the cursor by u1
 1: SET SESSION AUTHORIZATION u1;

@@ -33,18 +33,18 @@ insert into t1 select generate_series(1,100);
 1&: EXECUTE PARALLEL CURSOR c2;
 
 -- check initial status after "EXECUTE PARALLEL CURSOR"
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2' AND token='@TOKEN2';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
 -- check status if some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE 10 FROM "@TOKEN2";
 1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE ALL FROM "@TOKEN2";
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2' AND token='@TOKEN2';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
 -- return 0 row instead of reporting error if finished retrieving data from this endpoint, while other endpoint have not finished retrieving.
 1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE ALL FROM "@TOKEN2";
 -- finished retrieving all endpoints and check status
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE ALL FROM "@TOKEN2";
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2' AND token='@TOKEN2';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
 
 1<:
@@ -78,13 +78,13 @@ insert into t1 select generate_series(1,100);
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
 1<:
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='@TOKEN3';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c3' AND token='@TOKEN3';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
 -- report error for EXECUTE canceled PARALLEL CURSOR
 1: EXECUTE PARALLEL CURSOR c3;
 1: ROLLBACK;
 -- check no endpoint info 
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='@TOKEN3';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c3' AND token='@TOKEN3';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
 
 ---------- Test4: terminate (using signal QUIT) QE exec backend
@@ -104,7 +104,7 @@ insert into t1 select generate_series(1,100);
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
 1<:
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c4' AND token='@TOKEN4';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c4' AND token='@TOKEN4';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
 -- report error for EXECUTE canceled PARALLEL CURSOR
 1: EXECUTE PARALLEL CURSOR c4;
@@ -128,13 +128,13 @@ insert into t1 select generate_series(1,100);
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
 1<:
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c5' AND token='@TOKEN5';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c5' AND token='@TOKEN5';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
 -- report error for EXECUTE canceled PARALLEL CURSOR
 1: EXECUTE PARALLEL CURSOR c5;
 1: ROLLBACK;
 -- check no endpoint info 
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c5' AND token='@TOKEN5';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c5' AND token='@TOKEN5';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
 
 ---------- Test6: Cancel (using signal INT) the process of 'EXECUTE PARALLEL CURSOR'
@@ -152,7 +152,7 @@ insert into t1 select generate_series(1,100);
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
 1<:
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c6' AND token='@TOKEN6';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c6' AND token='@TOKEN6';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
 -- report error for EXECUTE canceled PARALLEL CURSOR
 1: EXECUTE PARALLEL CURSOR c6;

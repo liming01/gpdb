@@ -206,7 +206,7 @@ ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED 
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
 -- check initial status after "EXECUTE PARALLEL CURSOR"
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2' AND token='@TOKEN2';
  status 
 --------
  READY  
@@ -288,7 +288,7 @@ ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED 
  95 
  98 
 (37 rows)
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2' AND token='@TOKEN2';
  status 
 --------
  READY  
@@ -387,7 +387,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c
  96  
  100 
 (25 rows)
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c2' AND token='@TOKEN2';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2' AND token='@TOKEN2';
  status 
 --------
  FINISH 
@@ -538,7 +538,7 @@ ERROR:  endpoint token_id3 is already attached by receiver(pid: 50938) (cdbendpo
 1<:  <... completed>
 ERROR:  canceling MPP operation  (seg0 10.34.50.67:25432 pid=14178)
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='@TOKEN3';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c3' AND token='@TOKEN3';
  status   
 ----------
  RELEASED 
@@ -567,7 +567,7 @@ ERROR:  current transaction is aborted, commands ignored until end of transactio
 1: ROLLBACK;
 ROLLBACK
 -- check no endpoint info
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c3' AND token='@TOKEN3';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c3' AND token='@TOKEN3';
  status 
 --------
 (0 rows)
@@ -678,7 +678,7 @@ DETAIL:
 	This probably means the server terminated abnormally
 	before or while processing the request.
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c4' AND token='@TOKEN4';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c4' AND token='@TOKEN4';
 ERROR:  Error on receive from seg0 10.34.50.67:25432 pid=12724: server closed the connection unexpectedly
 DETAIL:  
 	This probably means the server terminated abnormally
@@ -811,7 +811,7 @@ DECLARE
 1<:  <... completed>
 ERROR:  terminating connection due to administrator command  (seg0 10.34.50.67:25432 pid=12905)
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c5' AND token='@TOKEN5';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c5' AND token='@TOKEN5';
  status   
 ----------
  RELEASED 
@@ -840,7 +840,7 @@ ERROR:  current transaction is aborted, commands ignored until end of transactio
 1: ROLLBACK;
 ROLLBACK
 -- check no endpoint info
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c5' AND token='@TOKEN5';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c5' AND token='@TOKEN5';
  status 
 --------
 (0 rows)
@@ -946,7 +946,7 @@ DECLARE
 1<:  <... completed>
 ERROR:  canceling statement due to user request
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c6' AND token='@TOKEN6';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c6' AND token='@TOKEN6';
  status   
 ----------
  RELEASED 
