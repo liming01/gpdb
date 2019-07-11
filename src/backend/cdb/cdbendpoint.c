@@ -577,10 +577,11 @@ void
 DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 {
 	sender_finish();
-	sender_close(0, (Datum)0);
 
+	/*tqueueShutdownReceiver() will call shm_mq_detach(), so need to call it before sender_close()*/
 	(*endpointDest->rShutdown) (endpointDest);
 	(*endpointDest->rDestroy) (endpointDest);
+	sender_close(0, (Datum)0);
 
 	set_attach_status(Status_Finished);
 }
@@ -1126,10 +1127,6 @@ send_tuple_slot(TupleTableSlot *slot)
 static void
 sender_finish(void)
 {
-    char		cmd = 'F';
-
-    message_write(&cmd, 1);
-
     while (true)
     {
         int			wr;
@@ -1390,8 +1387,6 @@ AttachEndpoint(void)
 	if (!my_shared_endpoint)
 		ep_log(ERROR, "failed to attach non-existing endpoint of token %s", printToken(EndpointCtl.Gp_token));
 
-	EndpointCtl.StatusNeedAck = false;
-
 	/*
 	 * Search all tokens that retrieved in this session, set
 	 * CurrentRetrieveToken to it's array index
@@ -1558,7 +1553,6 @@ RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
 			result = receive_tuple_slot();
 			if (!result)
 			{
-				currentMQEntry->retrieveStatus = RETRIEVE_STATUS_FINISH;
 				break;
 			}
 			(*dest->receiveSlot) (result, dest);
@@ -1572,7 +1566,6 @@ RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
 				result = receive_tuple_slot();
 				if (!result)
 				{
-					currentMQEntry->retrieveStatus = RETRIEVE_STATUS_FINISH;
 					break;
 				}
 				(*dest->receiveSlot) (result, dest);
@@ -1594,16 +1587,24 @@ receive_tuple_slot(void)
 	HeapTuple	tup;
 	bool		readerdone;
 
+	CHECK_FOR_INTERRUPTS();
+
 	Assert(currentMQEntry->tQReader != NULL);
-	tup = TupleQueueReaderNext(currentMQEntry->tQReader, true, &readerdone);
+	tup = TupleQueueReaderNext(currentMQEntry->tQReader, false, &readerdone);
+
+	if (currentMQEntry->retrieveStatus == RETRIEVE_STATUS_GET_TUPLEDSCR)
+	{
+		/* at the first time to retrieve data, tell sender not to wait at sender_finish()*/
+		currentMQEntry->retrieveStatus = RETRIEVE_STATUS_GET_DATA;
+		SetLatch(&my_shared_endpoint->ack_done);
+	}
 
 	if (readerdone)
-    {
+	{
 		Assert(!tup);
 		DestroyTupleQueueReader(currentMQEntry->tQReader);
 		currentMQEntry->tQReader = NULL;
 		currentMQEntry->retrieveStatus = RETRIEVE_STATUS_FINISH;
-		EndpointCtl.StatusNeedAck = true;
 		return NULL;
 	}
 
@@ -1617,11 +1618,10 @@ receive_tuple_slot(void)
 						   result,	/* slot in which to store the tuple */
 						   InvalidBuffer,	/* buffer associated with this tuple */
 						   false);	/* slot should not pfree tuple */
+		return result;
 	}
-
 	return result;
 }
-
 
 static void
 receiver_finish(void)
@@ -1706,15 +1706,8 @@ DetachEndpoint(bool reset_pid)
 
 	LWLockRelease(EndpointsDSMLWLock);
 
-	if (EndpointCtl.StatusNeedAck) {
-        SetLatch(ack_done);
-	}
-
     my_shared_endpoint = NULL;
     currentMQEntry = NULL;
-
-
-	EndpointCtl.StatusNeedAck = false;
 }
 
 /*
