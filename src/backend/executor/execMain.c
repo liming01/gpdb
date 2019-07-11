@@ -988,7 +988,6 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			 */
 			if (EndpointRole() == EPR_SENDER)
 			{
-//				endpointDest = CreateDestReceiver(DestEndpoint);
 				endpointDest = CreateTQDestReceiverForEndpoint(queryDesc->tupDesc);
 				(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
 			}

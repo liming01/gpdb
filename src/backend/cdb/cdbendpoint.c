@@ -142,25 +142,14 @@ static dsm_segment * create_endpoint_info_dsm();
 static void init_shared_endpoints(void *address);
 static void init_shared_tokens(void *address);
 
-/* Execute parallel cursor on endpoint */
-static void startup_endpoint_mq(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo);
-static void send_slot_to_endpoint_receiver(TupleTableSlot *slot, DestReceiver *self);
-static void shutdown_endpoint_mq(DestReceiver *self);
-static void destroy_endpoint_mq(DestReceiver *self);
-
 /* msg queue life cycle */
-static void init_endpoint_connection(void);
 static void finish_endpoint_connection(void);
 static void close_endpoint_connection(void);
 
 /* sender which is an endpoint */
 static void set_sender_pid(void);
-static void init_conn_for_sender(void);
 static shm_toc* create_and_connect_mq(void);
 static void write_tuple_desc_info(shm_toc *toc, TupleDesc tupleDesc);
-static void message_write(char *data, int len);
-static void send_tuple_desc_to_mq(TupleDesc tupdesc);
-static void send_tuple_slot(TupleTableSlot *slot);
 static void sender_finish(void);
 static void sender_close(int code, Datum arg);
 static void unset_sender_pid(void);
@@ -170,7 +159,6 @@ static void unset_endpoint(volatile EndpointDesc * endPointDesc);
 /* receiver which is a backend connected by retrieve node */
 static void init_conn_for_receiver(void);
 static TupleDesc read_tuple_desc_info(shm_toc *toc);
-static void message_read(char *data, int len);
 static TupleTableSlot *receive_tuple_slot(void);
 static void receiver_finish(void);
 static void receiver_mq_close(void);
@@ -537,24 +525,9 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 
 }
 
-/* TODO: This function is replaced by CreateTQDestReceiverForEndpoint()*/
 /*
  * Create the dest receiver of parallel cursor
  */
-DestReceiver *
-CreateEndpointReceiver(void)
-{
-	DR_mq_printtup *self = (DR_mq_printtup *) palloc0(sizeof(DR_mq_printtup));
-
-	self->pub.receiveSlot = send_slot_to_endpoint_receiver;
-	self->pub.rStartup = startup_endpoint_mq;
-	self->pub.rShutdown = shutdown_endpoint_mq;
-	self->pub.rDestroy = destroy_endpoint_mq;
-	self->pub.mydest = DestEndpoint;
-
-	return (DestReceiver *) self;
-}
-
 DestReceiver *
 CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc)
 {
@@ -584,14 +557,6 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	sender_close(0, (Datum)0);
 
 	set_attach_status(Status_Finished);
-}
-
-static void
-startup_endpoint_mq(DestReceiver *self, int operation __attribute__((unused)), TupleDesc typeinfo)
-{
-    set_sender_pid();
-    init_endpoint_connection();
-    send_tuple_desc_to_mq(typeinfo);
 }
 
 static void
@@ -646,43 +611,6 @@ set_sender_pid(void)
 
 	if (!my_shared_endpoint)
 		ep_log(ERROR, "failed to allocate endpoint");
-}
-
-static void
-send_slot_to_endpoint_receiver(TupleTableSlot *slot, DestReceiver *self)
-{
-    send_tuple_slot(slot);
-}
-
-static void
-shutdown_endpoint_mq(DestReceiver *self)
-{
-    finish_endpoint_connection();
-    close_endpoint_connection();
-    elog(LOG, "CDB_ENDPOINT: Close and detach sender message queue cause endpoint shutdown");
-    set_attach_status(Status_Finished);
-}
-
-static void
-destroy_endpoint_mq(DestReceiver *self)
-{
-    pfree(self);
-}
-
-static void
-init_endpoint_connection(void)
-{
-    switch (EndpointCtl.Gp_endpoint_role)
-    {
-        case EPR_SENDER:
-            init_conn_for_sender();
-            break;
-        case EPR_RECEIVER:
-            init_conn_for_receiver();
-            break;
-        default:
-            ep_log(ERROR, "invalid endpoint role");
-    }
 }
 
 static void
@@ -995,21 +923,6 @@ assign_gp_endpoints_token_operation(const char *newval, void *extra)
 	}
 }
 
-/* TODO: This function is replaced by CreateTQDestReceiverForEndpoint()*/
-static void
-init_conn_for_sender(void)
-{
-    check_end_point_allocated();
-	currentMQEntry = palloc0(sizeof(MsgQueueStatusEntry));
-    currentMQEntry->retrieveToken = EndpointCtl.Gp_token;
-	currentMQEntry->mq_seg = NULL;
-	currentMQEntry->mq_handle = NULL;
-	currentMQEntry->retrieveStatus = RETRIEVE_STATUS_INIT;
-	currentMQEntry->retrieveTupleSlots = NULL;
-	currentMQEntry->tQReader = NULL;
-    create_and_connect_mq();
-}
-
 static shm_toc*
 create_and_connect_mq(void)
 {
@@ -1067,61 +980,6 @@ write_tuple_desc_info(shm_toc *toc, TupleDesc tupleDesc)
 	tdlen_space = shm_toc_allocate(toc, sizeof(tupdesc_len));
 	memcpy(tdlen_space, &tupdesc_len, sizeof(tupdesc_len));
 	shm_toc_insert(toc, ENDPOINT_KEY_TUPLE_DESC_LEN, tdlen_space);
-}
-
-static void
-message_write(char *data, int len) {
-    shm_mq_result res;
-
-    /* Notice any interrupts that have occurred. */
-    CHECK_FOR_INTERRUPTS();
-	Assert(currentMQEntry);
-
-    res = shm_mq_send(currentMQEntry->mq_handle, len, data, false);
-    if (res != SHM_MQ_SUCCESS) {
-        close_endpoint_connection();
-        ep_log(ERROR, "fail to send data to shared message queue, length:%d", len);
-    }
-}
-
-/*
- * Send the tuple description for retrieve statement to FIFO
- */
-static void
-send_tuple_desc_to_mq(TupleDesc tupdesc)
-{
-	Assert(currentMQEntry);
-    Assert(currentMQEntry->mq_handle);
-
-    char		cmd = 'D';
-
-    message_write(&cmd, 1);
-    TupleDescNode *node = makeNode(TupleDescNode);
-
-    node->natts = tupdesc->natts;
-    node->tuple = tupdesc;
-    int			tupdesc_len = 0;
-    char	   *tupdesc_str = nodeToBinaryStringFast(node, &tupdesc_len);
-
-    message_write((char *) &tupdesc_len, 4);
-    message_write(tupdesc_str, tupdesc_len);
-}
-
-static void
-send_tuple_slot(TupleTableSlot *slot)
-{
-    char		cmd = 'T';
-    int			tupleSize = 0;
-
-    if (EndpointCtl.Gp_endpoint_role != EPR_SENDER)
-        ep_log(ERROR, "%s could not send tuple", endpoint_role_to_string(EndpointCtl.Gp_endpoint_role));
-
-    MemTuple	mtup = ExecFetchSlotMemTuple(slot);
-
-    tupleSize = memtuple_get_size(mtup);
-    message_write(&cmd, 1);
-    message_write((char *) &tupleSize, sizeof(int));
-    message_write((char *) mtup, tupleSize);
 }
 
 static void
@@ -1462,29 +1320,6 @@ read_tuple_desc_info(shm_toc *toc)
 	return tupdescnode->tuple;
 }
 
-static void
-message_read(char *data, int len)
-{
-    shm_mq_result res;
-    void *temp_data = NULL;
-
-    CHECK_FOR_INTERRUPTS();
-	Assert(currentMQEntry);
-
-    Size actual_size;
-    res = shm_mq_receive(currentMQEntry->mq_handle, &actual_size, &temp_data, false);
-
-    if (res != SHM_MQ_SUCCESS || actual_size != len) {
-        close_endpoint_connection();
-        if (res == SHM_MQ_DETACHED) {
-            ep_log(ERROR, "fail to receive data from shared message queue, sender detached length:%d", len);
-        }
-        ep_log(ERROR, "fail to receive data from shared message queue, length:%d", len);
-    }
-
-    memcpy(data, temp_data, actual_size);
-}
-
 /*
  * Return the tuple description for retrieve statement
  */
@@ -1504,7 +1339,7 @@ TupleDescOfRetrieve(void)
 
 		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 
-		init_endpoint_connection();
+		init_conn_for_receiver();
 
 		Assert(currentMQEntry->mq_handle);
 		shm_toc * toc = shm_toc_attach(GpToken(), dsm_segment_address(currentMQEntry->mq_seg));

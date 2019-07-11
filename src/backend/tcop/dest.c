@@ -136,9 +136,6 @@ CreateDestReceiver(CommandDest dest)
 
 		case DestTupleQueue:
 			return CreateTupleQueueDestReceiver(NULL);
-
-		case DestEndpoint:
-			return CreateEndpointReceiver();
 	}
 
 	/* should never get here */
@@ -173,7 +170,6 @@ EndCommand(const char *commandTag, CommandDest dest)
 		case DestSQLFunction:
 		case DestTransientRel:
 		case DestTupleQueue:
-		case DestEndpoint:
 			break;
 	}
 }
@@ -217,7 +213,6 @@ NullCommand(CommandDest dest)
 		case DestSQLFunction:
 		case DestTransientRel:
 		case DestTupleQueue:
-		case DestEndpoint:
 			break;
 	}
 }
@@ -274,7 +269,6 @@ ReadyForQuery(CommandDest dest)
 		case DestSQLFunction:
 		case DestTransientRel:
 		case DestTupleQueue:
-		case DestEndpoint:
 			break;
 	}
 }
