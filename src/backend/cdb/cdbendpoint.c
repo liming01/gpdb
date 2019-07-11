@@ -411,13 +411,16 @@ static void init_shared_tokens(void *address) {
 int64
 GetUniqueGpToken(void)
 {
-	int64		token;
+	int64			token;
+	struct timespec ts;
+
 	Assert(SharedTokens);
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+
 	LWLockAcquire(TokensDSMLWLock, LW_SHARED);
 
-	/* The random number sequences in the same second are the same */
-
-	srand(time(NULL));
+	srand(ts.tv_nsec);
 
 	REGENERATE:
 	token = llabs(((int64)rand() << 32) | rand());
