@@ -22,6 +22,8 @@
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbvars.h"
+#include "cdb/cdbsrlz.h"
+#include "executor/tqueue.h"
 #include "funcapi.h"
 #include "libpq-fe.h"
 #include "libpq/libpq.h"
@@ -51,6 +53,10 @@ while (0);
 #define WORDNUM(x)	((x) / BITS_PER_BITMAPWORD)
 #define BITNUM(x)	((x) % BITS_PER_BITMAPWORD)
 
+#define ENDPOINT_KEY_TUPLE_QUEUE        1
+#define ENDPOINT_KEY_TUPLE_DESC         2
+#define ENDPOINT_KEY_TUPLE_DESC_LEN     3
+
 #define SHMEM_TOKENDSMCTX "ShareTokenDSMCTX"
 #define SHMEM_TOKEN_CTX_SLOCK "SharedMemoryTokenCTXSlock"
 #define SHMEM_ENDPOINT_LWLOCKS "SharedMemoryEndpointLWLocks"
@@ -60,6 +66,7 @@ typedef struct MsgQueueStatusEntry {
     dsm_segment*     mq_seg;
     shm_mq_handle*   mq_handle;
     TupleTableSlot*  retrieveTupleSlots;
+    TupleQueueReader *tQReader;
     enum RetrieveStatus retrieveStatus;
 } MsgQueueStatusEntry;
 
@@ -149,7 +156,8 @@ static void close_endpoint_connection(void);
 /* sender which is an endpoint */
 static void set_sender_pid(void);
 static void init_conn_for_sender(void);
-static void create_and_connect_mq(void);
+static shm_toc* create_and_connect_mq(void);
+static void write_tuple_desc_info(shm_toc *toc, TupleDesc tupleDesc);
 static void message_write(char *data, int len);
 static void send_tuple_desc_to_mq(TupleDesc tupdesc);
 static void send_tuple_slot(TupleTableSlot *slot);
@@ -161,6 +169,7 @@ static void unset_endpoint(volatile EndpointDesc * endPointDesc);
 
 /* receiver which is a backend connected by retrieve node */
 static void init_conn_for_receiver(void);
+static TupleDesc read_tuple_desc_info(shm_toc *toc);
 static void message_read(char *data, int len);
 static TupleTableSlot *receive_tuple_slot(void);
 static void receiver_finish(void);
@@ -528,6 +537,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 
 }
 
+/* TODO: This function is replaced by CreateTQDestReceiverForEndpoint()*/
 /*
  * Create the dest receiver of parallel cursor
  */
@@ -543,6 +553,36 @@ CreateEndpointReceiver(void)
 	self->pub.mydest = DestEndpoint;
 
 	return (DestReceiver *) self;
+}
+
+DestReceiver *
+CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc)
+{
+	set_sender_pid();
+	check_end_point_allocated();
+	currentMQEntry = palloc0(sizeof(MsgQueueStatusEntry));
+	currentMQEntry->retrieveToken = EndpointCtl.Gp_token;
+	currentMQEntry->mq_seg = NULL;
+	currentMQEntry->mq_handle = NULL;
+	currentMQEntry->retrieveStatus = RETRIEVE_STATUS_INIT;
+	currentMQEntry->retrieveTupleSlots = NULL;
+	currentMQEntry->tQReader = NULL;
+	shm_toc* toc = create_and_connect_mq();
+	if(toc)
+		write_tuple_desc_info(toc, tupleDesc);
+	return CreateTupleQueueDestReceiver(currentMQEntry->mq_handle);
+}
+
+void
+DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
+{
+	sender_finish();
+	sender_close(0, (Datum)0);
+
+	(*endpointDest->rShutdown) (endpointDest);
+	(*endpointDest->rDestroy) (endpointDest);
+
+	set_attach_status(Status_Finished);
 }
 
 static void
@@ -954,6 +994,7 @@ assign_gp_endpoints_token_operation(const char *newval, void *extra)
 	}
 }
 
+/* TODO: This function is replaced by CreateTQDestReceiverForEndpoint()*/
 static void
 init_conn_for_sender(void)
 {
@@ -964,16 +1005,17 @@ init_conn_for_sender(void)
 	currentMQEntry->mq_handle = NULL;
 	currentMQEntry->retrieveStatus = RETRIEVE_STATUS_INIT;
 	currentMQEntry->retrieveTupleSlots = NULL;
+	currentMQEntry->tQReader = NULL;
     create_and_connect_mq();
 }
 
-static void
+static shm_toc*
 create_and_connect_mq(void)
 {
     check_token_valid();
 	Assert(currentMQEntry);
     if (currentMQEntry->mq_handle != NULL)
-        return;
+	    return NULL;
 
     dsm_segment* dsm_seg;
     LWLockAcquire(EndpointsDSMLWLock, LW_EXCLUSIVE);
@@ -990,12 +1032,40 @@ create_and_connect_mq(void)
     toc = shm_toc_create(my_shared_endpoint->token, dsm_segment_address(dsm_seg), 160*1024);
     shm_mq     *mq;
     mq = shm_mq_create(shm_toc_allocate(toc, (Size) 128*1024), (Size) 128*1024);
-    shm_toc_insert(toc, 1, mq);
+    shm_toc_insert(toc, ENDPOINT_KEY_TUPLE_QUEUE, mq);
     shm_mq_set_sender(mq, MyProc);
     currentMQEntry->mq_handle = shm_mq_attach(mq, dsm_seg, NULL);
     set_attach_status(Status_Prepared);
     currentMQEntry->mq_seg = dsm_seg;
 //    before_shmem_exit(sender_close, (Datum)0);
+	return toc;
+}
+
+static void
+write_tuple_desc_info(shm_toc *toc, TupleDesc tupleDesc)
+{
+	int			tupdesc_len;
+
+	char	   *tdlen_space;
+	char       *tupdesc_space;
+	char       *tupdesc_ser;
+
+
+
+	/* Store serialized TupleDesc */
+	TupleDescNode *node = makeNode(TupleDescNode);
+
+	node->natts = tupleDesc->natts;
+	node->tuple = tupleDesc;
+	tupdesc_ser = serializeNode((Node *) node, &tupdesc_len, NULL /* uncompressed_size */ );
+
+	tupdesc_space = shm_toc_allocate(toc, tupdesc_len);
+	memcpy(tupdesc_space, tupdesc_ser, tupdesc_len);
+	shm_toc_insert(toc, ENDPOINT_KEY_TUPLE_DESC, tupdesc_space);
+
+	tdlen_space = shm_toc_allocate(toc, sizeof(tupdesc_len));
+	memcpy(tdlen_space, &tupdesc_len, sizeof(tupdesc_len));
+	shm_toc_insert(toc, ENDPOINT_KEY_TUPLE_DESC_LEN, tdlen_space);
 }
 
 static void
@@ -1374,10 +1444,27 @@ init_conn_for_receiver(void)
     }
     dsm_pin_mapping(dsm_seg);
     shm_toc * toc = shm_toc_attach(EndpointCtl.Gp_token, dsm_segment_address(dsm_seg));
-    shm_mq     *mq = shm_toc_lookup(toc, 1);
+    shm_mq     *mq = shm_toc_lookup(toc, ENDPOINT_KEY_TUPLE_QUEUE);
     shm_mq_set_receiver(mq, MyProc);
     currentMQEntry->mq_handle = shm_mq_attach(mq, dsm_seg, NULL);
     currentMQEntry->mq_seg = dsm_seg;
+}
+
+static TupleDesc
+read_tuple_desc_info(shm_toc *toc)
+{
+	int *tdlen_plen;
+
+	char	   *tdlen_space;
+	char       *tupdesc_space;
+
+	tdlen_space = shm_toc_lookup(toc, ENDPOINT_KEY_TUPLE_DESC_LEN);
+	tdlen_plen = (int *)tdlen_space;
+
+	tupdesc_space = shm_toc_lookup(toc, ENDPOINT_KEY_TUPLE_DESC);
+
+	TupleDescNode *tupdescnode = (TupleDescNode*) deserializeNode(tupdesc_space, *tdlen_plen);
+	return tupdescnode->tuple;
 }
 
 static void
@@ -1409,9 +1496,7 @@ message_read(char *data, int len)
 TupleDesc
 TupleDescOfRetrieve(void)
 {
-	char		cmd;
-	int			len;
-	TupleDescNode *tupdescnode;
+	TupleDesc   td;
 	MemoryContext oldcontext;
 
 	Assert(currentMQEntry);
@@ -1427,22 +1512,16 @@ TupleDescOfRetrieve(void)
 		init_endpoint_connection();
 
 		Assert(currentMQEntry->mq_handle);
-		message_read(&cmd, 1);
-		if (cmd == 'D')
-		{
-			message_read((char *) &len, 4);
+		shm_toc * toc = shm_toc_attach(GpToken(), dsm_segment_address(currentMQEntry->mq_seg));
+		td = read_tuple_desc_info(toc);
+		currentMQEntry->tQReader = CreateTupleQueueReader(currentMQEntry->mq_handle, td);
 
-			char	   *tupdescnode_str = palloc(len);
-
-			message_read(tupdescnode_str, len);
-
-			tupdescnode = (TupleDescNode *) readNodeFromBinaryString(tupdescnode_str, len);
-			if (currentMQEntry->retrieveTupleSlots != NULL)
+		if (currentMQEntry->retrieveTupleSlots != NULL)
 				ExecClearTuple(currentMQEntry->retrieveTupleSlots);
-			currentMQEntry->retrieveTupleSlots = MakeTupleTableSlot();
-			ExecSetSlotDescriptor(currentMQEntry->retrieveTupleSlots, tupdescnode->tuple);
-			currentMQEntry->retrieveStatus = RETRIEVE_STATUS_GET_TUPLEDSCR;
-		}
+		currentMQEntry->retrieveTupleSlots = MakeTupleTableSlot();
+		ExecSetSlotDescriptor(currentMQEntry->retrieveTupleSlots, td);
+		currentMQEntry->retrieveStatus = RETRIEVE_STATUS_GET_TUPLEDSCR;
+
 		MemoryContextSwitchTo(oldcontext);
 	}
 
@@ -1511,50 +1590,43 @@ RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
 static TupleTableSlot *
 receive_tuple_slot(void)
 {
-    char		cmd;
-    TupleTableSlot *slot;
-    int			tupleSize = 0;
-    MemTuple	mtup;
+	TupleTableSlot *result=NULL;
+	HeapTuple	tup;
+	bool		readerdone;
 
-    Assert(currentMQEntry);
-    Assert(currentMQEntry->mq_handle);
-    Assert(currentMQEntry->retrieveTupleSlots);
+	Assert(currentMQEntry->tQReader != NULL);
+	tup = TupleQueueReaderNext(currentMQEntry->tQReader, true, &readerdone);
 
-    ExecClearTuple(currentMQEntry->retrieveTupleSlots);
-
-    slot = currentMQEntry->retrieveTupleSlots;
-
-    while (true)
+	if (readerdone)
     {
-        message_read(&cmd, 1);
+		Assert(!tup);
+		DestroyTupleQueueReader(currentMQEntry->tQReader);
+		currentMQEntry->tQReader = NULL;
+		currentMQEntry->retrieveStatus = RETRIEVE_STATUS_FINISH;
+		EndpointCtl.StatusNeedAck = true;
+		return NULL;
+	}
 
-        if (cmd == 'F')
-        {
-            EndpointCtl.StatusNeedAck = true;
-            return NULL;
-        }
+	if (HeapTupleIsValid(tup))
+	{
+		Assert(currentMQEntry->mq_handle);
+		Assert(currentMQEntry->retrieveTupleSlots);
+		ExecClearTuple(currentMQEntry->retrieveTupleSlots);
+		result = currentMQEntry->retrieveTupleSlots;
+		ExecStoreHeapTuple(tup,		/* tuple to store */
+						   result,	/* slot in which to store the tuple */
+						   InvalidBuffer,	/* buffer associated with this tuple */
+						   false);	/* slot should not pfree tuple */
+	}
 
-        Assert(cmd == 'T');
-        message_read((char *) &tupleSize, sizeof(int));
-        Assert(tupleSize > 0);
-
-        HOLD_INTERRUPTS();
-        SIMPLE_FAULT_INJECTOR(FetchTuplesFromEndpoint);
-        RESUME_INTERRUPTS();
-
-        mtup = palloc(tupleSize);
-        message_read((char *) mtup, tupleSize);
-        slot->PRIVATE_tts_memtuple = mtup;
-        ExecStoreVirtualTuple(slot);
-
-        return slot;
-    }
+	return result;
 }
+
 
 static void
 receiver_finish(void)
 {
-    /* for now, receiver does nothing after finished */
+/* for now, receiver does nothing after finished */
 }
 
 static void

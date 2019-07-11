@@ -988,7 +988,8 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			 */
 			if (EndpointRole() == EPR_SENDER)
 			{
-				endpointDest = CreateDestReceiver(DestEndpoint);
+//				endpointDest = CreateDestReceiver(DestEndpoint);
+				endpointDest = CreateTQDestReceiverForEndpoint(queryDesc->tupDesc);
 				(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
 			}
 
@@ -1072,8 +1073,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	 */
 	if (EndpointRole() == EPR_SENDER && endpointDest!=NULL)
 	{
-		(*endpointDest->rShutdown) (endpointDest);
-		(*endpointDest->rDestroy) (endpointDest);
+		DestroyTQDestReceiverForEndpoint(endpointDest);
 	}
 
 	if (sendTuples)

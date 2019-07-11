@@ -152,6 +152,8 @@ extern void AddParallelCursorToken(int64 token, const char *name, int session_id
 
 /* Execute parallel cursor, start sender job */
 extern DestReceiver *CreateEndpointReceiver(void);
+extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc);
+extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 
 /* Execute parallel cursor finish, unset pid and exit retrieve if needed */
 extern void UnsetSenderPidOfToken(int64 token);
