@@ -1454,6 +1454,11 @@ receive_tuple_slot(void)
 		ep_log(LOG, "receiver set latch in receive_tuple_slot() at the first time to retrieve data");
 		SetLatch(&my_shared_endpoint->ack_done);
 	}
+
+	HOLD_INTERRUPTS();
+	SIMPLE_FAULT_INJECTOR(FetchTuplesFromEndpoint);
+	RESUME_INTERRUPTS();
+
 	/* re retrieve data in wait mode
 	 * if not the first time retrieve data
 	 * or if the first time retrieve an invalid data, but not finish */
