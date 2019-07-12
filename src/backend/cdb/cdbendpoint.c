@@ -1022,7 +1022,7 @@ wait_reciever(void)
             /* continue processing as normal case */
         }
 
-	    ep_log(LOG, "sender wait latch in wait_reciever()");
+        ep_log(LOG, "sender wait latch in wait_reciever()");
         wr = WaitLatch(&my_shared_endpoint->ack_done,
                        WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
                        POLL_FIFO_TIMEOUT);
@@ -1037,7 +1037,7 @@ wait_reciever(void)
         }
 
         Assert(wr & WL_LATCH_SET);
-	    ep_log(LOG, "sender reset latch in wait_reciever()");
+        ep_log(LOG, "sender reset latch in wait_reciever()");
         ResetLatch(&my_shared_endpoint->ack_done);
         break;
     }
@@ -1433,21 +1433,32 @@ RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest)
 static TupleTableSlot *
 receive_tuple_slot(void)
 {
-	TupleTableSlot *result=NULL;
-	HeapTuple	tup;
-	bool		readerdone;
+	TupleTableSlot *result = NULL;
+	HeapTuple	tup = NULL;
+	bool		readerdone = false;
 
 	CHECK_FOR_INTERRUPTS();
 
 	Assert(currentMQEntry->tQReader != NULL);
-	tup = TupleQueueReaderNext(currentMQEntry->tQReader, false, &readerdone);
 
+	/* at the first time to retrieve data */
 	if (currentMQEntry->retrieveStatus == RETRIEVE_STATUS_GET_TUPLEDSCR)
 	{
-		/* at the first time to retrieve data, tell sender not to wait at wait_reciever()*/
+		/* try to receive data with nowait, so that empty result will not hang here */
+		tup = TupleQueueReaderNext(currentMQEntry->tQReader, true, &readerdone);
+
 		currentMQEntry->retrieveStatus = RETRIEVE_STATUS_GET_DATA;
+
+		/* at the first time to retrieve data, tell sender not to wait at wait_reciever()*/
 		ep_log(LOG, "receiver set latch in receive_tuple_slot() at the first time to retrieve data");
 		SetLatch(&my_shared_endpoint->ack_done);
+	}
+	/* re retrieve data in wait mode
+	 * if not the first time retrieve data
+	 * or if the first time retrieve an invalid data, but not finish */
+	if(readerdone==false && tup==NULL)
+	{
+		tup = TupleQueueReaderNext(currentMQEntry->tQReader, false, &readerdone);
 	}
 
 	/* readerdone returns true only after sender detach mq */
