@@ -26,7 +26,7 @@ RESET
 
 
 --------- Test1: Admin should be able to see other user's endpoint
-2: @out_sh 'U1_ID=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" && export MATCHSUBS="${MATCHSUBS}${NL}m/${U1_ID}/${NL}s/${U1_ID}/u1_id/${NL}"': SELECT usesysid FROM pg_user WHERE usename = 'u1';
+2: @out_sh 'get_cell U1_ID 3 1 && match_sub_tt u1_id $U1_ID': SELECT usesysid FROM pg_user WHERE usename = 'u1';
  usesysid
 ----------
  u1_id
@@ -47,7 +47,7 @@ SET
 --------------
  adminuser    
 (1 row)
-2: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
+2: @out_sh 'get_cell TOKEN1 3 1 && match_sub token_id1 $TOKEN1': SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
  token                  | usename | status
 ------------------------+---------+--------
  token_id1 | u1      | INIT
@@ -103,17 +103,17 @@ SET
 
  token                  | userid 
 ------------------------+--------
- token_id1 | u1_id 
+ token_id1 | u1_id
 (1 row)
 
  token                  | userid 
 ------------------------+--------
- token_id1 | u1_id 
+ token_id1 | u1_id
 (1 row)
 
  token                  | userid 
 ------------------------+--------
- token_id1 | u1_id 
+ token_id1 | u1_id
 (1 row)
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
@@ -185,12 +185,12 @@ BEGIN
 DECLARE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
-2: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
+2: @out_sh 'get_cell TOKEN3 3 1 && match_sub token_id3 $TOKEN3': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
  token                  | usename | status
 ------------------------+---------+--------
- token_id1 | u1      | READY
- token_id1 | u1      | READY
- token_id1 | u1      | READY
+ token_id3 | u1      | READY
+ token_id3 | u1      | READY
+ token_id3 | u1      | READY
 (3 rows)
 
 --- adminuser should NOT be able to retrieve from other's parallel cursor
@@ -224,14 +224,14 @@ SET
 --------------
  adminuser    
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
+ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
@@ -242,8 +242,8 @@ SET
 SET
 
 SET
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
+ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
 
  a 
 ---
@@ -290,12 +290,12 @@ SET
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
+1: @out_sh 'get_cell TOKEN5 3 1 && match_sub token_id5 $TOKEN5': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
  token                  | usename | status
 ------------------------+---------+--------
- token_id1 | u1      | INIT
- token_id1 | u1      | INIT
- token_id1 | u1      | INIT
+ token_id5 | u1      | INIT
+ token_id5 | u1      | INIT
+ token_id5 | u1      | INIT
 (3 rows)
 
 --- u2 is not able to see u1's endpoints on master
@@ -338,14 +338,14 @@ SET
 (0 rows)
 
 --- u2 is not able to retrieve from u1's endpoints in RETRIEVE mode
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': RETRIEVE ALL FROM "@TOKEN5";
+ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
@@ -356,8 +356,8 @@ SET
 SET
 
 SET
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': RETRIEVE ALL FROM "@TOKEN5";
+ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
 
  a 
 ---

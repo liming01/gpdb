@@ -15,7 +15,7 @@ RESET SESSION AUTHORIZATION;
 
 
 --------- Test1: Admin should be able to see other user's endpoint
-2: @out_sh 'U1_ID=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" && export MATCHSUBS="${MATCHSUBS}${NL}m/${U1_ID}/${NL}s/${U1_ID}/u1_id/${NL}"': SELECT usesysid FROM pg_user WHERE usename = 'u1';
+2: @out_sh 'get_cell U1_ID 3 1 && match_sub_tt u1_id $U1_ID': SELECT usesysid FROM pg_user WHERE usename = 'u1';
 --- c1 is declared by u1
 1: SET SESSION AUTHORIZATION u1;
 1: BEGIN;
@@ -24,7 +24,7 @@ RESET SESSION AUTHORIZATION;
 --- adminuser should be able to see all the endpoints declared by u1 with status INIT
 2: SET SESSION AUTHORIZATION adminuser;
 2: SELECT current_user;
-2: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
+2: @out_sh 'get_cell TOKEN1 3 1 && match_sub token_id1 $TOKEN1': SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
 
 --- execute the cursor by u1
 1&: EXECUTE PARALLEL CURSOR c1;
@@ -70,18 +70,18 @@ RESET SESSION AUTHORIZATION;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 1&: EXECUTE PARALLEL CURSOR c1;
 
-2: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
+2: @out_sh 'get_cell TOKEN3 3 1 && match_sub token_id3 $TOKEN3': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
 
 --- adminuser should NOT be able to retrieve from other's parallel cursor
 --- FIXME: The error message "ERROR:  failed to attach non-existing endpoint of token
 ---        tk06467030257775938939 (cdbendpoint.c:1774)" is not user friendly.
 *R: SET SESSION AUTHORIZATION adminuser;
 *R: SELECT current_user;
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
 
 1<:
 1: CLOSE c1;
@@ -104,7 +104,7 @@ RESET SESSION AUTHORIZATION;
 1: SET SESSION AUTHORIZATION u1;
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
+1: @out_sh 'get_cell TOKEN5 3 1 && match_sub token_id5 $TOKEN5': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
 
 --- u2 is not able to see u1's endpoints on master
 1: SET SESSION AUTHORIZATION u2;
@@ -119,11 +119,11 @@ RESET SESSION AUTHORIZATION;
 *R: SELECT * FROM gp_endpoints_status_info();
 
 --- u2 is not able to retrieve from u1's endpoints in RETRIEVE mode
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': RETRIEVE ALL FROM "@TOKEN5";
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': RETRIEVE ALL FROM "@TOKEN5";
 
 1<:
 1: CLOSE c1;
