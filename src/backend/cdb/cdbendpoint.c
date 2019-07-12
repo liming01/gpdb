@@ -893,17 +893,18 @@ unset_endpoint(volatile EndpointDesc * endPointDesc)
 void
 assign_gp_endpoints_token_operation(const char *newval, void *extra)
 {
-
-	const char *token = newval + 1;
-	int64		tokenid = atoll(token);
+	const char *token;
+	int64	tokenid;
 
 	/*
-	 * Maybe called in AtEOXact_GUC() to set to default value (i.e. empty
+	 * May be called in AtEOXact_GUC() to set to default value (i.e. empty
 	 * string)
 	 */
-
 	if (newval == NULL || strlen(newval) == 0)
 		return;
+
+	token = newval + 1;
+	tokenid = atoll(token);
 
 	if (tokenid != InvalidToken && Gp_role == GP_ROLE_EXECUTE && Gp_is_writer)
 	{
