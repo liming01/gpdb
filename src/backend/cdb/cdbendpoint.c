@@ -150,6 +150,7 @@ static void close_endpoint_connection(void);
 static void set_sender_pid(void);
 static shm_toc* create_and_connect_mq(void);
 static void write_tuple_desc_info(shm_toc *toc, TupleDesc tupleDesc);
+static void wait_reciever(void);
 static void sender_finish(void);
 static void sender_close(int code, Datum arg);
 static void unset_sender_pid(void);
@@ -552,13 +553,14 @@ CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc)
 void
 DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 {
-	sender_finish();
-
+	/* wait for receiver to retrieve the first row */
+	wait_reciever();
 	/*tqueueShutdownReceiver() will call shm_mq_detach(), so need to call it before sender_close()*/
 	(*endpointDest->rShutdown) (endpointDest);
 	(*endpointDest->rDestroy) (endpointDest);
 	sender_close(0, (Datum)0);
 
+	sender_finish();
 	set_attach_status(Status_Finished);
 }
 
@@ -986,7 +988,7 @@ write_tuple_desc_info(shm_toc *toc, TupleDesc tupleDesc)
 }
 
 static void
-sender_finish(void)
+wait_reciever(void)
 {
     while (true)
     {
@@ -1020,6 +1022,7 @@ sender_finish(void)
             /* continue processing as normal case */
         }
 
+	    ep_log(LOG, "sender wait latch in wait_reciever()");
         wr = WaitLatch(&my_shared_endpoint->ack_done,
                        WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
                        POLL_FIFO_TIMEOUT);
@@ -1034,8 +1037,17 @@ sender_finish(void)
         }
 
         Assert(wr & WL_LATCH_SET);
+	    ep_log(LOG, "sender reset latch in wait_reciever()");
+        ResetLatch(&my_shared_endpoint->ack_done);
         break;
     }
+}
+
+static void
+sender_finish(void)
+{
+	/* wait for receiver to finish retrieving */
+	wait_reciever();
 }
 
 static void
@@ -1432,16 +1444,21 @@ receive_tuple_slot(void)
 
 	if (currentMQEntry->retrieveStatus == RETRIEVE_STATUS_GET_TUPLEDSCR)
 	{
-		/* at the first time to retrieve data, tell sender not to wait at sender_finish()*/
+		/* at the first time to retrieve data, tell sender not to wait at wait_reciever()*/
 		currentMQEntry->retrieveStatus = RETRIEVE_STATUS_GET_DATA;
+		ep_log(LOG, "receiver set latch in receive_tuple_slot() at the first time to retrieve data");
 		SetLatch(&my_shared_endpoint->ack_done);
 	}
 
+	/* readerdone returns true only after sender detach mq */
 	if (readerdone)
 	{
 		Assert(!tup);
 		DestroyTupleQueueReader(currentMQEntry->tQReader);
 		currentMQEntry->tQReader = NULL;
+		/* when finish retrieving data, tell sender not to wait at sender_finish()*/
+		ep_log(LOG, "receiver set latch in receive_tuple_slot() when finish retrieving data");
+		SetLatch(&my_shared_endpoint->ack_done);
 		currentMQEntry->retrieveStatus = RETRIEVE_STATUS_FINISH;
 		return NULL;
 	}
