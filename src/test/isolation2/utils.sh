@@ -1,5 +1,6 @@
 #!/bin/bash
 
+
 # Retrieve cell content from $RAW_STR according to the row and column numbers,
 # and set it to the given variable name.
 # Arg 1 (output): Variable name.
@@ -31,10 +32,7 @@ get_cell() {
 # statement will generate $MATCHSUBS section:
 # m/\bJonh\b/
 # s/\bJonh\b/user1/
-#
-# madf
-\b1\b/
-# s/\b1\b/id1/
+# \b here is for matching the whole word. (word boundaries)
 match_sub() {
     to_replace=""
     for var in "$@"
