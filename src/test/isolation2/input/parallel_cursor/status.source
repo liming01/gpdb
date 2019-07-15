@@ -110,7 +110,7 @@ insert into t1 select generate_series(1,100);
 1: EXECUTE PARALLEL CURSOR c4;
 1: ROLLBACK;
 -- check no endpoint info 
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c4' AND token='@TOKEN4';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c4' AND token='@TOKEN4';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
 
 ---------- Test5: terminate (using signal TERM) QE exec backend
@@ -158,8 +158,31 @@ insert into t1 select generate_series(1,100);
 1: EXECUTE PARALLEL CURSOR c6;
 1: ROLLBACK;
 -- check no endpoint info
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c6' AND token='@TOKEN6';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c6' AND token='@TOKEN6';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN6#${TOKEN6}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
+
+---------- Test6.1: Cancel (using signal INT) the process of 'EXECUTE PARALLEL CURSOR' without rollback
+1: BEGIN;
+1: DECLARE c61 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN61=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN61}/${NL}s/${TOKEN61}/token_id61/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c61';
+-- get backend pid of this session which run 'EXECUTE PARALLEL CURSOR'
+1: @out_sh ' PID611=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && echo "${RAW_STR}" | sed -E "s#${PID611}[ \t]*#QDPid611#" ': select pg_backend_pid();
+1&: EXECUTE PARALLEL CURSOR c61;
+-- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN61#${TOKEN61}#" ': RETRIEVE 10 FROM "@TOKEN61";
+1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN61#${TOKEN61}#" ': RETRIEVE ALL FROM "@TOKEN61";
+-- run 'kill -s INT QDPid' to cancel the endpoint execution backend, retrieve session still can work
+0R: @in_sh 'kill -s INT ${PID611} && echo "${RAW_STR}" ': SELECT 1;
+-- check it can cancel the "EXECUTE PARALLEL CURSOR"
+1<:
+-- check no endpoint info left
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN61#${TOKEN61}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c61' AND token='@TOKEN61';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN61#${TOKEN61}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN61';
+-- quit the session of 'EXECUTE PARALLEL CURSOR' and keep other session connected
+1q:
+-- check no endpoint info
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN61#${TOKEN61}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c61' AND token='@TOKEN61';
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN61#${TOKEN61}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN61';
 
 ---------- Test7: terminate (using signal QUIT) the process of 'EXECUTE PARALLEL CURSOR'
 1: BEGIN;
@@ -181,13 +204,13 @@ insert into t1 select generate_series(1,100);
 2q:
 -1Rq:
 -- check no endpoint info left
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c7' AND token='@TOKEN7';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c7' AND token='@TOKEN7';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
 -- report error for EXECUTE canceled PARALLEL CURSOR
 1: EXECUTE PARALLEL CURSOR c7;
 1: ROLLBACK;
 -- check no endpoint info
-2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT status FROM GP_ENDPOINTS WHERE cursorname='c7' AND token='@TOKEN7';
+2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c7' AND token='@TOKEN7';
 *R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN7#${TOKEN7}#" ': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
 
 ---------- Test8: Status visibilities for different sessions
