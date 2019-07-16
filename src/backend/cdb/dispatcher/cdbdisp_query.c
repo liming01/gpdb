@@ -1010,8 +1010,6 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		pos += resgroupInfo.len;
 	}
 
-	SetGpToken(token);
-
 	/*
 	 * High order half first, since we're doing MSB-first
 	 */

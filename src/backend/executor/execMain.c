@@ -1271,8 +1271,6 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
      */
 	ExecEndPlan(queryDesc->planstate, estate);
 
-	ClearEndpointRole();
-
 	/*
 	 * Remove our own query's motion layer.
 	 */
@@ -1315,7 +1313,6 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
 	queryDesc->estate = NULL;
 	queryDesc->planstate = NULL;
 	queryDesc->totaltime = NULL;
-	ClearGpToken();
 
 	if (DEBUG1 >= log_min_messages)
 	{

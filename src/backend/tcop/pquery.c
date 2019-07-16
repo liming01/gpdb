@@ -1910,6 +1910,7 @@ DoPortalRunFetch(Portal portal,
 	 */
 	if (portal->strategy == PORTAL_MULTI_QUERY)
 	{
+        SetGpToken(portal->parallel_cursor_token);
 		PortalRunMulti(portal, false, dest, dest, NULL);
 
 		if (portal->parallel_cursor_token != InvalidToken)
@@ -1939,7 +1940,7 @@ DoPortalRunFetch(Portal portal,
 				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
 			}
 		}
-
+        ClearGpToken();
 		MarkPortalDone(portal);
 		return 0;
 	}
