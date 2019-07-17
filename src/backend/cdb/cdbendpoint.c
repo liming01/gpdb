@@ -1325,9 +1325,17 @@ AttachEndpoint(void)
 			   printToken(EndpointCtl.Gp_token));
 	}
 
-	if (already_attached || is_other_pid)
-		ep_log(ERROR, "endpoint %s is already attached by receiver(pid: %d)",
-			   printToken(EndpointCtl.Gp_token), attached_pid);
+	if (already_attached)
+		ep_log(ERROR, "endpoint %s is been retrieved by receiver(pid: %d)",
+			               printToken(EndpointCtl.Gp_token), attached_pid);
+
+	if (is_other_pid)
+		ereport(ERROR,
+		        (errcode(ERRCODE_INTERNAL_ERROR),
+			        errmsg("endpoint %s has been already attached by receiver(pid: %d)",
+			               printToken(EndpointCtl.Gp_token), attached_pid),
+			        errdetail("One endpoint only can be attached by one retrieve session "
+					          "for each 'EXECUTE PARALLEL CURSOR'")));
 
 	if (!my_shared_endpoint)
 		ep_log(ERROR, "failed to attach non-existing endpoint of token %s", printToken(EndpointCtl.Gp_token));

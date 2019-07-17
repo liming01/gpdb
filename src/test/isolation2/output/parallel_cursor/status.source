@@ -479,7 +479,8 @@ DECLARE
 0Rq: ... <quitting>
 -- a new retrieve session should report error
 0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
-ERROR:  endpoint token_id3 is already attached by receiver(pid: 50938) (cdbendpoint.c:871)
+ERROR:  endpoint token_id3 has been already attached by receiver(pid: PID) (cdbendpoint.c:1334)
+DETAIL:  One endpoint only can be attached by one retrieve session for each 'EXECUTE PARALLEL CURSOR'
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
  a  
