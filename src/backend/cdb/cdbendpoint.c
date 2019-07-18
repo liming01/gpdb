@@ -49,7 +49,8 @@ do { \
 } \
 while (0)
 
-#define ENDPOINT_TUPLE_QUEUE_SIZE		65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
+#define TOKEN_STR_LEN                   21      /* length 21 = length of max int64 value + '\0' */
+#define ENDPOINT_TUPLE_QUEUE_SIZE		65536   /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
 
 #define BITS_PER_BITMAPWORD 32
 #define WORDNUM(x)	((x) / BITS_PER_BITMAPWORD)
@@ -464,7 +465,7 @@ GetUniqueGpToken(void)
 	LWLockRelease(TokensDSMLWLock);
 
     MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-    token_str = palloc0(21);		/* length 21 = length of max int64 value + '\0' */
+    token_str = palloc0(TOKEN_STR_LEN);
     pg_lltoa(token, token_str);
     /* If the endpoint on QD, we will have duplicate tokens in this list, but it's ok
        since we assume the list is not so long and the burden likes nothing. */
@@ -880,7 +881,7 @@ AllocEndpointOfToken(int64 token)
 		SharedEndpoints[i].empty = false;
 
 		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-		token_str = palloc0(21);		/* length 21 = length of max int64 value + '\0' */
+		token_str = palloc0(TOKEN_STR_LEN);
 		pg_lltoa(token, token_str);
 		EndpointCtl.Endpoint_tokens = lappend(EndpointCtl.Endpoint_tokens, token_str);
 		MemoryContextSwitchTo(oldcontext);
@@ -1063,7 +1064,7 @@ wait_receiver(void)
             /* continue processing as normal case */
         }
 
-        ep_log(LOG, "sender wait latch in wait_receiver()");
+        ep_log(DEBUG5, "sender wait latch in wait_receiver()");
         wr = WaitLatch(&my_shared_endpoint->ack_done,
                        WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
                        POLL_FIFO_TIMEOUT);
@@ -1326,15 +1327,15 @@ AttachEndpoint(void)
 	}
 
 	if (already_attached)
-		ep_log(ERROR, "endpoint %s is been retrieved by receiver(pid: %d)",
+		ep_log(ERROR, "Endpoint %s is already being retrieved by receiver(pid: %d)",
 			               printToken(EndpointCtl.Gp_token), attached_pid);
 
 	if (is_other_pid)
 		ereport(ERROR,
 		        (errcode(ERRCODE_INTERNAL_ERROR),
-			        errmsg("endpoint %s has been already attached by receiver(pid: %d)",
+			        errmsg("Endpoint %s is already attached by receiver(pid: %d)",
 			               printToken(EndpointCtl.Gp_token), attached_pid),
-			        errdetail("One endpoint only can be attached by one retrieve session "
+			        errdetail("An endpoint can be attached by only one retrieving session "
 					          "for each 'EXECUTE PARALLEL CURSOR'")));
 
 	if (!my_shared_endpoint)
