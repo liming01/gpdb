@@ -728,7 +728,7 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			&& exec_identity == GP_ROOT_SLICE
 			&& LocallyExecutingSliceIndex(estate) == 0)
 		{
-			SetEndpointRole(EPR_SENDER);
+            SetParallelCursorExecRole(PCER_SENDER);
 		}
 
 		/* non-root on QE */
@@ -986,7 +986,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			 * For the scenario: endpoint on QE, the query plan is changed,
 			 * the root slice also exists on QE.
 			 */
-			if (EndpointRole() == EPR_SENDER)
+			if (GetParallelCursorExecRole() == PCER_SENDER)
 			{
 				endpointDest = CreateTQDestReceiverForEndpoint(queryDesc->tupDesc);
 				(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
@@ -1002,10 +1002,10 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			ExecutePlan(estate,
 						queryDesc->planstate,
 						operation,
-						(EndpointRole () == EPR_SENDER ? true : sendTuples),
+						(GetParallelCursorExecRole() == PCER_SENDER ? true : sendTuples),
 						count,
 						direction,
-						(EndpointRole () == EPR_SENDER ? endpointDest : dest));
+						(GetParallelCursorExecRole() == PCER_SENDER ? endpointDest : dest));
 		}
 		else
 		{
@@ -1070,7 +1070,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	/*
 	 * shutdown tuple receiver, if we started it
 	 */
-	if (EndpointRole() == EPR_SENDER && endpointDest!=NULL)
+	if (GetParallelCursorExecRole() == PCER_SENDER && endpointDest!=NULL)
 	{
 		DestroyTQDestReceiverForEndpoint(endpointDest);
 	}

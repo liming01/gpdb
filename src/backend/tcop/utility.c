@@ -1946,7 +1946,7 @@ UtilityTupleDescriptor(Node *parsetree)
 					elog(ERROR, "RETRIEVE command can only run in retrieve mode");
 
 				SetGpToken(n->token);
-				SetEndpointRole(EPR_RECEIVER);
+                SetParallelCursorExecRole(PCER_RECEIVER);
 				AttachEndpoint();
 
 				return CreateTupleDescCopy(TupleDescOfRetrieve());

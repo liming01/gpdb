@@ -1344,7 +1344,7 @@ exec_mpp_query(const char *query_string,
 						  NULL);
 
 		if ((commandType == CMD_SELECT) && (currentSliceId == 0) && (GpToken() != InvalidToken))
-			SetEndpointRole(EPR_SENDER);
+            SetParallelCursorExecRole(PCER_SENDER);
 
 		/*
 		 * Start the portal.
