@@ -2011,7 +2011,9 @@ DetachEndpoint(bool reset_pid)
 static void
 retrieve_cancel_action(int64 token, char *msg)
 {
-    Assert(SharedEndpoints);
+    if (SharedEndpoints == NULL)
+        return;
+
     if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
         ep_log(ERROR, "receiver cancel action is triggered by accident");
 
