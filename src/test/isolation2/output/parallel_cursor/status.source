@@ -475,12 +475,12 @@ DECLARE
  22 
  24 
 (10 rows)
--- quit this retrieve session
-0Rq: ... <quitting>
 -- a new retrieve session should report error
-0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
+3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
 ERROR:  Endpoint token_id3 is already attached by receiver(pid: PID) (cdbendpoint.c:1334)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
+-- quit this new retrieve session
+3Rq: ... <quitting>
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
  a  
@@ -537,7 +537,7 @@ DETAIL:  An endpoint can be attached by only one retrieving session for each 'EX
 (1 row)
 -- check it can cancel the "EXECUTE PARALLEL CURSOR"
 1<:  <... completed>
-ERROR:  canceling MPP operation  (seg0 10.34.50.67:25432 pid=14178)
+ERROR:  canceling MPP operation
 -- check no endpoint info left
 2: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c3' AND token='@TOKEN3';
  status   

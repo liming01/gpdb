@@ -65,10 +65,10 @@ insert into t1 select generate_series(1,100);
 1: @out_sh ' TOKEN3=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN3}/${NL}s/${TOKEN3}/token_id3/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c3';
 1&: EXECUTE PARALLEL CURSOR c3;
 0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
--- quit this retrieve session
-0Rq:
 -- a new retrieve session should report error
-0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
+3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
+-- quit this new retrieve session
+3Rq:
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
 -- get senderpid which is endpoint execution backend

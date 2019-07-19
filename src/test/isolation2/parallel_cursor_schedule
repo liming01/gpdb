@@ -5,4 +5,5 @@ test: parallel_cursor/corner
 test: parallel_cursor/security
 test: parallel_cursor/privilege
 test: parallel_cursor/special_query
+test: parallel_cursor/retrieve_quit
 test: parallel_cursor/fault_inject

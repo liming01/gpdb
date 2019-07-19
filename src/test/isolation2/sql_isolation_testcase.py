@@ -349,7 +349,7 @@ class SQLIsolationExecutor(object):
                 contentid and role
             """
             query = ("SELECT hostname, port FROM gp_segment_configuration WHERE"
-                     " content = %s AND role = '%s'") % (contentid, role)
+                     " content = ( %s %% (select max(content)+1 from gp_segment_configuration)) AND role = '%s'") % (contentid, role)
             con = self.connectdb(self.dbname, given_opt="-c gp_session_role=utility")
             r = con.query(query).getresult()
             con.close()
@@ -700,7 +700,14 @@ class SQLIsolationTestCase:
            followed by U (for utility-mode connections) or R (for retrieve-mode
            connection). In 'U' mode or 'R' mode, the
            content-id can alternatively be an asterisk '*' to perform a
-           utility-mode query on the master and all primaries.
+           utility-mode/retrieve-mode query on the master and all primary segments.
+           If you want to create multiple connections to the same content-id, just
+           increase N in: "content-id + {gpdb segment node number} * N", 
+           e.g. if gpdb cluster segment number is 3, then:
+           (1) the master utility connections can be: -1U, -4U, -7U; 
+           (2) the seg0 connections can be: 0U, 3U, 6U; 
+           (3) the seg1 connections can be: 1U, 4U, 7U; 
+           (4) the seg2 connections can be: 2U, 5U, 8U; 
         flag:
             &: expect blocking behavior
             >: running in background without blocking

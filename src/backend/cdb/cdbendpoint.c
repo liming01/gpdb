@@ -249,7 +249,7 @@ static TupleDesc read_tuple_desc_info(shm_toc *toc);
 static TupleTableSlot *receive_tuple_slot(void);
 static void receiver_finish(void);
 static void receiver_mq_close(void);
-static void retrieve_cancel_action(int64 token);
+static void retrieve_cancel_action(int64 token, char *msg);
 static void retrieve_exit_callback(int code, Datum arg);
 static void retrieve_xact_abort_callback(XactEvent ev, void* vp);
 static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
@@ -2009,7 +2009,7 @@ DetachEndpoint(bool reset_pid)
  * When retrieve role exit with error, let endpoint/sender know exception happened.
  */
 static void
-retrieve_cancel_action(int64 token)
+retrieve_cancel_action(int64 token, char *msg)
 {
     Assert(SharedEndpoints);
     if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
@@ -2019,12 +2019,13 @@ retrieve_cancel_action(int64 token)
 
     for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
     {
-        if (SharedEndpoints[i].token == token && SharedEndpoints[i].receiver_pid == MyProcPid)
+        if (SharedEndpoints[i].token == token && SharedEndpoints[i].receiver_pid == MyProcPid
+	        && SharedEndpoints[i].attach_status != Status_Finished)
         {
             SharedEndpoints[i].receiver_pid = InvalidPid;
             SharedEndpoints[i].attach_status = Status_NotAttached;
-            elog(DEBUG3, "CDB_ENDPOINT: pg_signal_backend");
-            pg_signal_backend(SharedEndpoints[i].sender_pid, SIGINT, NULL);
+            elog(LOG, "CDB_ENDPOINT: pg_signal_backend");
+            pg_signal_backend(SharedEndpoints[i].sender_pid, SIGINT, msg);
             break;
         }
     }
@@ -2066,13 +2067,16 @@ static void retrieve_exit_callback(int code, Datum arg) {
 	HASH_SEQ_STATUS status;
 	MsgQueueStatusEntry *entry;
 
-	if (code != 0) {
-        StatusInAbort = true;
-        // TODO: The cancel here  should consider more than one sender.
-        retrieve_cancel_action(EndpointCtl.Gp_token);
-        DetachEndpoint(true);
-        StatusInAbort = false;
+	/* Cancel all partially retrieved endpoints in this retrieve session */
+	StatusInAbort = true;
+	hash_seq_init(&status, MsgQueueHTB);
+	while ((entry = (MsgQueueStatusEntry *) hash_seq_search(&status)) != NULL) {
+		retrieve_cancel_action(entry->retrieve_token, "Endpoint retrieve session quit, "
+							   "all unfinished endpoint backends will be cancelled");
 	}
+	DetachEndpoint(true);
+	StatusInAbort = false;
+
     ClearGpToken();
     ClearParallelCursorExecRole();
 
@@ -2105,7 +2109,7 @@ static void retrieve_xact_abort_callback(XactEvent ev, void* vp) {
         if (EndpointCtl.Gp_pce_role == PCER_RECEIVER &&
             my_shared_endpoint != NULL &&
             EndpointCtl.Gp_token != InvalidToken) {
-            retrieve_cancel_action(EndpointCtl.Gp_token);
+            retrieve_cancel_action(EndpointCtl.Gp_token, "Endpoint retrieve statement aborted");
             DetachEndpoint(true);
         }
         StatusInAbort = false;

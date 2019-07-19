@@ -3908,29 +3908,33 @@ ProcessInterrupts(const char* filename, int lineno)
 		 */
 		if (!DoingCommandRead)
 		{
+			char    *PREFIX="";
+			char    *POSTFIX = "";
+			char    *buffer="";
+
 			ImmediateInterruptOK = false;		/* not idle anymore */
 			LockErrorCleanup();
 			DisableNotifyInterrupt();
 			DisableCatchupInterrupt();
 
+			if (HasCancelMessage())
+			{
+				buffer = palloc0(MAX_CANCEL_MSG);
+				if(GetCancelMessage(&buffer, MAX_CANCEL_MSG)>0)
+				{
+					PREFIX = ": \"";
+					POSTFIX = "\"";
+				}
+			}
+
 			if (Gp_role == GP_ROLE_EXECUTE)
 				ereport(ERROR,
 						(errcode(ERRCODE_GP_OPERATION_CANCELED),
-						 errmsg("canceling MPP operation")));
-			else if (HasCancelMessage())
-			{
-				char   *buffer = palloc0(MAX_CANCEL_MSG);
-
-				GetCancelMessage(&buffer, MAX_CANCEL_MSG);
-				ereport(ERROR,
-						(errcode(ERRCODE_QUERY_CANCELED),
-						 errmsg("canceling statement due to user request: \"%s\"",
-								buffer)));
-			}
+						 errmsg("canceling MPP operation%s%s%s", PREFIX, buffer, POSTFIX)));
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_QUERY_CANCELED),
-						 errmsg("canceling statement due to user request")));
+						 errmsg("canceling statement due to user request%s%s%s", PREFIX, buffer, POSTFIX)));
 		}
 	}
 	/* If we get here, do nothing (probably, QueryCancelPending was reset) */
