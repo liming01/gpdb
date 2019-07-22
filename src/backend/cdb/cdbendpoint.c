@@ -2532,6 +2532,43 @@ static AttachStatus status_string_to_enum(char* status)
         return Status_NotAttached;
     }
 }
+static char * status_enum_to_string(AttachStatus status)
+{
+	char *result = NULL;
+
+	switch (status)
+	{
+		case Status_NotAttached:
+			result = GP_ENDPOINT_STATUS_INIT;
+			break;
+		case Status_Prepared:
+			result = GP_ENDPOINT_STATUS_READY;
+			break;
+		case Status_Attached:
+			result = GP_ENDPOINT_STATUS_RETRIEVING;
+			break;
+		case Status_Finished:
+			result = GP_ENDPOINT_STATUS_FINISH;
+			break;
+		default:
+			elog(ERROR, "unknown end point status %d", status);
+			break;
+	}
+	return result;
+}
+
+static char * endpoint_status_enum_to_string(EndpointStatus *ep_status)
+{
+	if (ep_status != NULL)
+	{
+		return status_enum_to_string(ep_status->attach_status);
+	}
+	else
+	{
+		/* called on QD, if endpoint status is null, and token info is not release*/
+		return GP_ENDPOINT_STATUS_RELEASED;
+	}
+}
 
 /*
  * On QD, display all the endpoints information in shared memory
@@ -2735,34 +2772,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					 */
 					EndpointStatus *ep_status = find_endpoint_status(mystatus->status, mystatus->status_num,
 													  entry->token, MASTER_DBID);
-
-					if (ep_status != NULL)
-					{
-						char	   *status = NULL;
-
-						switch (ep_status->attach_status)
-						{
-							case Status_NotAttached:
-								status = GP_ENDPOINT_STATUS_INIT;
-								break;
-							case Status_Prepared:
-								status = GP_ENDPOINT_STATUS_READY;
-								break;
-							case Status_Attached:
-								status = GP_ENDPOINT_STATUS_RETRIEVING;
-								break;
-							case Status_Finished:
-								status = GP_ENDPOINT_STATUS_FINISH;
-								break;
-						}
-						values[7] = CStringGetTextDatum(status);
-						nulls[7] = false;
-					}
-					else
-					{
-						values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_RELEASED);
-						nulls[7] = false;
-					}
+					values[7] = CStringGetTextDatum(endpoint_status_enum_to_string(ep_status));
+					nulls[7] = false;
 
 					mystatus->curTokenIdx++;
 					tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
@@ -2820,36 +2831,10 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						 */
 						EndpointStatus *qe_status = find_endpoint_status(mystatus->status,
 															mystatus->status_num,
-																	entry->token,
-								mystatus->seg_db_list[mystatus->curSegIdx].dbid);
-
-						if (qe_status != NULL)
-						{
-							char	   *status = NULL;
-
-							switch (qe_status->attach_status)
-							{
-								case Status_NotAttached:
-									status = GP_ENDPOINT_STATUS_INIT;
-									break;
-								case Status_Prepared:
-									status = GP_ENDPOINT_STATUS_READY;
-									break;
-								case Status_Attached:
-									status = GP_ENDPOINT_STATUS_RETRIEVING;
-									break;
-								case Status_Finished:
-									status = GP_ENDPOINT_STATUS_FINISH;
-									break;
-							}
-							values[7] = CStringGetTextDatum(status);
-							nulls[7] = false;
-						}
-						else
-						{
-							values[7] = CStringGetTextDatum(GP_ENDPOINT_STATUS_RELEASED);
-							nulls[7] = false;
-						}
+															entry->token,
+															mystatus->seg_db_list[mystatus->curSegIdx].dbid);
+						values[7] = CStringGetTextDatum(endpoint_status_enum_to_string(qe_status));
+						nulls[7] = false;
 
 						mystatus->curSegIdx++;
 						if (mystatus->curSegIdx == mystatus->segment_num)
@@ -2974,21 +2959,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			nulls[2] = false;
 			values[3] = Int32GetDatum(entry->receiver_pid);
 			nulls[3] = false;
-			switch (entry->attach_status)
-			{
-				case Status_NotAttached:
-					status = GP_ENDPOINT_STATUS_INIT;
-					break;
-				case Status_Prepared:
-					status = GP_ENDPOINT_STATUS_READY;
-					break;
-				case Status_Attached:
-					status = GP_ENDPOINT_STATUS_RETRIEVING;
-					break;
-				case Status_Finished:
-					status = GP_ENDPOINT_STATUS_FINISH;
-					break;
-			}
+			status = status_enum_to_string(entry->attach_status);
 			values[4] = CStringGetTextDatum(status);
 			nulls[4] = false;
 			values[5] = Int32GetDatum(GpIdentity.dbid);
