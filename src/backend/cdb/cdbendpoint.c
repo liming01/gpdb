@@ -42,12 +42,6 @@
 /*
  * Macros
  */
-#define ep_log(level, ...) \
-do { \
-	if (!StatusInAbort) \
-		elog(level, __VA_ARGS__); \
-} \
-while (0)
 
 #define TOKEN_STR_LEN                   21     /* length 21 = length of max int64 value + '\0' */
 #define MAX_ENDPOINT_SIZE	            1024
@@ -418,7 +412,7 @@ AttachOrCreateEndpointDsm(bool attachOnly) {
 	}
 	SpinLockRelease(shareCTXLock);
 	if (dsm_seg == NULL) {
-		ep_log(ERROR, "CDB_ENDPOINT: Could not create / map endpoint dynamic shared memory segment.");
+		elog(ERROR, "CDB_ENDPOINT: Could not create / map endpoint dynamic shared memory segment.");
 		return false; // Should not reach this line.
 	}
 	dsm_pin_mapping(dsm_seg); // Since we want to handle the life of the dsm, we need pin it.
@@ -477,7 +471,7 @@ AttachOrCreateTokenDsm(bool attachOnly) {
 	}
     SpinLockRelease(shareCTXLock);
     if (dsm_seg == NULL) {
-        ep_log(ERROR, "CDB_ENDPOINT: Could not create / map endpoint token dynamic shared memory segment.");
+        elog(ERROR, "CDB_ENDPOINT: Could not create / map endpoint token dynamic shared memory segment.");
         return false; // Should not reach this line.
     }
     dsm_pin_mapping(dsm_seg); // Since we want to handle the life of the dsm, we need pin it.
@@ -728,7 +722,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 					SharedTokens[i].endpoint_cnt++;
 				}
 			}
-			elog(DEBUG3, "added a new token: " INT64_FORMAT ", session id: %d, cursor name: %s, into shared memory",
+			elog(DEBUG3, "CDB_ENDPOINT: added a new token: " INT64_FORMAT ", session id: %d, cursor name: %s, into shared memory",
 				 token, session_id, SharedTokens[i].cursor_name);
 			break;
 		}
@@ -739,7 +733,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 	/* no empty entry to save this token */
 	if (i == MAX_ENDPOINT_SIZE)
 	{
-		ep_log(ERROR, "can't add a new token %s into shared memory", printToken(token));
+		elog(ERROR, "can't add a new token %s into shared memory", printToken(token));
 	}
 
 }
@@ -812,11 +806,11 @@ set_sender_pid(void)
 	Assert(SharedEndpoints);
 
 	if (EndpointCtl.Gp_pce_role != PCER_SENDER)
-		ep_log(ERROR, "%s could not allocate endpoint slot",
+		elog(ERROR, "%s could not allocate endpoint slot",
 			   endpoint_role_to_string(EndpointCtl.Gp_pce_role));
 
 	if (my_shared_endpoint && my_shared_endpoint->token != InvalidToken)
-		ep_log(ERROR, "endpoint is already allocated");
+		elog(ERROR, "endpoint is already allocated");
 
 	check_token_valid();
 
@@ -854,7 +848,7 @@ set_sender_pid(void)
 	LWLockRelease(EndpointsDSMLWLock);
 
 	if (!my_shared_endpoint)
-		ep_log(ERROR, "failed to allocate endpoint");
+		elog(ERROR, "failed to allocate endpoint");
 }
 
 /*
@@ -869,7 +863,7 @@ UnsetSenderPidOfToken(int64 token)
 	volatile EndpointDesc *endPointDesc = find_endpoint_by_token(token);
 	if (!endPointDesc)
 	{
-		ep_log(ERROR, "no valid endpoint info for token " INT64_FORMAT "", token);
+		elog(ERROR, "no valid endpoint info for token " INT64_FORMAT "", token);
 	}
 	unset_endpoint_sender_pid(endPointDesc);
 }
@@ -979,7 +973,7 @@ AllocEndpointOfToken(int64 token)
 	char	   *token_str;
 
 	if (token == InvalidToken)
-		ep_log(ERROR, "allocate endpoint of invalid token ID");
+		elog(ERROR, "allocate endpoint of invalid token ID");
 	Assert(SharedEndpoints);
 	LWLockAcquire(EndpointsDSMLWLock, LW_EXCLUSIVE);
 
@@ -1067,7 +1061,7 @@ AllocEndpointOfToken(int64 token)
 	LWLockRelease(EndpointsDSMLWLock);
 
 	if (found_idx == -1)
-		ep_log(ERROR, "failed to allocate endpoint");
+		elog(ERROR, "failed to allocate endpoint");
 }
 
 /*
@@ -1084,7 +1078,7 @@ FreeEndpointOfToken(int64 token)
 		return;
 
     if (!endPointDesc && !endPointDesc->empty)
-        ep_log(ERROR, "not an valid endpoint");
+        elog(ERROR, "not an valid endpoint");
 
     unset_endpoint_sender_pid(endPointDesc);
 
@@ -1195,7 +1189,7 @@ create_and_connect_mq(TupleDesc tupleDesc)
     if (dsm_seg == NULL) {
         LWLockRelease(EndpointsDSMLWLock);
         sender_close();
-        ep_log(ERROR, "failed to create shared message queue for send tuples.");
+        elog(ERROR, "failed to create shared message queue for send tuples.");
     }
     my_shared_endpoint->handle = dsm_segment_handle(dsm_seg);
     LWLockRelease(EndpointsDSMLWLock);
@@ -1247,11 +1241,11 @@ wait_receiver(void)
         r = pq_getbyte_if_available(&firstchar);
         if (r < 0)
         {
-            ep_log(ERROR, "unexpected EOF on query dispatcher connection");
+            elog(ERROR, "unexpected EOF on query dispatcher connection");
         }
         else if (r > 0)
         {
-            ep_log(ERROR, "query dispatcher should get nothing until QE backend finished processing");
+            elog(ERROR, "query dispatcher should get nothing until QE backend finished processing");
         }
         else
         {
@@ -1260,7 +1254,7 @@ wait_receiver(void)
             /* continue processing as normal case */
         }
 
-        ep_log(DEBUG5, "CDB_ENDPOINT: sender wait latch in wait_receiver()");
+        elog(DEBUG5, "CDB_ENDPOINT: sender wait latch in wait_receiver()");
         wr = WaitLatch(&my_shared_endpoint->ack_done,
                        WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
                        WAIT_RECEIVE_TIMEOUT);
@@ -1275,7 +1269,7 @@ wait_receiver(void)
         }
 
         Assert(wr & WL_LATCH_SET);
-        ep_log(DEBUG3, "CDB_ENDPOINT:sender reset latch in wait_receiver()");
+        elog(DEBUG3, "CDB_ENDPOINT:sender reset latch in wait_receiver()");
         ResetLatch(&my_shared_endpoint->ack_done);
         break;
     }
@@ -1587,13 +1581,13 @@ AttachEndpoint(void)
 	pid_t		attached_pid = InvalidPid;
 
 	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
-		ep_log(ERROR, "%s could not attach endpoint", endpoint_role_to_string(EndpointCtl.Gp_pce_role));
+		elog(ERROR, "%s could not attach endpoint", endpoint_role_to_string(EndpointCtl.Gp_pce_role));
 
 	if (my_shared_endpoint)
-		ep_log(ERROR, "endpoint is already attached");
+		elog(ERROR, "endpoint is already attached");
 
     if (SharedEndpoints == NULL) {
-        ep_log(ERROR, "No endpoint exists.");
+        elog(ERROR, "No endpoint exists.");
     }
 	check_token_valid();
 
@@ -1650,12 +1644,12 @@ AttachEndpoint(void)
 
 	if (is_invalid_sendpid)
 	{
-		ep_log(ERROR, "the PARALLEL CURSOR related to endpoint token %s is not EXECUTED",
+		elog(ERROR, "the PARALLEL CURSOR related to endpoint token %s is not EXECUTED",
 			   printToken(EndpointCtl.Gp_token));
 	}
 
 	if (already_attached)
-		ep_log(ERROR, "Endpoint %s is already being retrieved by receiver(pid: %d)",
+		elog(ERROR, "Endpoint %s is already being retrieved by receiver(pid: %d)",
 			               printToken(EndpointCtl.Gp_token), attached_pid);
 
 	if (is_other_pid)
@@ -1667,7 +1661,7 @@ AttachEndpoint(void)
 					          "for each 'EXECUTE PARALLEL CURSOR'")));
 
 	if (!my_shared_endpoint)
-		ep_log(ERROR, "failed to attach non-existing endpoint of token %s", printToken(EndpointCtl.Gp_token));
+		elog(ERROR, "failed to attach non-existing endpoint of token %s", printToken(EndpointCtl.Gp_token));
 
 	/*
 	 * Search all tokens that retrieved in this session, set
@@ -1720,7 +1714,7 @@ init_conn_for_receiver(void)
     LWLockRelease(EndpointsDSMLWLock);
     if (dsm_seg == NULL) {
         receiver_mq_close();
-        ep_log(ERROR, "attach to shared message queue failed.");
+        elog(ERROR, "attach to shared message queue failed.");
     }
     dsm_pin_mapping(dsm_seg);
     shm_toc * toc = shm_toc_attach(EndpointCtl.Gp_token, dsm_segment_address(dsm_seg));
@@ -1870,7 +1864,7 @@ receive_tuple_slot(void)
 		currentMQEntry->retrieve_status = RETRIEVE_STATUS_GET_DATA;
 
 		/* at the first time to retrieve data, tell sender not to wait at wait_receiver()*/
-		ep_log(DEBUG3, "CDB_ENDPOINT:receiver set latch in receive_tuple_slot() at the first time to retrieve data");
+		elog(DEBUG3, "CDB_ENDPOINT:receiver set latch in receive_tuple_slot() at the first time to retrieve data");
 		SetLatch(&my_shared_endpoint->ack_done);
 	}
 
@@ -1893,7 +1887,7 @@ receive_tuple_slot(void)
 		DestroyTupleQueueReader(currentMQEntry->tq_reader);
 		currentMQEntry->tq_reader = NULL;
 		/* when finish retrieving data, tell sender not to wait at sender_finish()*/
-		ep_log(DEBUG3, "CDB_ENDPOINT:receiver set latch in receive_tuple_slot() when finish retrieving data");
+		elog(DEBUG3, "CDB_ENDPOINT:receiver set latch in receive_tuple_slot() when finish retrieving data");
 		SetLatch(&my_shared_endpoint->ack_done);
 		currentMQEntry->retrieve_status = RETRIEVE_STATUS_FINISH;
 		return NULL;
@@ -1956,6 +1950,7 @@ receiver_mq_close(void)
  * of attaching endpoint (need to re-read tuple descriptor).
  *
  * Note: don't drop the result slot, we only have one chance to built it.
+ * Errors in these function is not expect to be raised.
  */
 void
 DetachEndpoint(bool reset_pid)
@@ -1965,40 +1960,39 @@ DetachEndpoint(bool reset_pid)
 		EndpointCtl.Gp_token == InvalidToken)
 		return;
 
-	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
-		ep_log(ERROR, "%s could not attach endpoint", endpoint_role_to_string(EndpointCtl.Gp_pce_role));
-
-	check_token_valid();
-
 	LWLockAcquire(EndpointsDSMLWLock, LW_EXCLUSIVE);
 
-	PG_TRY();
-	{
-		if (my_shared_endpoint->token != EndpointCtl.Gp_token)
-			ep_log(DEBUG3, "CDB_ENDPOINT:unmatched token, expected %s but it's %s",
-				   printToken(EndpointCtl.Gp_token), printToken(my_shared_endpoint->token));
+	/*
+	 * If the empty is true, the endpoint has already cleaned the EndpointDesc entry.
+	 *
+	 * Or during the retrieve abort stage, sender cleaned the EndpointDesc entry
+	 * my_shared_endpoint pointed to. And another endpoint gets allocated just
+	 * after the clean, which will occupy current my_shared_endpoint entry.
+	 * Then DetachEndpoint gets the lock but at this time, the token in dsm is not
+	 * current retrieve token. Nothing should be done.
+	 */
+	if (!my_shared_endpoint->empty &&
+	    EndpointCtl.Gp_token == my_shared_endpoint->token) {
+        /*
+         * If the receiver pid get retrieve_cancel_action, the pid is InvalidToken
+         */
+        if (my_shared_endpoint->receiver_pid != MyProcPid &&
+            my_shared_endpoint->receiver_pid != InvalidToken)
+            elog(ERROR, "unmatched pid, expected %d but it's %d",
+                 MyProcPid, my_shared_endpoint->receiver_pid);
 
-		if (my_shared_endpoint->receiver_pid != MyProcPid)
-			ep_log(ERROR, "unmatched pid, expected %d but it's %d",
-				   MyProcPid, my_shared_endpoint->receiver_pid);
-	}
-	PG_CATCH();
-	{
-		LWLockRelease(EndpointsDSMLWLock);
-		PG_RE_THROW();
-	}
-	PG_END_TRY();
+        if (reset_pid)
+        {
+            my_shared_endpoint->receiver_pid = InvalidPid;
+        }
 
-	if (reset_pid)
-	{
-		my_shared_endpoint->receiver_pid = InvalidPid;
+        /* Don't set if Status_Finished */
+        if (my_shared_endpoint->attach_status == Status_Attached)
+        {
+            my_shared_endpoint->attach_status = Status_Prepared;
+        }
 	}
 
-	/* Don't set if Status_Finished */
-	if (my_shared_endpoint->attach_status == Status_Attached)
-	{
-		my_shared_endpoint->attach_status = Status_Prepared;
-	}
 	LWLockRelease(EndpointsDSMLWLock);
 
     my_shared_endpoint = NULL;
@@ -2014,8 +2008,12 @@ retrieve_cancel_action(int64 token, char *msg)
     if (SharedEndpoints == NULL)
         return;
 
+    /*
+     * If current role is not receiver, the retrieve must already finished success
+     * or get cleaned before.
+     */
     if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
-        ep_log(ERROR, "receiver cancel action is triggered by accident");
+        elog(DEBUG3, "CDB_ENDPOINT: retrieve_cancel_action current role is not receiver.");
 
     LWLockAcquire(EndpointsDSMLWLock, LW_EXCLUSIVE);
 
@@ -2026,7 +2024,7 @@ retrieve_cancel_action(int64 token, char *msg)
         {
             SharedEndpoints[i].receiver_pid = InvalidPid;
             SharedEndpoints[i].attach_status = Status_NotAttached;
-            elog(LOG, "CDB_ENDPOINT: pg_signal_backend");
+            elog(DEBUG3, "CDB_ENDPOINT: pg_signal_backend");
             pg_signal_backend(SharedEndpoints[i].sender_pid, SIGINT, msg);
             break;
         }
@@ -2146,7 +2144,7 @@ void
 SetGpToken(int64 token)
 {
 	if (EndpointCtl.Gp_token != InvalidToken)
-		ep_log(ERROR, "endpoint token %s is already set", printToken(EndpointCtl.Gp_token));
+		elog(ERROR, "endpoint token %s is already set", printToken(EndpointCtl.Gp_token));
 
 	EndpointCtl.Gp_token = token;
 }
@@ -2175,7 +2173,7 @@ parseToken(char *token)
 	}
 	else
 	{
-		ep_log(ERROR, "invalid token \"%s\"", token);
+		elog(ERROR, "invalid token \"%s\"", token);
 	}
 
 	return token_id;
@@ -2204,10 +2202,10 @@ void
 SetParallelCursorExecRole(enum ParallelCursorExecRole role)
 {
 	if (EndpointCtl.Gp_pce_role != PCER_NONE)
-		ep_log(ERROR, "endpoint role %s is already set",
+		elog(ERROR, "endpoint role %s is already set",
 			   endpoint_role_to_string(EndpointCtl.Gp_pce_role));
 
-	ep_log(DEBUG3, "set endpoint role to %s", endpoint_role_to_string(role));
+	elog(DEBUG3, "CDB_ENDPOINT: set endpoint role to %s", endpoint_role_to_string(role));
 
 	EndpointCtl.Gp_pce_role = role;
 }
@@ -2218,7 +2216,7 @@ SetParallelCursorExecRole(enum ParallelCursorExecRole role)
 void
 ClearParallelCursorExecRole(void)
 {
-	ep_log(DEBUG3, "unset endpoint role %s", endpoint_role_to_string(EndpointCtl.Gp_pce_role));
+	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint role %s", endpoint_role_to_string(EndpointCtl.Gp_pce_role));
 
 	EndpointCtl.Gp_pce_role = PCER_NONE;
 }
@@ -2412,7 +2410,7 @@ endpoint_role_to_string(enum ParallelCursorExecRole role)
             return "[END POINT NONE]";
 
         default:
-            ep_log(ERROR, "unknown end point role %d", role);
+            elog(ERROR, "unknown end point role %d", role);
             return NULL;
     }
 }
@@ -2421,7 +2419,7 @@ static void
 check_token_valid(void)
 {
     if (Gp_role == GP_ROLE_EXECUTE && EndpointCtl.Gp_token == InvalidToken)
-        ep_log(ERROR, "invalid endpoint token");
+        elog(ERROR, "invalid endpoint token");
 }
 
 char *
@@ -2440,11 +2438,11 @@ static void
 check_end_point_allocated(void)
 {
     if (EndpointCtl.Gp_pce_role != PCER_SENDER)
-        ep_log(ERROR, "%s could not check endpoint allocated status",
+        elog(ERROR, "%s could not check endpoint allocated status",
                endpoint_role_to_string(EndpointCtl.Gp_pce_role));
 
     if (!my_shared_endpoint)
-        ep_log(ERROR, "endpoint for token %s is not allocated", printToken(EndpointCtl.Gp_token));
+        elog(ERROR, "endpoint for token %s is not allocated", printToken(EndpointCtl.Gp_token));
 
     check_token_valid();
 
@@ -2452,7 +2450,7 @@ check_end_point_allocated(void)
     if (my_shared_endpoint->token != EndpointCtl.Gp_token)
     {
         LWLockRelease(EndpointsDSMLWLock);
-        ep_log(ERROR, "endpoint for token %s is not allocated", printToken(EndpointCtl.Gp_token));
+        elog(ERROR, "endpoint for token %s is not allocated", printToken(EndpointCtl.Gp_token));
     }
     LWLockRelease(EndpointsDSMLWLock);
 }
@@ -2461,10 +2459,10 @@ static void
 set_attach_status(AttachStatus status)
 {
     if (EndpointCtl.Gp_pce_role != PCER_SENDER)
-        ep_log(ERROR, "%s could not set endpoint", endpoint_role_to_string(EndpointCtl.Gp_pce_role));
+        elog(ERROR, "%s could not set endpoint", endpoint_role_to_string(EndpointCtl.Gp_pce_role));
 
     if (!my_shared_endpoint && !my_shared_endpoint->empty)
-        ep_log(ERROR, "endpoint doesn't exist");
+        elog(ERROR, "endpoint doesn't exist");
 
     LWLockAcquire(EndpointsDSMLWLock, LW_EXCLUSIVE);
 
@@ -2530,7 +2528,7 @@ static AttachStatus status_string_to_enum(char* status)
         return Status_Finished;
     }
     else {
-        ep_log(ERROR, "unknown end point status %s", status);
+        elog(ERROR, "unknown end point status %s", status);
         return Status_NotAttached;
     }
 }
