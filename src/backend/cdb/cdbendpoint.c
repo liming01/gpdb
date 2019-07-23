@@ -155,7 +155,7 @@ typedef struct
 typedef struct
 {
     int			curTokenIdx;              /* current index in shared token list. */
-    CdbComponentDatabaseInfo *seg_db_list;
+    GpSegConfigEntry *seg_db_list;
     int			segment_num;              /* number of segments */
     int			curSegIdx;                /* current index of segment id */
     EndpointStatus *status;
@@ -666,7 +666,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 
 #ifdef FAULT_INJECTOR
 	/* inject fault to set end-point shared memory slot full. */
-	FaultInjectorType_e typeE = SIMPLE_FAULT_INJECTOR(EndpointSharedMemorySlotFull);
+	FaultInjectorType_e typeE = SIMPLE_FAULT_INJECTOR("endpoint_shared_memory_slot_full");
 
 	if (typeE == FaultInjectorTypeFullMemorySlot)
 	{
@@ -982,7 +982,7 @@ AllocEndpointOfToken(int64 token)
 	/* inject fault "skip" to set end-point shared memory slot full */
 
 
-	FaultInjectorType_e typeE = SIMPLE_FAULT_INJECTOR(EndpointSharedMemorySlotFull);
+	FaultInjectorType_e typeE = SIMPLE_FAULT_INJECTOR("endpoint_shared_memory_slot_full");
 
 	if (typeE == FaultInjectorTypeFullMemorySlot)
 	{
@@ -1870,7 +1870,7 @@ receive_tuple_slot(void)
 	}
 
 	HOLD_INTERRUPTS();
-	SIMPLE_FAULT_INJECTOR(FetchTuplesFromEndpoint);
+	SIMPLE_FAULT_INJECTOR("fetch_tuples_from_endpoint");
 	RESUME_INTERRUPTS();
 
 	/* re retrieve data in wait mode
@@ -2619,7 +2619,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		mystatus = (EndpointsInfo *) palloc0(sizeof(EndpointsInfo));
 		funcctx->user_fctx = (void *) mystatus;
 		mystatus->curTokenIdx = 0;
-		mystatus->seg_db_list = cdbcomponent_getComponentInfo(MASTER_CONTENT_ID)->cdbs->segment_db_info;
+		mystatus->seg_db_list = cdbcomponent_getComponentInfo(MASTER_CONTENT_ID)->cdbs->segment_db_info->config;
 		mystatus->segment_num = cdbcomponent_getComponentInfo(MASTER_CONTENT_ID)->cdbs->total_segment_dbs;
 		mystatus->curSegIdx = 0;
 		mystatus->status = NULL;
@@ -2722,7 +2722,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
 		Datum		result;
-		CdbComponentDatabaseInfo *dbinfo;
+		GpSegConfigEntry *dbinfo;
 
 		ParaCursorToken entry = &SharedTokens[mystatus->curTokenIdx];
 
