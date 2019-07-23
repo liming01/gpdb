@@ -5050,6 +5050,10 @@ pg_database_aclcheck(Oid db_oid, Oid roleid, AclMode mode)
 AclResult
 pg_proc_aclcheck(Oid proc_oid, Oid roleid, AclMode mode)
 {
+	/* Only builtin function can be called for retrieve role */
+	if ((Gp_role == GP_ROLE_RETRIEVE) && (proc_oid >= FirstNormalObjectId))
+		elog(ERROR, "Only builtin functions can be called for retrieve role");
+
 	if (pg_proc_aclmask(proc_oid, roleid, mode, ACLMASK_ANY) != 0)
 		return ACLCHECK_OK;
 	else

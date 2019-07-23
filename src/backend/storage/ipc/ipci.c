@@ -64,6 +64,7 @@
 #include "executor/spi.h"
 #include "utils/workfile_mgr.h"
 #include "utils/session_state.h"
+#include "cdb/cdbendpoint.h"
 
 shmem_startup_hook_type shmem_startup_hook = NULL;
 
@@ -203,6 +204,9 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 
 		/* size of expand version */
 		size = add_size(size, GpExpandVersionShmemSize());
+
+		/* size of token and endpoint shared memory */
+		size = add_size(size, Endpoint_ShmemSize());
 
 		elog(DEBUG3, "invoking IpcMemoryCreate(size=%zu)", size);
 
@@ -363,6 +367,9 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	/* Initialize dynamic shared memory facilities. */
 	if (!IsUnderPostmaster)
 		dsm_postmaster_startup(shim);
+
+	/* Initialize token and endpoint shared memory */
+	Endpoint_CTX_ShmemInit();
 
 	/*
 	 * Now give loadable modules a chance to set up their shmem allocations

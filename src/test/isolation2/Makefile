@@ -60,3 +60,6 @@ installcheck: install
 
 installcheck-resgroup: install
 	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_resgroup --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2resgrouptest --load-extension=gp_inject_fault --schedule=$(srcdir)/isolation2_resgroup_schedule
+
+installcheck-gp2gp: install
+	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_cursor --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2gp2gp --schedule=$(srcdir)/parallel_cursor_schedule
