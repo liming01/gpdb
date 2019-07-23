@@ -21,7 +21,7 @@
 #include "nodes/plannodes.h"
 #include "nodes/params.h"
 
-extern Plan *cdbparallelize(struct PlannerInfo *root, Plan *plan, Query *query);
+extern Plan *cdbparallelize(struct PlannerInfo *root, Plan *plan, Query *query, int cursorOptions);
 
 extern bool is_plan_node(Node *node);
 

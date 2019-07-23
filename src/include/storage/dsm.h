@@ -17,6 +17,9 @@
 
 typedef struct dsm_segment dsm_segment;
 
+/* A sentinel value for an invalid DSM handle. */
+#define DSM_HANDLE_INVALID 0
+
 /* Startup and shutdown functions. */
 struct PGShmemHeader;			/* avoid including pg_shmem.h */
 extern void dsm_cleanup_using_control_segment(dsm_handle old_control_handle);
@@ -49,8 +52,12 @@ extern dsm_handle dsm_segment_handle(dsm_segment *seg);
 typedef void (*on_dsm_detach_callback) (dsm_segment *, Datum arg);
 extern void on_dsm_detach(dsm_segment *seg,
 			  on_dsm_detach_callback function, Datum arg);
+extern void on_dsm_destroy(dsm_segment *seg,
+                           on_dsm_detach_callback function, Datum arg);
 extern void cancel_on_dsm_detach(dsm_segment *seg,
 					 on_dsm_detach_callback function, Datum arg);
+extern void cancel_on_dsm_destroy(dsm_segment *seg,
+                                  on_dsm_detach_callback function, Datum arg);
 extern void reset_on_dsm_detach(void);
 
 #endif   /* DSM_H */

@@ -24,17 +24,23 @@
 #include "postgres.h"
 
 #include <limits.h>
+#include <poll.h>
+#include <unistd.h>
 
 #include "access/xact.h"
 #include "commands/portalcmds.h"
 #include "executor/executor.h"
 #include "executor/tstoreReceiver.h"
+#include "lib/stringinfo.h"
 #include "tcop/pquery.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
+#include "cdb/cdbdisp_query.h"
 #include "cdb/cdbgang.h"
 #include "cdb/cdbvars.h"
+#include "cdb/cdbendpoint.h"
+#include "cdb/tupser.h"
 #include "postmaster/backoff.h"
 #include "utils/resscheduler.h"
 
@@ -161,7 +167,73 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	PortalStart(portal, params, 0, GetActiveSnapshot(), NULL);
 
-	Assert(portal->strategy == PORTAL_ONE_SELECT);
+	/*
+	 * Generate a token for parallel cursor, and add it into
+	 * shared memory
+	 */
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
+	{
+		AttachOrCreateEndpointAndTokenDSM();
+		portal->parallel_cursor_token = GetUniqueGpToken();
+		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
+		char		cmd[255];
+		sprintf(cmd, "SET gp_endpoints_token_operation='p" INT64_FORMAT "'", portal->parallel_cursor_token);
+
+		if (!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
+				stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
+		{
+			if (stmt->planTree->directDispatch.isDirectDispatch &&
+					stmt->planTree->directDispatch.contentIds != NULL)
+			{
+				/*
+				 * Direct dispatch to some segments, so end-points only exist
+				 * on these segments
+				 */
+				ListCell *cell;
+				List* l = NIL;
+				foreach(cell, stmt->planTree->directDispatch.contentIds)
+				{
+					int contentid = lfirst_int(cell);
+					l = lappend_int(l, contentid);
+				}
+				AddParallelCursorToken(portal->parallel_cursor_token,
+									   portal->name,
+									   gp_session_id,
+									   GetUserId(),
+									   false,
+									   l);
+				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, l, NULL);
+			}
+			else
+			{
+				/* end-points are on all segments */
+				AddParallelCursorToken(portal->parallel_cursor_token,
+									   portal->name,
+									   gp_session_id,
+									   GetUserId(),
+									   true,
+									   NULL);
+				/* Push token to all segments */
+				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+			}
+		}
+		else
+		{
+			/* The end-point is on QD */
+			List* l = NIL;
+			l = lappend_int(l, MASTER_CONTENT_ID);
+			AddParallelCursorToken(portal->parallel_cursor_token,
+								   portal->name,
+								   gp_session_id,
+								   GetUserId(),
+								   false,
+								   l);
+			AllocEndpointOfToken(portal->parallel_cursor_token);
+		}
+	}
+
+	Assert((!(portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_ONE_SELECT) ||
+		   ((portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_MULTI_QUERY));
 
 	/*
 	 * We're done; the query won't actually be run until PerformPortalFetch is
@@ -207,6 +279,32 @@ PerformPortalFetch(FetchStmt *stmt,
 		return;					/* keep compiler happy */
 	}
 
+	bool is_parallel = (portal->cursorOptions & CURSOR_OPT_PARALLEL) > 0 ;
+	if (is_parallel != stmt->isParallelCursor)
+	{
+		if (stmt->isParallelCursor)
+		{
+			ereport(ERROR,
+			        (errcode(ERRCODE_SYNTAX_ERROR),
+				        errmsg("Cannot specify 'EXECUTE PARALLEL CURSOR' for non-parallel cursor."),
+				        errhint("Using 'FETCH' statement instead.")));
+		}
+		else if (stmt->ismove)
+		{
+			ereport(ERROR,
+			        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				        errmsg("The 'MOVE' statement for parallel cursor is not supported."),
+				        errhint("Using 'EXECUTE PARALLEL CURSOR' statement instead.")));
+		}
+		else
+		{
+			ereport(ERROR,
+			        (errcode(ERRCODE_SYNTAX_ERROR),
+				        errmsg("Cannot specify 'FETCH' for parallel cursor."),
+				        errhint("Using 'EXECUTE PARALLEL CURSOR' statement instead.")));
+		}
+	}
+
 	/* Adjust dest if needed.  MOVE wants destination DestNone */
 	if (stmt->ismove)
 		dest = None_Receiver;
@@ -219,9 +317,15 @@ PerformPortalFetch(FetchStmt *stmt,
 
 	/* Return command status if wanted */
 	if (completionTag)
-		snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
-				 stmt->ismove ? "MOVE" : "FETCH",
-				 nprocessed);
+	{
+		if (stmt->isParallelCursor)
+			snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
+					 "EXECUTE PARALLEL CURSOR");
+		else
+			snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
+					 stmt->ismove ? "MOVE" : "FETCH",
+					 nprocessed);
+	}
 }
 
 /*

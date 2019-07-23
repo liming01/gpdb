@@ -21,7 +21,7 @@
 extern PGDLLIMPORT Portal ActivePortal;
 
 
-extern PortalStrategy ChoosePortalStrategy(List *stmts);
+extern PortalStrategy ChoosePortalStrategy(List *stmts, bool parallelcursor);
 
 extern List *FetchPortalTargetList(Portal portal);
 

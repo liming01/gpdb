@@ -1,0 +1,88 @@
+-- @Description Tests create parallel for some special query
+--
+
+--------- Test1: test for parallel cursor on select transient record types
+DROP TABLE IF EXISTS t1;
+DROP
+CREATE TABLE t1 AS SELECT generate_series(1, 10) AS x;
+CREATE 10
+
+CREATE OR REPLACE FUNCTION make_record(n int) RETURNS RECORD LANGUAGE plpgsql AS ' BEGIN RETURN CASE n WHEN 1 THEN ROW(1) WHEN 2 THEN ROW(1, 2) WHEN 3 THEN ROW(1, 2, 3) WHEN 4 THEN ROW(1, 2, 3, 4) ELSE ROW(1, 2, 3, 4, 5) END; END; ';
+CREATE
+
+SELECT make_record(x) FROM t1;
+ make_record 
+-------------
+ (1)         
+ (1,2,3,4,5) 
+ (1,2,3,4,5) 
+ (1,2,3,4,5) 
+ (1,2,3,4,5) 
+ (1,2)       
+ (1,2,3)     
+ (1,2,3,4)   
+ (1,2,3,4,5) 
+ (1,2,3,4,5) 
+(10 rows)
+
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT make_record(x) FROM t1;
+DECLARE
+1: @out_sh 'get_cell TOKEN1 3 1 && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token                  | status
+------------------------+--------
+ token_id1 | INIT
+ token_id1 | INIT
+ token_id1 | INIT
+(3 rows)
+1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
+
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+ status 
+--------
+(0 rows)
+
+ status 
+--------
+ READY  
+(1 row)
+
+ status 
+--------
+ READY  
+(1 row)
+
+ status 
+--------
+ READY  
+(1 row)
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1262)
+
+ make_record 
+-------------
+ (1,2)       
+ (1,2,3)     
+ (1,2,3,4)   
+ (1,2,3,4,5) 
+ (1,2,3,4,5) 
+(5 rows)
+
+ make_record 
+-------------
+ (1)         
+(1 row)
+
+ make_record 
+-------------
+ (1,2,3,4,5) 
+ (1,2,3,4,5) 
+ (1,2,3,4,5) 
+ (1,2,3,4,5) 
+(4 rows)
+
+1<:  <... completed>
+EXECUTE
+1: CLOSE c1;
+CLOSE

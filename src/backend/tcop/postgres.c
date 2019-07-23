@@ -38,6 +38,7 @@
 #endif
 
 #include <pthread.h>
+#include <string.h>
 
 #include "access/printtup.h"
 #include "access/xact.h"
@@ -89,6 +90,7 @@
 #include "cdb/cdbdtxcontextinfo.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbdispatchresult.h"
+#include "cdb/cdbendpoint.h"
 #include "cdb/cdbgang.h"
 #include "cdb/ml_ipc.h"
 #include "utils/guc.h"
@@ -1341,6 +1343,9 @@ exec_mpp_query(const char *query_string,
 						  list_make1(plan ? (Node*)plan : (Node*)utilityStmt),
 						  NULL);
 
+		if ((commandType == CMD_SELECT) && (currentSliceId == 0) && (GpToken() != InvalidToken))
+            SetParallelCursorExecRole(PCER_SENDER);
+
 		/*
 		 * Start the portal.
 		 */
@@ -1668,6 +1673,15 @@ exec_simple_query(const char *query_string)
 							Debug_dtm_action, commandTag)));
 		}
 
+		if ((Gp_role == GP_ROLE_RETRIEVE) &&
+			((nodeTag(parsetree) == T_InsertStmt) ||
+				(nodeTag(parsetree) == T_DeleteStmt) ||
+				(nodeTag(parsetree) == T_UpdateStmt)))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role")));
+		}
 		/*
 		 * If are connected in utility mode, disallow PREPARE TRANSACTION
 		 * statements.
@@ -3894,29 +3908,33 @@ ProcessInterrupts(const char* filename, int lineno)
 		 */
 		if (!DoingCommandRead)
 		{
+			char    *PREFIX="";
+			char    *POSTFIX = "";
+			char    *buffer="";
+
 			ImmediateInterruptOK = false;		/* not idle anymore */
 			LockErrorCleanup();
 			DisableNotifyInterrupt();
 			DisableCatchupInterrupt();
 
+			if (HasCancelMessage())
+			{
+				buffer = palloc0(MAX_CANCEL_MSG);
+				if(GetCancelMessage(&buffer, MAX_CANCEL_MSG)>0)
+				{
+					PREFIX = ": \"";
+					POSTFIX = "\"";
+				}
+			}
+
 			if (Gp_role == GP_ROLE_EXECUTE)
 				ereport(ERROR,
 						(errcode(ERRCODE_GP_OPERATION_CANCELED),
-						 errmsg("canceling MPP operation")));
-			else if (HasCancelMessage())
-			{
-				char   *buffer = palloc0(MAX_CANCEL_MSG);
-
-				GetCancelMessage(&buffer, MAX_CANCEL_MSG);
-				ereport(ERROR,
-						(errcode(ERRCODE_QUERY_CANCELED),
-						 errmsg("canceling statement due to user request: \"%s\"",
-								buffer)));
-			}
+						 errmsg("canceling MPP operation%s%s%s", PREFIX, buffer, POSTFIX)));
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_QUERY_CANCELED),
-						 errmsg("canceling statement due to user request")));
+						 errmsg("canceling statement due to user request%s%s%s", PREFIX, buffer, POSTFIX)));
 		}
 	}
 	/* If we get here, do nothing (probably, QueryCancelPending was reset) */
@@ -5274,6 +5292,10 @@ PostgresMain(int argc, char *argv[],
 					int serializedParamslen = 0;
 					int serializedQueryDispatchDesclen = 0;
 					int resgroupInfoLen = 0;
+
+					int64 token = InvalidToken;
+					int32 session_id = InvalidSession;
+
 					TimestampTz statementStart;
 					Oid suid;
 					Oid ouid;
@@ -5338,6 +5360,9 @@ PostgresMain(int argc, char *argv[],
 					if (resgroupInfoLen > 0)
 						resgroupInfoBuf = pq_getmsgbytes(&input_message, resgroupInfoLen);
 
+					token = pq_getmsgint64(&input_message);
+					session_id = pq_getmsgint(&input_message, sizeof(session_id));
+
 					pq_getmsgend(&input_message);
 
 					elog((Debug_print_full_dtm ? LOG : DEBUG5), "MPP dispatched stmt from QD: %s.",query_string);
@@ -5390,11 +5415,16 @@ PostgresMain(int argc, char *argv[],
 						}
 					}
 					else
+					{
+						if (token != InvalidToken)
+							SetGpToken(token);
+
 						exec_mpp_query(query_string,
 									   serializedQuerytree, serializedQuerytreelen,
 									   serializedPlantree, serializedPlantreelen,
 									   serializedParams, serializedParamslen,
 									   serializedQueryDispatchDesc, serializedQueryDispatchDesclen);
+					}
 
 					SetUserIdAndContext(GetOuterUserId(), false);
 

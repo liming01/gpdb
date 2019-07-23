@@ -90,7 +90,7 @@ current_query(PG_FUNCTION_ARGS)
 #define SIGNAL_BACKEND_SUCCESS 0
 #define SIGNAL_BACKEND_ERROR 1
 #define SIGNAL_BACKEND_NOPERMISSION 2
-static int
+extern int
 pg_signal_backend(int pid, int sig, char *msg)
 {
 	PGPROC	   *proc = BackendPidGetProc(pid);

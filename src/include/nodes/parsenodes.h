@@ -2633,6 +2633,8 @@ typedef struct SecLabelStmt
 #define CURSOR_OPT_GENERIC_PLAN 0x0040	/* force use of generic plan */
 #define CURSOR_OPT_CUSTOM_PLAN	0x0080	/* force use of custom plan */
 
+#define CURSOR_OPT_PARALLEL		0x0100	/* Cursor for parallel retrieving */
+
 /*
  * This is used to request the planner to create a plan that's updatable with
  * CURRENT OF. It can be passed to SPI_prepare_cursor.
@@ -2681,6 +2683,8 @@ typedef struct FetchStmt
 	int64		howMany;		/* number of rows, or position argument */
 	char	   *portalname;		/* name of portal (cursor) */
 	bool		ismove;			/* TRUE if MOVE */
+	bool        isParallelCursor;  /* If it is a parallel cursor, FETCH statement
+									  is in fact EXECUTE PARALLEL CURSOR*/
 } FetchStmt;
 
 /* ----------------------
@@ -3360,5 +3364,13 @@ typedef struct AlterTSConfigurationStmt
 	bool		replace;		/* if true - replace dictionary by another */
 	bool		missing_ok;		/* for DROP - skip error if missing? */
 } AlterTSConfigurationStmt;
+
+typedef struct RetrieveStmt
+{
+	NodeTag		type;
+	int64		token;
+	int64		count;
+	bool		is_all;
+} RetrieveStmt;
 
 #endif   /* PARSENODES_H */

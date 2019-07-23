@@ -24,7 +24,6 @@
 
 /* there is deliberately not an #ifndef FAULTINJECTOR_LISTS_H here */
 
-
 /*
  * Fault types. These indicate the action to do when the fault injection
  * point is reached.
@@ -45,6 +44,8 @@ FI_TYPE(FaultInjectorTypeSegv, "segv")
 FI_TYPE(FaultInjectorTypeInterrupt, "interrupt")
 FI_TYPE(FaultInjectorTypeFinishPending, "finish_pending")
 FI_TYPE(FaultInjectorTypeWaitUntilTriggered, "wait_until_triggered")
+FI_TYPE(FaultInjectorTypeFullMemorySlot, "full_memory_slot")
+FI_TYPE(FaultInjectorTypeRevertMemorySlot, "revert_memory_slot")
 #endif
 
 /*

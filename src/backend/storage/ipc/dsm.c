@@ -75,6 +75,7 @@ struct dsm_segment
 	void	   *mapped_address; /* Mapping address, or NULL if unmapped. */
 	Size		mapped_size;	/* Size of our mapping. */
 	slist_head	on_detach;		/* On-detach callbacks. */
+	slist_head	on_destroy;		/* On-destroy callbacks. Same with on_detach, but called before destroy */
 };
 
 /* Shared-memory state for a dynamic shared memory segment. */
@@ -759,6 +760,22 @@ dsm_detach(dsm_segment *seg)
 			 * other reason, the postmaster may not have any better luck than
 			 * we did.  There's not much we can do about that, though.
 			 */
+			while (!slist_is_empty(&seg->on_destroy))
+			{
+				slist_node *node;
+				dsm_segment_detach_callback *cb;
+				on_dsm_detach_callback function;
+				Datum		arg;
+
+				node = slist_pop_head_node(&seg->on_destroy);
+				cb = slist_container(dsm_segment_detach_callback, node, node);
+				function = cb->function;
+				arg = cb->arg;
+				pfree(cb);
+
+				function(seg, arg);
+			}
+
 			if (dsm_impl_op(DSM_OP_DESTROY, seg->handle, 0, &seg->impl_private,
 							&seg->mapped_address, &seg->mapped_size, WARNING))
 			{
@@ -894,6 +911,21 @@ on_dsm_detach(dsm_segment *seg, on_dsm_detach_callback function, Datum arg)
 }
 
 /*
+ * Register an on-destroy callback for a dynamic shared memory segment.
+ */
+void
+on_dsm_destroy(dsm_segment *seg, on_dsm_detach_callback function, Datum arg)
+{
+	dsm_segment_detach_callback *cb;
+
+	cb = MemoryContextAlloc(TopMemoryContext,
+							sizeof(dsm_segment_detach_callback));
+	cb->function = function;
+	cb->arg = arg;
+	slist_push_head(&seg->on_destroy, &cb->node);
+}
+
+/*
  * Unregister an on-detach callback for a dynamic shared memory segment.
  */
 void
@@ -903,6 +935,29 @@ cancel_on_dsm_detach(dsm_segment *seg, on_dsm_detach_callback function,
 	slist_mutable_iter iter;
 
 	slist_foreach_modify(iter, &seg->on_detach)
+	{
+		dsm_segment_detach_callback *cb;
+
+		cb = slist_container(dsm_segment_detach_callback, node, iter.cur);
+		if (cb->function == function && cb->arg == arg)
+		{
+			slist_delete_current(&iter);
+			pfree(cb);
+			break;
+		}
+	}
+}
+
+/*
+ * Unregister an on-destroy callback for a dynamic shared memory segment.
+ */
+void
+cancel_on_dsm_destroy(dsm_segment *seg, on_dsm_detach_callback function,
+					  Datum arg)
+{
+	slist_mutable_iter iter;
+
+	slist_foreach_modify(iter, &seg->on_destroy)
 	{
 		dsm_segment_detach_callback *cb;
 
@@ -939,6 +994,17 @@ reset_on_dsm_detach(void)
 			pfree(cb);
 		}
 
+		/* Throw away explicit on-destroy actions one by one. */
+		while (!slist_is_empty(&seg->on_destroy))
+		{
+			slist_node *node;
+			dsm_segment_detach_callback *cb;
+
+			node = slist_pop_head_node(&seg->on_destroy);
+			cb = slist_container(dsm_segment_detach_callback, node, node);
+			pfree(cb);
+		}
+
 		/*
 		 * Decrementing the reference count is a sort of implicit on-detach
 		 * action; make sure we don't do that, either.
@@ -970,6 +1036,7 @@ dsm_create_descriptor(void)
 	ResourceOwnerRememberDSM(CurrentResourceOwner, seg);
 
 	slist_init(&seg->on_detach);
+	slist_init(&seg->on_destroy);
 
 	return seg;
 }

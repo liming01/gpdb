@@ -1,0 +1,67 @@
+-- @Description Tests retrieve quit
+-- 
+DROP TABLE IF EXISTS t1;
+CREATE TABLE t1 (a INT);
+insert into t1 select generate_series(1,100);
+
+--------- Test1: test for quit retrieve will cancel all unfinished QE backend
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1&: EXECUTE PARALLEL CURSOR c1;
+
+2: BEGIN;
+2: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+2: @out_sh ' TOKEN2=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN2}/${NL}s/${TOKEN2}/token_id2/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+2&: EXECUTE PARALLEL CURSOR c2;
+
+3: BEGIN;
+3: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
+3: @out_sh ' TOKEN3=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN3}/${NL}s/${TOKEN3}/token_id3/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c3';
+3&: EXECUTE PARALLEL CURSOR c3;
+
+-- in one retrieve session, retrieve mutiple tokens (begin retrieving, finished retrieving, not yet retrieve)
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE 10 FROM "@TOKEN1";
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE all FROM "@TOKEN2";
+-- skip TOKEN3 in this session
+
+-- a new retrieve session
+3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE 10 FROM "@TOKEN1";
+3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE all FROM "@TOKEN2";
+3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
+
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+-- verify some endpoints is gone
+0R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
+-- quit the first retrieve session
+0Rq:
+-- check it can cancel the "EXECUTE PARALLEL CURSOR"
+1<:
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+
+-- verify some endpoints is gone
+3R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
+-- quit the second retrieve session
+3Rq:
+-- check it can cancel the "EXECUTE PARALLEL CURSOR"
+3<:
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE all FROM "@TOKEN2";
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+
+1q:
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+
+2<:
+2: CLOSE c1;
+2: END;
+2q:
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+3q:
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+-- quit all sessions
+4q:
+0Rq:
+1Rq:
+2Rq:

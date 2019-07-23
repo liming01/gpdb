@@ -404,7 +404,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
-		top_plan = cdbparallelize(root, top_plan, parse);
+		top_plan = cdbparallelize(root, top_plan, parse, cursorOptions);
 
 		/*
 		 * cdbparallelize() mutates all the nodes, so the producer nodes we

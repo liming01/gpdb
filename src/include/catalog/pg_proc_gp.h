@@ -317,6 +317,14 @@ DESCR("show append only table compression ratio");
 DATA(insert OID = 7173 ( gp_update_ao_master_stats  PGNSP PGUID 12 1 0 0 0 f f f f f f v 1 0 20 "2205" _null_ _null_ _null_ _null_ gp_update_ao_master_stats _null_ _null_ _null_ m a ));
 DESCR("append only tables utility function");
 
+/* gp_endpoints_info(IN isall bool, OUT token text, OUT cursorname text, OUT sessionid int4, OUT hostname text, OUT port int4, OUT dbid int4, OUT userid oid, OUT status text) => SETOF record */
+DATA(insert OID = 7178 ( gp_endpoints_info  PGNSP PGUID 12 1 1000 0 0 f f f f f t v 1 0 2249 "16" "{16,25,25,23,25,23,23,26,25}" "{i,o,o,o,o,o,o,o,o}" "{isall,token,cursorname,sessionid,hostname,port,dbid,userid,status}" _null_ gp_endpoints_info _null_ _null_ _null_ n m ));
+DESCR("mpp endpoints information");
+
+/* gp_endpoints_status_info(OUT token text, OUT databaseid int4, OUT senderpid int4, OUT receiverpid int4, OUT status text, OUT dbid int4, OUT sessionid int4, OUT userid oid) => SETOF record */
+DATA(insert OID = 7179 ( gp_endpoints_status_info  PGNSP PGUID 12 1 1000 0 0 f f f f f t v 0 0 2249 "" "{25,23,23,23,25,23,23,26}" "{o,o,o,o,o,o,o,o}" "{token,databaseid,senderpid,receiverpid,status,dbid,sessionid,userid}" _null_ gp_endpoints_status_info _null_ _null_ _null_ n a ));
+DESCR("endpoints status information");
+
 
 /* the bitmap index access method routines */
 /* bmgettuple(internal, internal) => bool */

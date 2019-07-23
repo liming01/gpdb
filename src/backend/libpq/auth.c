@@ -28,6 +28,7 @@
 #include "catalog/indexing.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_auth_time_constraint.h"
+#include "cdb/cdbendpoint.h"
 #include "cdb/cdbvars.h"
 #include "libpq/auth.h"
 #include "libpq/crypt.h"
@@ -38,6 +39,7 @@
 #include "miscadmin.h"
 #include "pgtime.h"
 #include "postmaster/postmaster.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/datetime.h"
 #include "utils/fmgroids.h"
@@ -321,6 +323,41 @@ auth_failed(Port *port, int status, char *logdetail)
 }
 
 /*
+ * Retrieve role directly uses the token of parallel cursor as password to authenticate.
+ */
+static int
+retrieve_role_authentication(Port *port)
+{
+	char	   *passwd;
+	Oid        owner_uid;
+
+	sendAuthRequest(port, AUTH_REQ_PASSWORD);
+	passwd = recv_password_packet(port);
+	if (passwd == NULL)
+	{
+		elog(LOG, "libpq connection skips RETRIEVE role authentication"
+			 "because of empty password");
+		return false;
+	}
+
+	/*
+	 * verify that the username is same as the owner of parallel cursor and the
+	 * password is the token
+	 */
+	owner_uid = get_role_oid(port->user_name, false);
+	if (!FindEndpointTokenByUser(owner_uid, passwd))
+	{
+		elog(LOG, "libpq connection skips RETRIEVE role authentication"
+			 "because the password doesn't match any token of the parallel"
+			 "cursor created by current user \"%s\"", port->user_name);
+		return false;
+	}
+
+	FakeClientAuthentication(port);
+	return true;
+}
+
+/*
  * Special client authentication for QD to QE connections. This is run at the
  * QE. This is non-trivial because a QE some times runs at the master (i.e., an
  * entry-DB for things like master only tables).
@@ -431,6 +468,12 @@ ClientAuthentication(Port *port)
 {
 	int			status = STATUS_ERROR;
 	char	   *logdetail = NULL;
+
+	elog(LOG, "libpq connection authenticate in Gp_role: %s, Gp_session_role: "
+		 "%s", role_to_string(Gp_role), role_to_string(Gp_session_role));
+
+	if (Gp_role == GP_ROLE_RETRIEVE && retrieve_role_authentication(port))
+		return;
 
 	/*
 	 * If this is a QD to QE connection, we might be able to short circuit

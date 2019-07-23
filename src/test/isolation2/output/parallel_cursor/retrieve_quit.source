@@ -1,0 +1,321 @@
+-- @Description Tests retrieve quit
+--
+DROP TABLE IF EXISTS t1;
+DROP
+CREATE TABLE t1 (a INT);
+CREATE
+insert into t1 select generate_series(1,100);
+INSERT 100
+
+--------- Test1: test for quit retrieve will cancel all unfinished QE backend
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+ token                  | status
+------------------------+--------
+ token_id1 | INIT
+ token_id1 | INIT
+ token_id1 | INIT
+(3 rows)
+1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
+
+2: BEGIN;
+BEGIN
+2: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+2: @out_sh ' TOKEN2=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN2}/${NL}s/${TOKEN2}/token_id2/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+ token                  | status
+------------------------+--------
+ token_id2 | INIT
+ token_id2 | INIT
+ token_id2 | INIT
+(3 rows)
+2&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
+
+3: BEGIN;
+BEGIN
+3: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+3: @out_sh ' TOKEN3=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN3}/${NL}s/${TOKEN3}/token_id3/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c3';
+ token                  | status
+------------------------+--------
+ token_id3 | INIT
+ token_id3 | INIT
+ token_id3 | INIT
+(3 rows)
+3&: EXECUTE PARALLEL CURSOR c3;  <waiting ...>
+
+-- in one retrieve session, retrieve mutiple tokens (begin retrieving, finished retrieving, not yet retrieve)
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE 10 FROM "@TOKEN1";
+ a  
+----
+ 2  
+ 3  
+ 4  
+ 7  
+ 8  
+ 16 
+ 18 
+ 19 
+ 22 
+ 24 
+(10 rows)
+0R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE all FROM "@TOKEN2";
+ a  
+----
+ 2  
+ 3  
+ 4  
+ 7  
+ 8  
+ 16 
+ 18 
+ 19 
+ 22 
+ 24 
+ 27 
+ 29 
+ 34 
+ 37 
+ 39 
+ 41 
+ 42 
+ 45 
+ 51 
+ 53 
+ 54 
+ 55 
+ 59 
+ 60 
+ 65 
+ 66 
+ 70 
+ 75 
+ 77 
+ 80 
+ 81 
+ 84 
+ 90 
+ 92 
+ 93 
+ 94 
+ 97 
+ 99 
+(38 rows)
+-- skip TOKEN3 in this session
+
+-- a new retrieve session
+3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE 10 FROM "@TOKEN1";
+ERROR:  Endpoint token_id1 is already attached by receiver(pid: 50084) (cdbendpoint.c:1339)
+DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
+3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE all FROM "@TOKEN2";
+ERROR:  Endpoint token_id2 is already attached by receiver(pid: 50084) (cdbendpoint.c:1339)
+DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
+3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
+ a  
+----
+ 2  
+ 3  
+ 4  
+ 7  
+ 8  
+ 16 
+ 18 
+ 19 
+ 22 
+ 24 
+(10 rows)
+
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+ cursorname | status 
+------------+--------
+ c1         | READY  
+ c1         | READY  
+ c1         | READY  
+ c2         | FINISH 
+ c2         | READY  
+ c2         | READY  
+ c3         | READY  
+ c3         | READY  
+ c3         | READY  
+(9 rows)
+-- verify some endpoints is gone
+0R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
+ ?column? | ?column? | status 
+----------+----------+--------
+ t        | t        | READY  
+ t        | t        | FINISH 
+ t        | t        | READY  
+(3 rows)
+-- quit the first retrieve session
+0Rq: ... <quitting>
+-- check it can cancel the "EXECUTE PARALLEL CURSOR"
+1<:  <... completed>
+ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished endpoint backends will be cancelled"  (seg0 10.34.58.39:25432 pid=50053)
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+ cursorname | status   
+------------+----------
+ c1         | RELEASED 
+ c1         | RELEASED 
+ c1         | RELEASED 
+ c2         | FINISH   
+ c2         | READY    
+ c2         | READY    
+ c3         | READY    
+ c3         | READY    
+ c3         | READY    
+(9 rows)
+
+-- verify some endpoints is gone
+3R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
+ ?column? | ?column? | status 
+----------+----------+--------
+ t        | t        | FINISH 
+ t        | t        | READY  
+(2 rows)
+-- quit the second retrieve session
+3Rq: ... <quitting>
+-- check it can cancel the "EXECUTE PARALLEL CURSOR"
+3<:  <... completed>
+ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished endpoint backends will be cancelled"  (seg0 10.34.58.39:25432 pid=50073)
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+ cursorname | status   
+------------+----------
+ c1         | RELEASED 
+ c1         | RELEASED 
+ c1         | RELEASED 
+ c2         | FINISH   
+ c2         | READY    
+ c2         | READY    
+ c3         | RELEASED 
+ c3         | RELEASED 
+ c3         | RELEASED 
+(9 rows)
+
+*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE all FROM "@TOKEN2";
+ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c:1342)
+
+ERROR:  Endpoint token_id2 is already attached by receiver(pid: PID) (cdbendpoint.c:LINENO)
+DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
+
+ a  
+----
+ 1  
+ 12 
+ 15 
+ 20 
+ 23 
+ 26 
+ 30 
+ 31 
+ 35 
+ 36 
+ 38 
+ 40 
+ 44 
+ 46 
+ 47 
+ 48 
+ 49 
+ 50 
+ 57 
+ 61 
+ 64 
+ 68 
+ 69 
+ 71 
+ 72 
+ 74 
+ 76 
+ 78 
+ 79 
+ 83 
+ 86 
+ 87 
+ 88 
+ 89 
+ 91 
+ 95 
+ 98 
+(37 rows)
+
+ a   
+-----
+ 5   
+ 6   
+ 9   
+ 10  
+ 11  
+ 13  
+ 14  
+ 17  
+ 21  
+ 25  
+ 28  
+ 32  
+ 33  
+ 43  
+ 52  
+ 56  
+ 58  
+ 62  
+ 63  
+ 67  
+ 73  
+ 82  
+ 85  
+ 96  
+ 100 
+(25 rows)
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+ cursorname | status   
+------------+----------
+ c1         | RELEASED 
+ c1         | RELEASED 
+ c1         | RELEASED 
+ c2         | FINISH   
+ c2         | FINISH   
+ c2         | FINISH   
+ c3         | RELEASED 
+ c3         | RELEASED 
+ c3         | RELEASED 
+(9 rows)
+
+1q: ... <quitting>
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+ cursorname | status   
+------------+----------
+ c2         | FINISH   
+ c2         | FINISH   
+ c2         | FINISH   
+ c3         | RELEASED 
+ c3         | RELEASED 
+ c3         | RELEASED 
+(6 rows)
+
+2<:  <... completed>
+EXECUTE
+2: CLOSE c1;
+ERROR:  cursor "c1" does not exist
+2: END;
+END
+2q: ... <quitting>
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+ cursorname | status   
+------------+----------
+ c3         | RELEASED 
+ c3         | RELEASED 
+ c3         | RELEASED 
+(3 rows)
+3q: ... <quitting>
+4: SELECT cursorname, status FROM gp_endpoints_info(true);
+ cursorname | status 
+------------+--------
+(0 rows)
+-- quit all sessions
+4q: ... <quitting>
+0Rq: ... <quitting>
+1Rq: ... <quitting>
+2Rq: ... <quitting>

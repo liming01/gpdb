@@ -157,6 +157,7 @@ ICW_TARGETS += gpcontrib src/bin gpMgmt/bin
 
 $(call recurse,installcheck-world, $(ICW_TARGETS),installcheck)
 
+$(call recurse,installcheck-world,src/test/isolation2,installcheck-gp2gp)
 # GPDB: Postgres disables the SSL tests during ICW because of the TCP port that
 # it opens to other users on the same machine during testing. GPDB makes no such
 # security guarantees during tests: currently, it is unsafe to run
