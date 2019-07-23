@@ -46,6 +46,7 @@ typedef struct ConnCacheKey
 {
 	Oid			serverid;		/* OID of foreign server */
 	Oid			userid;			/* OID of local user whose mapping we use */
+	int			dbid;           /* the database ID of the foreign Greenplum cluster */
 } ConnCacheKey;
 
 typedef struct ConnCacheEntry
@@ -61,6 +62,7 @@ typedef struct ConnCacheEntry
 	bool		invalidated;	/* true if reconnect is pending */
 	uint32		server_hashvalue;	/* hash value of foreign server OID */
 	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
+	bool 		reusable;			/* if the connection is reusable */
 } ConnCacheEntry;
 
 /*
@@ -110,6 +112,21 @@ PGconn *
 GetConnection(ForeignServer *server, UserMapping *user,
 			  bool will_prep_stmt)
 {
+	return GetCustomConnection(server, user, will_prep_stmt, 0, true);
+}
+
+/*
+ * Same as GetConnection, except:
+ *
+ * If dbid is not 0, the connection should be gp2gp RETRIEVE connection to an
+ * endpoint, only same dbid connections could reuse each other.
+ *
+ * The connection which runs `EXECUTE PARALLEL CURSOR` is not reusable.
+ */
+PGconn *
+GetCustomConnection(ForeignServer *server, UserMapping *user,
+			  bool will_prep_stmt, int dbid, bool reusable)
+{
 	bool		found;
 	ConnCacheEntry *entry;
 	ConnCacheKey key;
@@ -147,18 +164,20 @@ GetConnection(ForeignServer *server, UserMapping *user,
 	/* Create hash key for the entry.  Assume no pad bytes in key struct */
 	key.serverid = server->serverid;
 	key.userid = user->userid;
+	key.dbid = dbid;
 
 	/*
 	 * Find or create cached entry for requested connection.
 	 */
 	entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
-	if (!found)
+	if (!found || !entry->reusable || !reusable)
 	{
 		/*
 		 * We need only clear "conn" here; remaining fields will be filled
 		 * later when "conn" is set.
 		 */
 		entry->conn = NULL;
+		entry->reusable = reusable;
 	}
 
 	/* Reject further use of connections which failed abort cleanup. */
@@ -707,6 +726,12 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 				case XACT_EVENT_PRE_COMMIT:
 
 					/*
+					 * Get the possible asynchronous result to unblock upcoming
+					 * commands
+					 */
+					pgfdw_get_result(entry->conn, NULL);
+
+					/*
 					 * If abort cleanup previously failed for this connection,
 					 * we can't issue any more commands against it.
 					 */
@@ -741,6 +766,15 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					entry->have_error = false;
 					break;
 				case XACT_EVENT_PRE_PREPARE:
+
+					/*
+					 * FDW update is not the same as Greenplum segments update,
+					 * doesn't need the two-phase commit.
+					 *
+					 * Besides that, Greenplum prepares on many cases including
+					 * DTX distributing for MPP usages, just break here.
+					 */
+					break;
 
 					/*
 					 * We disallow remote transactions that modified anything,
@@ -835,6 +869,16 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 		if (PQstatus(entry->conn) != CONNECTION_OK ||
 			PQtransactionStatus(entry->conn) != PQTRANS_IDLE ||
 			entry->changing_xact_state)
+		{
+			elog(DEBUG3, "discarding connection %p", entry->conn);
+			disconnect_pg_server(entry);
+		}
+
+		/*
+		 * Close the not reusable connection, we don't leave it there for
+		 * sharing
+		 */
+		if (!entry->reusable)
 		{
 			elog(DEBUG3, "discarding connection %p", entry->conn);
 			disconnect_pg_server(entry);

@@ -25,6 +25,7 @@ all:
 	$(MAKE) -C contrib/pg_xlogdump all
 	$(MAKE) -C contrib/hstore all
 	$(MAKE) -C contrib/pgcrypto all
+	$(MAKE) -C contrib/postgres_fdw all
 	$(MAKE) -C gpAux/extensions all
 	$(MAKE) -C gpAux/gpperfmon all
 	$(MAKE) -C gpAux/platform all
@@ -59,6 +60,7 @@ install:
 	$(MAKE) -C contrib/pg_xlogdump $@
 	$(MAKE) -C contrib/hstore $@
 	$(MAKE) -C contrib/pgcrypto $@
+	$(MAKE) -C contrib/postgres_fdw $@
 	$(MAKE) -C gpMgmt $@
 	$(MAKE) -C gpAux/extensions $@
 	$(MAKE) -C gpAux/gpperfmon $@
@@ -148,11 +150,13 @@ $(call recurse,installcheck-world, \
 			   contrib/indexscan \
 			   contrib/hstore \
 			   contrib/pgcrypto \
+			   contrib/postgres_fdw \
 			   gpcontrib \
 			   src/bin/ \
 			   gpMgmt/bin,installcheck)
 
 $(call recurse,installcheck-world,src/test/isolation2,installcheck-gp2gp)
+
 # GPDB: Postgres disables the SSL tests during ICW because of the TCP port that
 # it opens to other users on the same machine during testing. GPDB makes no such
 # security guarantees during tests: currently, it is unsafe to run

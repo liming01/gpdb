@@ -2,6 +2,8 @@
 -- create FDW objects
 -- ===================================================================
 
+SET optimizer=off;
+
 CREATE EXTENSION postgres_fdw;
 
 CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw;
@@ -208,7 +210,7 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = t1.c2;
 -- ===================================================================
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 1;         -- Var, OpExpr(b), Const
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 100 AND t1.c2 = 0; -- BoolExpr
-EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NULL;        -- NullTest
+EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NULL;        -- NullTest Greenplum NOT NULL optimization
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 IS NOT NULL;    -- NullTest
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE round(abs(c1), 0) = 1; -- FuncExpr
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = -c1;          -- OpExpr(l)
@@ -218,14 +220,14 @@ EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = ANY(ARRAY[c2, 1, 
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c1 = (ARRAY[c1,c2,3])[1]; -- ArrayRef
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  -- check special chars
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
--- parameterized remote path
-EXPLAIN (VERBOSE, COSTS false)
-  SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
+-- parameterized remote path (disabled because Greenplum chooses hash join)
+-- EXPLAIN (VERBOSE, COSTS false)
+--   SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
 SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
--- check both safe and unsafe join conditions
-EXPLAIN (VERBOSE, COSTS false)
-  SELECT * FROM ft2 a, ft2 b
-  WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);
+-- check both safe and unsafe join conditions (disabled because Greenplum chooses hash join)
+-- EXPLAIN (VERBOSE, COSTS false)
+--   SELECT * FROM ft2 a, ft2 b
+--   WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);
 SELECT * FROM ft2 a, ft2 b
 WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);
 -- bug before 9.3.5 due to sloppy handling of remote-estimate parameters
@@ -247,7 +249,10 @@ EXECUTE st2(10, 20);
 EXECUTE st2(101, 121);
 -- subquery using immutable function (can be sent to remote)
 PREPARE st3(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 > $1 AND date(c5) = '1970-01-17'::date) ORDER BY c1;
+-- start_ignore
+-- the plan made by Greenplum is not always the same, safe to ignore here
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st3(10, 20);
+-- end_ignore
 EXECUTE st3(10, 20);
 EXECUTE st3(20, 30);
 -- custom plan should be chosen initially
@@ -294,16 +299,16 @@ DEALLOCATE st7;
 -- System columns, except ctid, should not be sent to remote
 EXPLAIN (VERBOSE, COSTS false)
 SELECT * FROM ft1 t1 WHERE t1.tableoid = 'pg_class'::regclass LIMIT 1;
-SELECT * FROM ft1 t1 WHERE t1.tableoid = 'ft1'::regclass LIMIT 1;
+--  SELECT * FROM ft1 t1 WHERE t1.tableoid = 'ft1'::regclass LIMIT 1;
 EXPLAIN (VERBOSE, COSTS false)
 SELECT tableoid::regclass, * FROM ft1 t1 LIMIT 1;
-SELECT tableoid::regclass, * FROM ft1 t1 LIMIT 1;
+--  SELECT tableoid::regclass, * FROM ft1 t1 LIMIT 1;
 EXPLAIN (VERBOSE, COSTS false)
 SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
-SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
+--  SELECT * FROM ft1 t1 WHERE t1.ctid = '(0,2)';
 EXPLAIN (VERBOSE, COSTS false)
 SELECT ctid, * FROM ft1 t1 LIMIT 1;
-SELECT ctid, * FROM ft1 t1 LIMIT 1;
+--  SELECT ctid, * FROM ft1 t1 LIMIT 1;
 
 -- ===================================================================
 -- used in pl/pgsql function
@@ -348,7 +353,8 @@ COMMIT;
 -- ===================================================================
 -- test handling of collations
 -- ===================================================================
-create table loct3 (f1 text collate "C" unique, f2 text, f3 varchar(10) unique);
+-- Greenplum UNIQUE or PRIMARY KEY definitions are incompatible with each other
+create table loct3 (f1 text collate "C" unique, f2 text, f3 varchar(10) unique) distributed replicated;
 create foreign table ft3 (f1 text collate "C", f2 text, f3 varchar(10))
   server loopback options (table_name 'loct3', use_remote_estimate 'true');
 
@@ -357,8 +363,9 @@ explain (verbose, costs off) select * from ft3 where f1 = 'foo';
 explain (verbose, costs off) select * from ft3 where f1 COLLATE "C" = 'foo';
 explain (verbose, costs off) select * from ft3 where f2 = 'foo';
 explain (verbose, costs off) select * from ft3 where f3 = 'foo';
-explain (verbose, costs off) select * from ft3 f, loct3 l
-  where f.f3 = l.f3 and l.f1 = 'foo';
+-- should be sent to remote (disabled because Greenplum chooses hash join)
+-- explain (verbose, costs off) select * from ft3 f, loct3 l
+--   where f.f3 = l.f3 and l.f1 = 'foo';
 -- can't be sent to remote
 explain (verbose, costs off) select * from ft3 where f1 COLLATE "POSIX" = 'foo';
 explain (verbose, costs off) select * from ft3 where f1 = 'foo' COLLATE "C";
@@ -370,6 +377,11 @@ explain (verbose, costs off) select * from ft3 f, loct3 l
 -- ===================================================================
 -- test writable foreign table stuff
 -- ===================================================================
+INSERT INTO ft2 (c1,c2,c3)
+  VALUES (1101,201,'aaa'), (1102,202,'bbb'), (1103,203,'ccc') RETURNING *;
+UPDATE ft2 SET c2 = c2 + 300, c3 = c3 || '_update3' WHERE c1 % 10 = 3;
+DELETE FROM ft2 WHERE c1 = 9999 RETURNING tableoid::regclass;
+/*
 EXPLAIN (verbose, costs off)
 INSERT INTO ft2 (c1,c2,c3) SELECT c1+1000,c2+100, c3 || c3 FROM ft2 LIMIT 20;
 INSERT INTO ft2 (c1,c2,c3) SELECT c1+1000,c2+100, c3 || c3 FROM ft2 LIMIT 20;
@@ -450,6 +462,7 @@ select c2, count(*) from "S 1"."T 1" where c2 < 500 group by 1 order by 1;
 commit;
 select c2, count(*) from ft2 where c2 < 500 group by 1 order by 1;
 select c2, count(*) from "S 1"."T 1" where c2 < 500 group by 1 order by 1;
+*/
 
 -- ===================================================================
 -- test serial columns (ie, sequence-based defaults)
@@ -465,6 +478,7 @@ insert into rem1(f2) values('bye remote');
 select * from loc1;
 select * from rem1;
 
+/*
 -- ===================================================================
 -- test local triggers
 -- ===================================================================
@@ -680,3 +694,4 @@ UPDATE rem1 SET f2 = 'testo';
 
 -- Test returning a system attribute
 INSERT INTO rem1(f2) VALUES ('test') RETURNING ctid;
+*/

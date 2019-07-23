@@ -18,6 +18,7 @@
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_foreign_table.h"
 #include "catalog/pg_user_mapping.h"
+#include "cdb/cdbutil.h"
 #include "commands/defrem.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
@@ -32,14 +33,18 @@
 extern Datum pg_options_to_table(PG_FUNCTION_ARGS);
 extern Datum postgresql_fdw_validator(PG_FUNCTION_ARGS);
 
-/* Get and separate out the mpp_execute option. */
-char
-SeparateOutMppExecute(List **options)
+/* Get and separate out the custom foreign options */
+CustomForeignOptions
+SeparateOutCustomForeignOptions(List **options)
 {
 	ListCell *lc = NULL;
 	ListCell *prev = NULL;
 	char *mpp_execute = NULL;
-	char exec_location = FTEXECLOCATION_NOT_DEFINED;
+	char *mpp_size_str = NULL;
+
+	CustomForeignOptions cfo;
+	cfo.exec_location = FTEXECLOCATION_NOT_DEFINED;
+	cfo.mpp_size = -1;
 
 	foreach(lc, *options)
 	{
@@ -50,11 +55,11 @@ SeparateOutMppExecute(List **options)
 			mpp_execute = defGetString(def);
 
 			if (pg_strcasecmp(mpp_execute, "any") == 0)
-				exec_location = FTEXECLOCATION_ANY;
+				cfo.exec_location = FTEXECLOCATION_ANY;
 			else if (pg_strcasecmp(mpp_execute, "master") == 0)
-				exec_location = FTEXECLOCATION_MASTER;
+				cfo.exec_location = FTEXECLOCATION_MASTER;
 			else if (pg_strcasecmp(mpp_execute, "all segments") == 0)
-				exec_location = FTEXECLOCATION_ALL_SEGMENTS;
+				cfo.exec_location = FTEXECLOCATION_ALL_SEGMENTS;
 			else
 			{
 				ereport(ERROR,
@@ -66,10 +71,36 @@ SeparateOutMppExecute(List **options)
 			*options = list_delete_cell(*options, lc, prev);
 			break;
 		}
+
 		prev = lc;
 	}
 
-	return exec_location;
+	prev = NULL;
+	foreach(lc, *options)
+	{
+		DefElem    *def = (DefElem *) lfirst(lc);
+
+		if (strcmp(def->defname, "mpp_size") == 0)
+		{
+			mpp_size_str = defGetString(def);
+			cfo.mpp_size = pg_atoi(mpp_size_str, sizeof(int32), 0);
+
+			if (cfo.mpp_size <= 0)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("\"%d\" is not a valid mpp_size value",
+								cfo.mpp_size)));
+			}
+
+			*options = list_delete_cell(*options, lc, prev);
+			break;
+		}
+
+		prev = lc;
+	}
+
+	return cfo;
 }
 
 /*
@@ -83,6 +114,7 @@ GetForeignDataWrapper(Oid fdwid)
 	Datum		datum;
 	HeapTuple	tp;
 	bool		isnull;
+	CustomForeignOptions cfo;
 
 	tp = SearchSysCache1(FOREIGNDATAWRAPPEROID, ObjectIdGetDatum(fdwid));
 
@@ -108,7 +140,9 @@ GetForeignDataWrapper(Oid fdwid)
 	else
 		fdw->options = untransformRelOptions(datum);
 
-	fdw->exec_location = SeparateOutMppExecute(&fdw->options);
+	cfo = SeparateOutCustomForeignOptions(&fdw->options);
+
+	fdw->exec_location = cfo.exec_location;
 	if (fdw->exec_location == FTEXECLOCATION_NOT_DEFINED)
 		fdw->exec_location = FTEXECLOCATION_MASTER;
 
@@ -145,6 +179,7 @@ GetForeignServer(Oid serverid)
 	HeapTuple	tp;
 	Datum		datum;
 	bool		isnull;
+	CustomForeignOptions cfo;
 
 	tp = SearchSysCache1(FOREIGNSERVEROID, ObjectIdGetDatum(serverid));
 
@@ -183,12 +218,18 @@ GetForeignServer(Oid serverid)
 	else
 		server->options = untransformRelOptions(datum);
 
-	server->exec_location = SeparateOutMppExecute(&server->options);
+	cfo = SeparateOutCustomForeignOptions(&server->options);
+
+	server->exec_location = cfo.exec_location;
 	if (server->exec_location == FTEXECLOCATION_NOT_DEFINED)
 	{
 		ForeignDataWrapper *fdw = GetForeignDataWrapper(server->fdwid);
 		server->exec_location = fdw->exec_location;
 	}
+
+	server->mpp_size = cfo.mpp_size;
+	if (server->mpp_size <= 0)
+		server->mpp_size = getgpsegmentCount();
 
 	ReleaseSysCache(tp);
 
@@ -274,6 +315,7 @@ GetForeignTable(Oid relid)
 	HeapTuple	tp;
 	Datum		datum;
 	bool		isnull;
+	CustomForeignOptions cfo;
 
 	tp = SearchSysCache1(FOREIGNTABLEREL, ObjectIdGetDatum(relid));
 	if (!HeapTupleIsValid(tp))
@@ -294,12 +336,16 @@ GetForeignTable(Oid relid)
 	else
 		ft->options = untransformRelOptions(datum);
 
-	ft->exec_location = SeparateOutMppExecute(&ft->options);
+	ForeignServer *server = GetForeignServer(ft->serverid);
+	cfo = SeparateOutCustomForeignOptions(&ft->options);
+
+	ft->exec_location = cfo.exec_location;
 	if (ft->exec_location == FTEXECLOCATION_NOT_DEFINED)
-	{
-		ForeignServer *server = GetForeignServer(ft->serverid);
 		ft->exec_location = server->exec_location;
-	}
+
+	ft->mpp_size = cfo.mpp_size;
+	if (ft->mpp_size <= 0)
+		ft->mpp_size = server->mpp_size;
 
 	ReleaseSysCache(tp);
 
