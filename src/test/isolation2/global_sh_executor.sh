@@ -1,5 +1,9 @@
 #!/bin/bash
 
+set -eo pipefail
+# Set env var ${NL} because "\n" can not be converted to new line for unknown escaping reason
+export NL="
+"
 
 # Retrieve cell content from $RAW_STR according to the row and column numbers,
 # and set it to the given variable name.

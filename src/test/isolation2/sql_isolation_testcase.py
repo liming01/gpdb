@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 import pygresql.pg
+import pty
 import os
 import subprocess
 import re
@@ -51,77 +52,93 @@ def parse_include_statement(sql):
 
 
 class GlobalShellExecutor(object):
+    BASH_PS1 = 'test_sh$>'
+
+    class ExecutionError(Exception):
+        ""
+        pass
+
     def __init__(self, output_file='', initfile_prefix=''):
         self.output_file = output_file
         self.initfile_prefix = initfile_prefix
         self.v_cnt = 0
-        self.sh_proc = None
+        # open pseudo-terminal to interact with subprocess
+        self.master_fd, self.slave_fd = pty.openpty()
+        self.sh_proc = subprocess.Popen(['/bin/bash', '--noprofile', '--norc', '-i'],
+                                        preexec_fn=os.setsid,
+                                        stdin=self.slave_fd,
+                                        stdout=self.slave_fd,
+                                        stderr=self.slave_fd,
+                                        universal_newlines=True)
+        self.bash_log_file = open("%s_sh.log" % self.initfile_prefix, "w+")
+        self.__run_command("export PS1='%s'" % GlobalShellExecutor.BASH_PS1)
+        self.__run_command("export PS2=''")
+        self.__run_command("source global_sh_executor.sh")
 
-    def begin(self):
-        self.v_cnt = 0
-        self.sh_proc = subprocess.Popen(['/bin/bash'], stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        self.poller = select.poll()
-        self.poller.register(self.sh_proc.stdout, select.POLLIN)
-
-        # Set env var ${NL} because "\n" can not be converted to new line for unknown escaping reason
-        cmd = '''
-        export NL='\n' &&
-        source ./utils.sh ;
-        echo "<<quit$?>>"
-        '''
-        self.sh_proc.stdin.write(cmd)
-        self.sh_proc.stdin.flush()
-        self.readlines_nonblock(cmd)
-
-    def terminate(self):
+    def terminate(self, with_error = False):
         if self.sh_proc == None:
             return
         # If write the matchsubs section directly to the output, the generated token id will be compared by gpdiff.pl
         # so here just write all matchsubs section into an auto generated init file when this test case file finished.
-        if self.initfile_prefix != None and len(self.initfile_prefix) > 1:
+        if not with_error and self.initfile_prefix != None and len(self.initfile_prefix) > 1:
             output_init_file = "%s.ini" % self.initfile_prefix
             cmd = ''' [ ! -z "${MATCHSUBS}" ] && echo "-- start_matchsubs ${NL} ${MATCHSUBS} ${NL}-- end_matchsubs" > %s ''' % output_init_file
             self.exec_global_shell(cmd, False)
 
-        self.sh_proc.terminate()
-        self.v_cnt = 0
+        if self.bash_log_file:
+            self.bash_log_file.close()
+        try:
+            self.sh_proc.terminate()
+        except OSError as e:
+            # Ignore the exception if the process doesn't exist.
+            pass
         self.sh_proc = None
 
-    # nonblock read output of global shell process, if error, write info to err_log_file
-    def readlines_nonblock(self, sh_cmd):
-        lines = []
-        while True:
-            if self.poller.poll(1):
-                line = self.sh_proc.stdout.readline()
-                if ("<<quit0>>" in line):
-                    break
-                elif ("<<quit" in line):
-                    print >>self.output_file, "Error to exec shell %s: %s" % (
-                        line.rstrip(), sh_cmd)
-                    exit(1)
-                lines.append(line)
-            else:
-                time.sleep(0.1)
-        return lines
+    def __run_command(self, sh_cmd):
+        # Strip the newlines at the end. It will be added later.
+        sh_cmd = sh_cmd.rstrip()
+        bytes_written = os.write(self.master_fd, sh_cmd)
+        bytes_written += os.write(self.master_fd, '\n')
+
+        output = ""
+        while self.sh_proc.poll() is None:
+            # If not returns in 5 seconds, consider it as an fatal error.
+            r, w, e = select.select([self.master_fd], [], [self.master_fd], 5)
+            if e:
+                # Terminate the shell when we get any output from stderr
+                o = os.read(self.master_fd, 10240)
+                self.bash_log_file.write(o)
+                self.bash_log_file.flush()
+                self.terminate(True)
+                raise GlobalShellExecutor.ExecutionError("Error happened to the bash daemon, see %s for details." % self.bash_log_file.name)
+
+            if r:
+                o = os.read(self.master_fd, 10240)
+                self.bash_log_file.write(o)
+                self.bash_log_file.flush()
+                output += o
+                if o.endswith(GlobalShellExecutor.BASH_PS1):
+                    lines = output.splitlines()
+                    return lines[len(sh_cmd.splitlines()):len(lines) - 1]
+
+
+            if not r and not e:
+                self.terminate(True)
+                raise GlobalShellExecutor.ExecutionError("Timeout happened to the bash daemon, see %s for details." % self.bash_log_file.name)
+
+        self.terminate(True)
+        raise GlobalShellExecutor.ExecutionError("Bash daemon has been stopped, see %s for details." % self.bash_log_file.name)
 
     # execute global shell cmd in bash deamon, and fetch result without blocking
     def exec_global_shell(self, sh_cmd, is_trip_output_end_blanklines):
         if self.sh_proc == None:
-            self.begin()
-
-        # Add quit flag to return for readlines_nonblock(), and print $? for error tracing.
-        cmd = ''' %s; echo "\n<<quit$?>>";\n''' % sh_cmd
-        self.sh_proc.stdin.write(cmd)
-        self.sh_proc.stdin.flush()
-        # print if need to debug this shell cmd
-        #print >>self.output_file, "shell cmd: %s" % cmd
+            raise GlobalShellExecutor.ExecutionError("The bash daemon has been terminated abnormally, see %s for details." % self.bash_log_file.name)
 
         # get the output of shell commmand
-        output = self.readlines_nonblock(cmd)
+        output = self.__run_command(sh_cmd)
         if is_trip_output_end_blanklines:
             for i in range(len(output)-1, 0, -1):
-                if output[i] == '\n':
+                if len(output[i].strip()) == 0:
                     del output[i]
                 else:
                     break
@@ -672,6 +689,9 @@ class SQLIsolationExecutor(object):
                     command += command_part
                     try:
                         self.process_command(command, output_file, shell_executor)
+                    except GlobalShellExecutor.ExecutionError as e:
+                        # error in the daemon shell cannot be recovered
+                        raise
                     except Exception as e:
                         print >>output_file, "FAILED: ", e
                     command = ""
