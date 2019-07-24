@@ -502,10 +502,10 @@ assign_gp_role(const char *newval, void *extra)
 
 	if (Gp_role != newrole && IsUnderPostmaster && !IsInitProcessingMode())
 	{
-		if (Gp_role != GP_ROLE_UTILITY)
+		if (Gp_role != GP_ROLE_UTILITY && Gp_role != GP_ROLE_RETRIEVE)
 			do_disconnect = true;
 
-		if (newrole != GP_ROLE_UTILITY)
+		if (newrole != GP_ROLE_UTILITY && newrole != GP_ROLE_RETRIEVE)
 			do_connect = true;
 	}
 
@@ -534,7 +534,7 @@ assign_gp_role(const char *newval, void *extra)
 		{
 			cdb_cleanup(0, 0);
 			Gp_role = oldrole;
-			if (Gp_role != GP_ROLE_UTILITY)
+			if (Gp_role != GP_ROLE_UTILITY && Gp_role != GP_ROLE_RETRIEVE)
 				cdb_setup();
 			PG_RE_THROW();
 		}

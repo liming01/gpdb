@@ -254,7 +254,7 @@ static bool dbid_in_bitmap(int32 *bitmap, int16 dbid);
 static void add_dbid_into_bitmap(int32 *bitmap, int16 dbid);
 static int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit);
 static bool dbid_has_token(ParaCursorToken token, int16 dbid);
-static int16 dbid_to_contentid(int16 dbid);
+static int16 dbid_to_contentid(CdbComponentDatabases* dbs, int16 dbid);
 static const char *endpoint_role_to_string(enum ParallelCursorExecRole role);
 static void check_token_valid(void);
 extern char* get_token_name_format_str(void);
@@ -909,10 +909,11 @@ RemoveParallelCursorToken(int64 token)
 				if (!SharedTokens[i].all_seg)
 				{
 					int16		x = -1;
+					CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
 
 					while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
 					{
-						seg_list = lappend_int(seg_list, dbid_to_contentid(x));
+						seg_list = lappend_int(seg_list, dbid_to_contentid(cdbs, x));
 					}
 					Assert(seg_list->length == SharedTokens[i].endpoint_cnt);
 				}
@@ -2247,10 +2248,11 @@ GetContentIDsByToken(int64 token)
 			else
 			{
 				int16		x = -1;
+				CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
 
 				while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
 				{
-					l = lappend_int(l, dbid_to_contentid(x));
+					l = lappend_int(l, dbid_to_contentid(cdbs, x));
 				}
 				Assert(l->length == SharedTokens[i].endpoint_cnt);
 				break;
@@ -2355,44 +2357,28 @@ dbid_has_token(ParaCursorToken token, int16 dbid)
  * Obtain the content-id of a segment by given dbid
  */
 static int16
-dbid_to_contentid(int16 dbid)
+dbid_to_contentid(CdbComponentDatabases* cdbs, int16 dbid)
 {
-    int16		contentid = 0;
-    Relation	rel;
-    ScanKeyData scankey[1];
-    SysScanDesc scan;
-    HeapTuple	tup;
+	/* Can only run on a master node. */
+	if (!IS_QUERY_DISPATCHER())
+		elog(ERROR, "dbid_to_contentid() should only execute on execution segments");
 
-    /* Can only run on a master node. */
-    if (!IS_QUERY_DISPATCHER())
-        elog(ERROR, "dbid_to_contentid() should only execute on execution segments");
+	for (int i = 0; i < cdbs->total_entry_dbs; i++) {
+		CdbComponentDatabaseInfo *cdi = &cdbs->entry_db_info[i];
+		if (cdi->config->dbid == dbid) {
+			return cdi->config->segindex;
+		}
+	}
 
-    rel = heap_open(GpSegmentConfigRelationId, AccessShareLock);
+	for (int i = 0; i < cdbs->total_segment_dbs; i++) {
+		CdbComponentDatabaseInfo *cdi = &cdbs->segment_db_info[i];
+		if (cdi->config->dbid == dbid) {
+			return cdi->config->segindex;
+		}
+	}
 
-    /*
-     * SELECT * FROM gp_segment_configuration WHERE dbid = :1
-     */
-    ScanKeyInit(&scankey[0],
-                Anum_gp_segment_configuration_dbid,
-                BTEqualStrategyNumber, F_INT2EQ,
-                Int16GetDatum(dbid));
-
-    scan = systable_beginscan(rel, InvalidOid, false,
-                              NULL, 1, scankey);
-
-
-    tup = systable_getnext(scan);
-    if (HeapTupleIsValid(tup))
-    {
-        contentid = ((Form_gp_segment_configuration) GETSTRUCT(tup))->content;
-        /* We expect a single result, assert this */
-        Assert(systable_getnext(scan) == NULL); /* should be only 1 */
-    }
-
-    systable_endscan(scan);
-    heap_close(rel, AccessShareLock);
-
-    return contentid;
+	elog(ERROR, "CDB_ENDPOINT: No content id for current dbid %d", dbid);
+	return -2; // Should not reach this line.
 }
 
 static const char *
