@@ -1009,7 +1009,7 @@ cdb_setup(void)
 	elog(DEBUG1, "Initializing Greenplum components...");
 
 	/* If gp_role is UTILITY, skip this call. */
-	if (Gp_role != GP_ROLE_UTILITY)
+	if (Gp_role != GP_ROLE_UTILITY && Gp_role != GP_ROLE_RETRIEVE)
 	{
 		/* Initialize the Motion Layer IPC subsystem. */
 		InitMotionLayerIPC();
@@ -1065,7 +1065,7 @@ cdb_cleanup(int code __attribute__((unused)), Datum arg
 		}
 	}
 
-	if (Gp_role != GP_ROLE_UTILITY)
+	if (Gp_role != GP_ROLE_UTILITY && Gp_role != GP_ROLE_RETRIEVE)
 	{
 		/* shutdown our listener socket */
 		CleanUpMotionLayerIPC();
