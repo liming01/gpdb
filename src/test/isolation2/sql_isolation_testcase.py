@@ -64,7 +64,7 @@ class GlobalShellExecutor(object):
         self.v_cnt = 0
         # open pseudo-terminal to interact with subprocess
         self.master_fd, self.slave_fd = pty.openpty()
-        self.sh_proc = subprocess.Popen(['/bin/bash', '--noprofile', '--norc', '-i'],
+        self.sh_proc = subprocess.Popen(['/bin/bash', '--noprofile', '--norc', '--noediting', '-i'],
                                         preexec_fn=os.setsid,
                                         stdin=self.slave_fd,
                                         stdout=self.slave_fd,
