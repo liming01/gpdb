@@ -37,14 +37,14 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM gene
 EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM generate_series(1,10) as F WHERE F=1;
 EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM generate_series(1,10) as F WHERE F=1 OR F=2;
 
--- TODO: the plan for replicated table is not correct
----- Test for replicated distributed table
---EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM rt1;
----- Test: explain output: Endpoint info (on master/on some segments/on all segments)
---EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1;
---EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 ORDER BY a;
---EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE a=1;
---EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE a=1 OR a=2;
-
+-- Test for replicated distributed table
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM rt1;
+-- Test: explain output: Endpoint info (on master/on some segments/on all segments)
+-- Here because replicated table will execute on seg id: session_id % segment_number
+-- Just replace the random specific seg id to SEGIDX for the output
+1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1;
+1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 ORDER BY a;
+1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE a=1;
+1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE a=1 OR a=2;
 
 -- TODO: Test UDF EXECUTE ON [ANY | MASTER | ALL SEGMENTS ], ref to src/test/regress/sql/function_extensions.sql

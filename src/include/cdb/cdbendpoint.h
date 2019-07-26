@@ -64,7 +64,7 @@ enum ParallelCursorExecRole
 };
 
 /*
- *
+ * Endpoint allocate positions.
  */
 enum EndPointExecPosition {
 	ENDPOINT_ON_QD,

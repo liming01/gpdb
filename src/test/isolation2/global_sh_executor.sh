@@ -90,3 +90,18 @@ match_sub_tt() {
     done
     echo "${RAW_STR}"
 }
+
+sub() {
+    to_replace=""
+    for var in "$@"
+        do
+        if [ -z "$to_replace" ]
+        then
+            to_replace=$var
+        else
+            RAW_STR=$(echo "$RAW_STR" | sed -E "s/${to_replace}/${var}/g")
+            to_replace=""
+        fi
+    done
+    echo "${RAW_STR}"
+}
