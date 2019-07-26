@@ -117,7 +117,7 @@ typedef struct EndpointDesc
     int64		 token;                   /* The token of the endpoint's running parallel cursor */
     dsm_handle	 handle;                  /* DSM handle, which contains shared message queue */
     Latch		 ack_done;                /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
-    AttachStatus attach_status;           /* The attach status of the endpoint */
+    enum AttachStatus attach_status;           /* The attach status of the endpoint */
     int			 session_id;              /* Connection session id */
     Oid			 user_id;                 /* User ID of the current executed parallel cursor */
     bool		 empty;                   /* Whether current EndpointDesc slot in DSM is free */
@@ -170,10 +170,10 @@ typedef struct EndpointControl {
  */
 typedef struct
 {
-    int64		token;
-    int			dbid;
-    AttachStatus attach_status;
-    pid_t		sender_pid;
+    int64		      token;
+    int			      dbid;
+    enum AttachStatus attach_status;
+    pid_t		      sender_pid;
 }	EndpointStatus;
 
 typedef struct
@@ -283,7 +283,7 @@ static const char *endpoint_role_to_string(enum ParallelCursorExecRole role);
 static void check_token_valid(void);
 extern char* get_token_name_format_str(void);
 static void check_end_point_allocated(void);
-static void set_attach_status(AttachStatus status);
+static void set_attach_status(enum AttachStatus status);
 static bool endpoint_on_qd(ParaCursorToken token);
 static volatile EndpointDesc *find_endpoint_by_token(int64 token);
 
@@ -2222,6 +2222,71 @@ printToken(int64 token_id)
 }
 
 /*
+ * If already focused and flow is CdbLocusType_SingleQE, CdbLocusType_Entry,
+ * we assume the endpoint should be existed on QD. Else, on QEs.
+ */
+enum EndPointExecPosition
+GetParallelCursorEndpointPosition(const struct Plan *planTree) {
+	if (planTree->flow->flotype == FLOW_SINGLETON &&
+		planTree->flow->locustype != CdbLocusType_SegmentGeneral) {
+		return ENDPOINT_ON_QD;
+	} else {
+		if (planTree->flow->flotype == FLOW_SINGLETON) {
+			/*
+			 * In this case, the plan is for replicated table.
+			 * locustype must be CdbLocusType_SegmentGeneral.
+			 */
+			Assert(planTree->flow->locustype == CdbLocusType_SegmentGeneral);
+			return ENDPOINT_ON_SINGLE_QE;
+		} else if (planTree->directDispatch.isDirectDispatch &&
+				   planTree->directDispatch.contentIds != NULL) {
+			/*
+			 * Direct dispatch to some segments, so end-points only exist
+			 * on these segments
+			 */
+			return ENDPOINT_ON_SOME_QE;
+		} else {
+			return ENDPOINT_ON_ALL_QE;
+		}
+	}
+}
+
+/*
+ * ChooseEndpointContentIDForParallelCursor - choose endpoints position base on plan.
+ *
+ * Base on different condition, we need figure out which
+ * segments that endpoints should be allocated in.
+ */
+List *
+ChooseEndpointContentIDForParallelCursor(const struct Plan *planTree,
+										 enum EndPointExecPosition *position) {
+	List* cids = NIL;
+	*position = GetParallelCursorEndpointPosition(planTree);
+	switch(*position) {
+		case ENDPOINT_ON_QD: {
+			cids = list_make1_int(MASTER_CONTENT_ID);
+			break;
+		}
+		case ENDPOINT_ON_SINGLE_QE: {
+			cids = list_make1_int(gp_session_id % planTree->flow->numsegments);
+			break;
+		}
+		case ENDPOINT_ON_SOME_QE: {
+			ListCell *cell;
+			foreach(cell, planTree->directDispatch.contentIds) {
+				int contentid = lfirst_int(cell);
+				cids = lappend_int(cids, contentid);
+			}
+			break;
+		}
+		case ENDPOINT_ON_ALL_QE:
+		default:
+			break;
+	}
+	return cids;
+}
+
+/*
  * Set the role of endpoint, sender or receiver
  */
 void
@@ -2467,7 +2532,7 @@ check_end_point_allocated(void)
 }
 
 static void
-set_attach_status(AttachStatus status)
+set_attach_status(enum AttachStatus status)
 {
     if (EndpointCtl.Gp_pce_role != PCER_SENDER)
         elog(ERROR, "%s could not set endpoint", endpoint_role_to_string(EndpointCtl.Gp_pce_role));
@@ -2519,7 +2584,7 @@ find_endpoint_by_token(int64 token)
     return res;
 }
 
-static AttachStatus status_string_to_enum(char* status)
+static enum AttachStatus status_string_to_enum(char* status)
 {
     Assert(status);
     if (strcmp(status, GP_ENDPOINT_STATUS_INIT) == 0)
@@ -2543,7 +2608,7 @@ static AttachStatus status_string_to_enum(char* status)
         return Status_NotAttached;
     }
 }
-static char * status_enum_to_string(AttachStatus status)
+static char * status_enum_to_string(enum AttachStatus status)
 {
 	char *result = NULL;
 

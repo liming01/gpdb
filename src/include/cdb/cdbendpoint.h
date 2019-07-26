@@ -64,9 +64,19 @@ enum ParallelCursorExecRole
 };
 
 /*
+ *
+ */
+enum EndPointExecPosition {
+	ENDPOINT_ON_QD,
+	ENDPOINT_ON_SINGLE_QE,
+	ENDPOINT_ON_SOME_QE,
+	ENDPOINT_ON_ALL_QE
+};
+
+/*
  * Endpoint attach status.
  */
-typedef enum AttachStatus
+enum AttachStatus
 {
 	Status_NotAttached = 0,
 	Status_Prepared,
@@ -131,6 +141,11 @@ extern void SetGpToken(int64 token);
 extern void ClearGpToken(void);
 extern int64 parseToken(char *token);
 extern char* printToken(int64 token_id); /* Need to pfree() the result */
+
+extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
+	const struct Plan *planTree);
+extern List * ChooseEndpointContentIDForParallelCursor(
+	const struct Plan *planTree, enum EndPointExecPosition *position);
 
 extern void SetParallelCursorExecRole(enum ParallelCursorExecRole role);
 extern void ClearParallelCursorExecRole(void);

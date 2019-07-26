@@ -177,35 +177,31 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 		portal->parallel_cursor_token = GetUniqueGpToken();
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 		char		cmd[255];
+		List *cids;
+		enum EndPointExecPosition endPointExecPosition;
+
 		sprintf(cmd, "SET gp_endpoints_token_operation='p" INT64_FORMAT "'", portal->parallel_cursor_token);
 
-		if (!(stmt->planTree->flow->flotype == FLOW_SINGLETON &&
-				stmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
-		{
-			if (stmt->planTree->directDispatch.isDirectDispatch &&
-					stmt->planTree->directDispatch.contentIds != NULL)
-			{
-				/*
-				 * Direct dispatch to some segments, so end-points only exist
-				 * on these segments
-				 */
-				ListCell *cell;
-				List* l = NIL;
-				foreach(cell, stmt->planTree->directDispatch.contentIds)
-				{
-					int contentid = lfirst_int(cell);
-					l = lappend_int(l, contentid);
-				}
+		cids = ChooseEndpointContentIDForParallelCursor(
+			stmt->planTree, &endPointExecPosition);
+		switch(endPointExecPosition) {
+			case ENDPOINT_ON_QD:
+			case ENDPOINT_ON_SINGLE_QE:
+			case ENDPOINT_ON_SOME_QE: {
 				AddParallelCursorToken(portal->parallel_cursor_token,
 									   portal->name,
 									   gp_session_id,
 									   GetUserId(),
 									   false,
-									   l);
-				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, l, NULL);
+									   cids);
+				if (endPointExecPosition == ENDPOINT_ON_QD)
+					AllocEndpointOfToken(portal->parallel_cursor_token);
+				else
+					CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, cids, NULL);
+				break;
 			}
-			else
-			{
+			case ENDPOINT_ON_ALL_QE:
+			default: {
 				/* end-points are on all segments */
 				AddParallelCursorToken(portal->parallel_cursor_token,
 									   portal->name,
@@ -216,19 +212,6 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 				/* Push token to all segments */
 				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
 			}
-		}
-		else
-		{
-			/* The end-point is on QD */
-			List* l = NIL;
-			l = lappend_int(l, MASTER_CONTENT_ID);
-			AddParallelCursorToken(portal->parallel_cursor_token,
-								   portal->name,
-								   gp_session_id,
-								   GetUserId(),
-								   false,
-								   l);
-			AllocEndpointOfToken(portal->parallel_cursor_token);
 		}
 	}
 

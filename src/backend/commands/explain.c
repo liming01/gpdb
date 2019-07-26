@@ -17,6 +17,7 @@
 
 #include "access/xact.h"
 #include "catalog/pg_type.h"
+#include "cdb/cdbendpoint.h"
 #include "commands/createas.h"
 #include "commands/defrem.h"
 #include "commands/prepare.h"
@@ -622,41 +623,40 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	if (cursorOptions & CURSOR_OPT_PARALLEL)
 	{
 		char endpoint_info[1024];
+		enum EndPointExecPosition endPointExecPosition;
+		List *cids;
 
+		cids = ChooseEndpointContentIDForParallelCursor(
+			queryDesc->plannedstmt->planTree, &endPointExecPosition);
 		ExplainOpenGroup("Cursor", "Cursor", true, es);
-
-		if (!(queryDesc->plannedstmt->planTree->flow->flotype == FLOW_SINGLETON &&
-			queryDesc->plannedstmt->planTree->flow->locustype != CdbLocusType_SegmentGeneral))
-		{
-			if (queryDesc->plannedstmt->planTree->directDispatch.isDirectDispatch &&
-				queryDesc->plannedstmt->planTree->directDispatch.contentIds != NULL)
-			{
-				/*
-				 * Direct dispatch to some segments, so end-points only exist
-				 * on these segments
-				 */
-				ListCell *cell;
+		switch(endPointExecPosition) {
+			case ENDPOINT_ON_QD: {
+				snprintf(endpoint_info, sizeof(endpoint_info), "on master");
+				break;
+			}
+			case ENDPOINT_ON_SINGLE_QE:
+			case ENDPOINT_ON_SOME_QE: {
+				ListCell * cell;
 				bool isFirst = true;
 				size_t len = 0;
 				len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, "on segments: contentid [");
-				foreach(cell, queryDesc->plannedstmt->planTree->directDispatch.contentIds)
+				foreach(cell, cids)
 				{
 					len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, (isFirst)?"%d":", %d", lfirst_int(cell));
 					isFirst = false;
 				}
 				len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, "]");
-
-			}else{
-				snprintf(endpoint_info, sizeof(endpoint_info), "on all %d segments", getgpsegmentCount());
+				break;
 			}
-			ExplainProperty("Endpoint", endpoint_info, false, es);
+			case ENDPOINT_ON_ALL_QE:
+			default: {
+				snprintf(endpoint_info, sizeof(endpoint_info), "on all %d segments", getgpsegmentCount());
+				break;
+			}
 		}
-		else
-		{
-			ExplainProperty("Endpoint", "on master", false, es);
-		}
-
-		ExplainOpenGroup("Cursor", "Cursor", true, es);
+		ExplainProperty("Endpoint", endpoint_info, false, es);
+		list_free(cids);
+		ExplainCloseGroup("Cursor", "Cursor", true, es);
 	}
 
 	/* Print info about runtime of triggers */

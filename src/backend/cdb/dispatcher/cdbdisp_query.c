@@ -619,6 +619,7 @@ cdbdisp_buildPlanQueryParms(struct QueryDesc *queryDesc,
 	pQueryParms->serializedParamslen = sparams_len;
 	pQueryParms->serializedQueryDispatchDesc = sddesc;
 	pQueryParms->serializedQueryDispatchDesclen = sddesc_len;
+	pQueryParms->token = InvalidToken;
 
 	/*
 	 * Serialize a version of our snapshot, and generate our transction
@@ -1108,8 +1109,6 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 	pQueryParms = cdbdisp_buildPlanQueryParms(queryDesc, planRequiresTxn);
 	if (portal != NULL)
 		pQueryParms->token = portal->parallel_cursor_token;
-	else
-		pQueryParms->token = InvalidToken;
 	pQueryParms->sessionId = gp_session_id;
 	queryText = buildGpQueryString(pQueryParms, &queryTextLength);
 
