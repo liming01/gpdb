@@ -1,13 +1,37 @@
 /*
  * cdbendpoint.c
- *	Functions to export the query results from endpoints on segments
  *
- * Copyright (c) 2018-Present Pivotal Software, Inc.
+ * Thinking that ParallelCursorTokenDesc and EndpointDesc are needed only
+ * in session call "PARALLEL CURSOR", we using DSM instead of Shared Memory
+ * to maintain them. The allocation is done lazily, i.e. it is created/attached
+ * when they are needed, and detached/destroyed when those process exits.
  *
- * reference:
- * README.endpoint.md
- * https://github.com/greenplum-db/gpdb/wiki/Greenplum-to-Greenplum
+ * ParallelCursorTokenDesc is needed in QD, while EndpointDesc is needed
+ * in endpoint QE beckend, and the retrieve session backend.
  *
+ * Endpoint info exits on which nodes depends on the query of the parallel cursor:
+ * (1) Endpoint info needs to be allocated on QD only if the query of the parallel
+ * cursor needs to be finally gathered by the master. e.g.
+ * > CREATE c1 PARALLEL CURSOR FOR SELECT * FROM T1 ORDER BY C1;
+ * (2) The endpoint only needed on specific segments node if the direct dispatch
+ * happens. e.g.
+ * > CREATE c1 PARALLEL CURSOR FOR SELECT * FROM T1 WHERE C1=1 OR C1=2;
+ * (3) The endpoint needed on all segments node. e.g.
+ * > CREATE c1 PARALLEL CURSOR FOR SELECT * FROM T1;
+ *
+ * When endpoint backend executed, it replace normal dest receiver to
+ * TQueueDestReceiver, so that the query results will be write into a shared
+ * message queue. Then the retrieve backend use TupleQueueReader to read
+ * query results from the shared message queue.
+ *
+ * Copyright (c) 2019-Present Pivotal Software, Inc.
+ *
+ *
+ * IDENTIFICATION
+ *	    src/backend/cdb/cdbfts.c
+ *
+ *
+ *-------------------------------------------------------------------------
  */
 
 #include "postgres.h"
@@ -82,8 +106,8 @@ typedef struct ParallelCursorTokenDesc
 
 /*
  * Endpoint Description. Same with ParallelCursorTokenDesc, entries are maintained in another
- * DSM. It residences in all endpoints(QD and QEs). Once endpoint exits, the DSM
- * gets detached.
+ * DSM. It residences in all endpoints(Can be QD or QEs, depends on the query). Once the process
+ * (retrieve backend or parallel cursor QE backend) use endpoint exits, the DSM gets detached.
  */
 typedef struct EndpointDesc
 {
@@ -282,6 +306,7 @@ Endpoint_ShmemSize(void)
 
 /*
  * Endpoint_CTX_ShmemInit - Init shared memory structure for parallel cursor execute.
+ * Keep info in shared memory as little as possible, and move related info to DSM.
  */
 void
 Endpoint_CTX_ShmemInit(void) {

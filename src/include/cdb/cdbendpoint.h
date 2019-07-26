@@ -1,9 +1,30 @@
-/*
+/*-------------------------------------------------------------------------
  * cdbendpoint.h
+ *    Functions supporting the Greenplum Endpoint Parallel Cursor.
  *
- * Copyright (c) 2018-Present Pivotal Software, Inc.
+ * The PARALLEL CURSOR is introduced to reduce the heavy burdens of
+ * master node. If possible it will not gather the result to master, and
+ * redirect the result to segments. However some query may still need to
+ * gather to the master. So the ENDPOINT is introduced to present these
+ * node entities that when the parallel cursor executed, the query result
+ * will be redirected to, not matter they are one master or some segments
+ * or all segments.
+ *
+ * When the parallel cursor executed, user can setup retrieve mode connection
+ * (in retrieve mode connection, the libpq authentication will not depends on
+ * pg_hba) to all endpoints for retrieving result data parallelly. The RETRIEVE
+ * statement hebavior is similar to the "FETCH count" statement, while it only
+ * can be executed in retrieve mode connection to endpoint.
+ *
+ *
+ * Copyright (c) 2019-Present Pivotal Software, Inc
+ *
+ *
+ * IDENTIFICATION
+ *	    src/include/cdb/cdbendpoint.h
+ *
+ *-------------------------------------------------------------------------
  */
-
 #ifndef CDBENDPOINT_H
 #define CDBENDPOINT_H
 
