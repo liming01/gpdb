@@ -5294,7 +5294,6 @@ PostgresMain(int argc, char *argv[],
 					int resgroupInfoLen = 0;
 
 					int64 token = InvalidToken;
-					int32 session_id = InvalidSession;
 
 					TimestampTz statementStart;
 					Oid suid;
@@ -5361,7 +5360,6 @@ PostgresMain(int argc, char *argv[],
 						resgroupInfoBuf = pq_getmsgbytes(&input_message, resgroupInfoLen);
 
 					token = pq_getmsgint64(&input_message);
-					session_id = pq_getmsgint(&input_message, sizeof(session_id));
 
 					pq_getmsgend(&input_message);
 
