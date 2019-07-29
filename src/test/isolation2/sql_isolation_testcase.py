@@ -864,6 +864,27 @@ class SQLIsolationTestCase:
         -- example contents for file.sql: create function some_test_function() returning void ...
         include: path/to/some/file.sql;
         select some_helper_function();
+
+        Line continuation:
+        If a line is not ended by a semicolon ';' which is followed by 0 or more spaces, the line will be combined with next line and
+        sent together as a single statement.
+
+        e.g.: Send to the server separately:
+        1: SELECT * FROM t1; -> send "SELECT * FROM t1;"
+        SELECT * FROM t2; -> send "SELECT * FROM t2;"
+
+        e.g.: Send to the server once:
+        1: SELECT * FROM
+        t1; SELECT * FROM t2; -> "send SELECT * FROM t1; SELECT * FROM t2;"
+
+        ATTENTION:
+        Send multi SQL statements once:
+        Multi SQL statements can be sent at once, but there are some known issues. Generally only the last query result will be printed.
+        But due to the difficulties of dealing with semicolons insides quotes, we always echo the first SQL command instead of the last
+        one if query() returns None. This created some strange issues like:
+
+        CREATE TABLE t1 (a INT); INSERT INTO t1 SELECT generate_series(1,1000);
+        CREATE 1000 (Should be INSERT 1000, but here the CREATE is taken due to the limitation)
     """
 
     def run_sql_file(self, sql_file, out_file = None, out_dir = None, optimizer = None):
