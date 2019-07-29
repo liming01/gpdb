@@ -38,7 +38,7 @@ RESET SESSION AUTHORIZATION;
 *R: SELECT token, userid FROM gp_endpoints_status_info(); 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 
 1<:
 1: CLOSE c1;
@@ -77,11 +77,11 @@ RESET SESSION AUTHORIZATION;
 ---        tk06467030257775938939 (cdbendpoint.c:1774)" is not user friendly.
 *R: SET SESSION AUTHORIZATION adminuser;
 *R: SELECT current_user;
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
+*R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
+*R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
 
 1<:
 1: CLOSE c1;
@@ -119,11 +119,11 @@ RESET SESSION AUTHORIZATION;
 *R: SELECT * FROM gp_endpoints_status_info();
 
 --- u2 is not able to retrieve from u1's endpoints in RETRIEVE mode
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': RETRIEVE ALL FROM "@TOKEN5";
+*R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': RETRIEVE ALL FROM "@TOKEN5";
+*R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
 
 1<:
 1: CLOSE c1;

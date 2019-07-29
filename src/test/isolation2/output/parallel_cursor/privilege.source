@@ -124,7 +124,7 @@ SET
 SET
 
 SET
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
 
  a 
@@ -224,7 +224,7 @@ SET
 --------------
  adminuser    
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
+*R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
 ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
 
 ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
@@ -242,7 +242,7 @@ SET
 SET
 
 SET
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE ALL FROM "@TOKEN3";
+*R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
 ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
 
  a 
@@ -338,7 +338,7 @@ SET
 (0 rows)
 
 --- u2 is not able to retrieve from u1's endpoints in RETRIEVE mode
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': RETRIEVE ALL FROM "@TOKEN5";
+*R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
 ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
 
 ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
@@ -356,7 +356,7 @@ SET
 SET
 
 SET
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN5#${TOKEN5}#" ': RETRIEVE ALL FROM "@TOKEN5";
+*R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
 ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
 
  a 

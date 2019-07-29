@@ -25,7 +25,7 @@ DECLARE
 -- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions,
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_cell TOKEN1 3 1 && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+4: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -33,7 +33,7 @@ DECLARE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 2&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 3&: EXECUTE PARALLEL CURSOR c3;  <waiting ...>
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -50,7 +50,7 @@ DECLARE
  status 
 --------
 (0 rows)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE 10 FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE 10 FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1690)
 
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1690)
@@ -110,7 +110,7 @@ DECLARE
 -- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions,
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_cell TOKEN2 3 1 && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN2}/${NL}s/${TOKEN2}/token_id2/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+4: @out_sh 'get_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
  token                  | status
 ------------------------+--------
  token_id2 | INIT
@@ -118,7 +118,7 @@ DECLARE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 2&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 3&: EXECUTE PARALLEL CURSOR c3;  <waiting ...>
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
+*R: @in_sh 'sub @TOKEN2 $TOKEN2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
  status 
 --------
 (0 rows)
@@ -135,7 +135,7 @@ DECLARE
  status 
 --------
 (0 rows)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN2#${TOKEN2}#" ': RETRIEVE 10 FROM "@TOKEN2";
+*R: @in_sh 'sub @TOKEN2 $TOKEN2': RETRIEVE 10 FROM "@TOKEN2";
 ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c:1690)
 
 ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c:1690)
@@ -195,7 +195,7 @@ DECLARE
 -- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions,
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_cell TOKEN3 3 1 && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN3}/${NL}s/${TOKEN3}/token_id3/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+4: @out_sh 'get_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
  token                  | status
 ------------------------+--------
  token_id3 | INIT
@@ -203,7 +203,7 @@ DECLARE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 2&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 3&: EXECUTE PARALLEL CURSOR c3;  <waiting ...>
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
+*R: @in_sh 'sub @TOKEN3 $TOKEN3': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
  status 
 --------
 (0 rows)
@@ -220,7 +220,7 @@ DECLARE
  status 
 --------
 (0 rows)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
+*R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE 10 FROM "@TOKEN3";
 ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1690)
 
 ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1690)
@@ -280,7 +280,7 @@ DECLARE
 -- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions,
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_cell TOKEN4 3 1 && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN4}/${NL}s/${TOKEN4}/token_id4/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+4: @out_sh 'get_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
  token                  | status
 ------------------------+--------
  token_id4 | INIT
@@ -288,7 +288,7 @@ DECLARE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 2&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 3&: EXECUTE PARALLEL CURSOR c3;  <waiting ...>
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
+*R: @in_sh 'sub @TOKEN4 $TOKEN4': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
  status 
 --------
 (0 rows)
@@ -305,7 +305,7 @@ DECLARE
  status 
 --------
 (0 rows)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN4#${TOKEN4}#" ': RETRIEVE 10 FROM "@TOKEN4";
+*R: @in_sh 'sub @TOKEN4 $TOKEN4': RETRIEVE 10 FROM "@TOKEN4";
 ERROR:  failed to attach non-existing endpoint of token token_id4 (cdbendpoint.c:1690)
 
 ERROR:  failed to attach non-existing endpoint of token token_id4 (cdbendpoint.c:1690)

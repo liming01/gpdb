@@ -91,6 +91,13 @@ match_sub_tt() {
     echo "${RAW_STR}"
 }
 
+# Substitute in the $RAW_STR and echo the result.
+# Multi substitution pairs can be passed as arguments, like:
+# sub "to_replace_1" "replacement_1" "to_replace_2" "replacement_2"
+# This could be useful for both @in_sh and @out_sh. e.g.:
+# @in_sh 'sub @TOKEN1 ${TOKEN1}': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+# Assume the $TOKEN has value '01234', The SQL will become:
+# SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='01234';
 sub() {
     to_replace=""
     for var in "$@"

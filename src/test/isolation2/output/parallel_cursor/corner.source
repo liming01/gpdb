@@ -22,7 +22,7 @@ INSERT 10
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -32,12 +32,12 @@ DECLARE
 1: CLOSE c1;
 CLOSE
 -- check no endpoint info
-1: SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token | status 
 -------+--------
 (0 rows)
 -- check no token info on QE after close parallel cursor
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
 -------+------------+-----------+-------------+--------+------+-----------+--------
 (0 rows)
@@ -88,7 +88,7 @@ DECLARE
 1: ROLLBACK;
 ROLLBACK
 -- check no endpoint info
-1: SELECT token,status FROM GP_ENDPOINTS;
+1: SELECT token,status FROM gp_endpoints_info(true);
  token | status 
 -------+--------
 (0 rows)
@@ -103,7 +103,7 @@ ERROR:  cursor "c2" does not exist
 1: ROLLBACK;
 ROLLBACK
 -- check no endpoint info
-1: SELECT token,status FROM GP_ENDPOINTS;
+1: SELECT token,status FROM gp_endpoints_info(true);
  token | status 
 -------+--------
 (0 rows)
@@ -133,7 +133,7 @@ DECLARE
 DECLARE
 1: DECLARE c11 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -142,7 +142,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -161,7 +161,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
 
  a  
@@ -279,7 +279,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 1<:  <... completed>
 EXECUTE
 -- check no endpoint info
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -297,7 +297,7 @@ DECLARE
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 ERROR:  cursor "c1" already exists
 -- check no endpoint info
-1: SELECT token,status FROM GP_ENDPOINTS;
+1: SELECT token,status FROM gp_endpoints_info(true);
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 1: ROLLBACK;
 ROLLBACK
@@ -308,7 +308,7 @@ BEGIN
 DECLARE
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -317,7 +317,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -336,7 +336,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
 
  a  
@@ -454,7 +454,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 1<:  <... completed>
 EXECUTE
 -- check no endpoint info
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -469,14 +469,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 10;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
 (1 row)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
  READY  
@@ -493,7 +493,7 @@ DECLARE
  status 
 --------
 (0 rows)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
  a  
 ----
  1  
@@ -517,7 +517,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 1<:  <... completed>
 EXECUTE
 -- check no endpoint info
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -530,14 +530,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 0;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
 (1 row)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
  READY  
@@ -554,7 +554,7 @@ DECLARE
  status 
 --------
 (0 rows)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
  a 
 ---
 (0 rows)
@@ -568,7 +568,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 1<:  <... completed>
 EXECUTE
 -- check no endpoint info
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -581,7 +581,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t2;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -590,7 +590,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -609,7 +609,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
 
  a 
@@ -627,7 +627,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 1<:  <... completed>
 EXECUTE
 -- check no endpoint info
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -642,7 +642,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t3;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -651,7 +651,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -670,7 +670,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
 
  a     
@@ -698,7 +698,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 1<:  <... completed>
 EXECUTE
 -- check no endpoint info
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -713,7 +713,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t4;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -722,7 +722,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -741,7 +741,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
 
  a 
@@ -759,7 +759,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 1<:  <... completed>
 EXECUTE
 -- check no endpoint info
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c2';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -774,19 +774,19 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 WHERE a = 50;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
 (1 row)
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
-1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
  READY  
 (1 row)
-1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
  a  
 ----
  50 
@@ -795,7 +795,7 @@ DECLARE
 1<:  <... completed>
 EXECUTE
 -- check no endpoint info
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -808,19 +808,19 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT SUM(a) FROM t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
 (1 row)
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
--1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+-1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
  READY  
 (1 row)
--1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+-1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
  sum  
 ------
  5050 
@@ -828,7 +828,7 @@ DECLARE
 
 1<:  <... completed>
 EXECUTE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -841,19 +841,19 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT AVG(a) FROM t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
 (1 row)
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
--1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+-1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
  READY  
 (1 row)
--1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+-1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
  avg                 
 ---------------------
  50.5000000000000000 
@@ -861,7 +861,7 @@ DECLARE
 
 1<:  <... completed>
 EXECUTE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -874,19 +874,19 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT COUNT(*) FROM t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
 (1 row)
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
--1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+-1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
  READY  
 (1 row)
--1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+-1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
  count 
 -------
  100   
@@ -894,7 +894,7 @@ DECLARE
 
 1<:  <... completed>
 EXECUTE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -907,7 +907,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1, t5 where t1.a = t5.b;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -916,7 +916,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
 
  a | b 
@@ -943,7 +943,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 
 1<:  <... completed>
 EXECUTE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -958,14 +958,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT COUNT(*) FROM t1, t5 where t1.a = t5.b;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
 (1 row)
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
--1R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+-1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
  count 
 -------
  10    
@@ -973,7 +973,7 @@ DECLARE
 
 1<:  <... completed>
 EXECUTE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -986,7 +986,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -995,7 +995,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -1014,7 +1014,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
 
  a  
@@ -1133,7 +1133,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 EXECUTE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -1152,7 +1152,7 @@ EXECUTE
 --------
  READY  
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
 
  a  
@@ -1269,7 +1269,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 
 1<:  <... completed>
 EXECUTE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -1284,7 +1284,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -1293,7 +1293,7 @@ DECLARE
 (3 rows)
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -1312,7 +1312,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
 
  a  
@@ -1435,7 +1435,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 EXECUTE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
@@ -1454,7 +1454,7 @@ EXECUTE
 --------
  READY  
 (1 row)
-*R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN1#${TOKEN1}#" ': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
 
  a  
@@ -1571,7 +1571,7 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c
 
 1<:  <... completed>
 EXECUTE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | FINISH
@@ -1588,7 +1588,7 @@ BEGIN
 SAVEPOINT
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh ' TOKEN1=` echo "${RAW_STR}" | awk \'NR==3\' | awk \'{print $1}\'` && export MATCHSUBS="${MATCHSUBS}${NL}m/${TOKEN1}/${NL}s/${TOKEN1}/token_id1/${NL}" && echo "${RAW_STR}" ': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                  | status
 ------------------------+--------
  token_id1 | INIT
@@ -1597,7 +1597,7 @@ DECLARE
 (3 rows)
 1: ROLLBACK TO s1;
 ROLLBACK
-1: SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
+1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token | status 
 -------+--------
 (0 rows)
