@@ -62,4 +62,12 @@ installcheck-resgroup: install
 	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_resgroup --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2resgrouptest --load-extension=gp_inject_fault --schedule=$(srcdir)/isolation2_resgroup_schedule
 
 installcheck-parallel-cursor: install
+	# before running test, set statement_timeout to 1 minute so that even if some
+	# error make 'EXECUTE PARALLEL CURSOR' hang, it will be canceled when timeout.
+	default_master_timeout=${gpconfig -s statement_timeout | grep "Master" | cut -d':' -f2}
+	default_segment_timeout=${gpconfig -s statement_timeout | grep "Segment" | cut -d':' -f2}
+	gpconfig -c statement_timeout -v 60000 && gpstop -u
+	gpconfig -s statement_timeout
 	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_cursor --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2parallelcursor --schedule=$(srcdir)/parallel_cursor_schedule
+	gpconfig -c statement_timeout -v ${default_segment_timeout} -m ${default_master_timeout} && gpstop -u
+	gpconfig -s statement_timeout
