@@ -30,12 +30,8 @@
 
 #include <inttypes.h>
 
-#include "cdb/cdbutil.h"
 #include "nodes/parsenodes.h"
-#include "storage/latch.h"
 #include "tcop/dest.h"
-#include "storage/dsm.h"
-#include "storage/shm_mq.h"
 
 #define InvalidToken        (-1)
 #define InvalidSession      (-1)
@@ -96,12 +92,9 @@ enum RetrieveStatus
     RETRIEVE_STATUS_FINISH,
 };
 
-/* Endpoint shared memory context init and dsm create/attach */
+/* Endpoint shared memory context init */
 extern Size Endpoint_ShmemSize(void);
 extern void Endpoint_CTX_ShmemInit(void);
-extern void AttachOrCreateEndpointAndTokenDSM(void);
-extern bool AttachOrCreateEndpointDsm(bool attachOnly);
-extern bool AttachOrCreateTokenDsm(bool attachOnly);
 
 /* Declare parallel cursor stage */
 extern int64 GetUniqueGpToken(void);

@@ -44,6 +44,7 @@
 
 #include "access/xact.h"
 #include "access/tupdesc.h"
+#include "cdb/cdbutil.h"
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbvars.h"
@@ -52,6 +53,7 @@
 #include "funcapi.h"
 #include "libpq-fe.h"
 #include "libpq/libpq.h"
+#include "storage/latch.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "utils/builtins.h"
@@ -82,8 +84,8 @@
 #define ENDPOINT_KEY_TUPLE_QUEUE        3
 
 #define SHMEM_TOKENDSMCTX               "ShareTokenDSMCTX"
-#define SHMEM_TOKEN_CTX_SLOCK           "SharedMemoryTokenCTXSlock"
-#define SHMEM_ENDPOINT_LWLOCKS          "SharedMemoryEndpointLWLocks"
+#define SHMEM_PARALLEL_CURSOR_ENTRIES   "SharedMemoryParallelCursorTokens"
+#define SHMEM_ENDPOINTS_ENTRIES         "SharedMemoryEndpointDescEntries"
 
 #define GP_ENDPOINTS_INFO_ATTRNUM       8
 
@@ -141,15 +143,15 @@ typedef struct MsgQueueStatusEntry {
 } MsgQueueStatusEntry;
 
 /*
- * Shared memory structure to record current dsm for ParallelCursorTokenDesc entries
- * and dsm for EndpointDesc entries.
+ * Shared memory structure LWLocks for ParallelCursorTokenDesc entries
+ * and EndpointDesc entries.
  */
 typedef struct EndpointSharedCTX {
-    dsm_handle    token_info_handle;      /* dsm handle for ParallelCursorTokenDesc entries */
-    dsm_handle    endpoint_info_handle;   /* dsm handle for EndpointDesc entries*/
     int           tranche_id;             /* Tranche id for parallel cursor endpoint lwlocks.
                                              Read only, don't need acquire lock*/
 	LWLockTranche tranche;
+	LWLockPadded  *endpointLWLocks;       /* LWLocks to protect ParallelCursorTokenDesc entries
+                                           and EndpointDesc entries */
 } EndpointSharedCTX;
 
 /*
@@ -196,11 +198,9 @@ typedef struct
  * Shared memory variables
  */
 EndpointSharedCTX* endpointSC;
-LWLockPadded  *endpointLWLocks;     /* LWLocks to protect ParallelCursorTokenDesc entries and  */
-slock_t *shareCTXLock;				/* SpinLock to protect EndpointSharedCTX */
 
-#define EndpointsDSMLWLock (LWLock*)endpointLWLocks    /* LWLocks to protect EndpointDesc entries */
-#define TokensDSMLWLock (LWLock*)(endpointLWLocks + 1) /* LWLocks to protect ParallelCursorTokenDesc entries */
+#define EndpointsDSMLWLock (LWLock*) endpointSC->endpointLWLocks    /* LWLocks to protect EndpointDesc entries */
+#define TokensDSMLWLock (LWLock*)(endpointSC->endpointLWLocks + 1)  /* LWLocks to protect ParallelCursorTokenDesc entries */
 
 /*
  * Static variables
@@ -230,17 +230,15 @@ static const uint8 rightmost_one_pos[256] = {
 static HTAB* MsgQueueHTB = NULL;
 static MsgQueueStatusEntry *currentMQEntry = NULL;
 
-static ParallelCursorTokenDesc *SharedTokens = NULL;      /* Point to ParallelCursorTokenDesc entries in dsm */
-static EndpointDesc *SharedEndpoints = NULL;              /* Point to EndpointDesc entries in dsm */
+static ParallelCursorTokenDesc *SharedTokens = NULL;      /* Point to ParallelCursorTokenDesc entries in shared memory */
+static EndpointDesc *SharedEndpoints = NULL;              /* Point to EndpointDesc entries in shared memory */
 static volatile EndpointDesc *my_shared_endpoint = NULL;  /* Current EndpointDesc entry */
 
 static struct EndpointControl EndpointCtl = {
 	InvalidToken, PCER_NONE, NIL, NIL
 };
 
-/* Endpoint and parallel cursor token dsm helper function */
-static dsm_segment * create_token_info_dsm();
-static dsm_segment * create_endpoint_info_dsm();
+/* Endpoint and parallel cursor token helper function */
 static void init_shared_endpoints(void *address);
 static void init_shared_tokens(void *address);
 static void parallel_cursor_exit_callback(int code, Datum arg);
@@ -256,7 +254,6 @@ static void unset_endpoint_sender_pid(volatile EndpointDesc * endPointDesc);
 static void unset_endpoint_receiver_pid(volatile EndpointDesc * endPointDesc);
 static void endpoint_cleanup(void);
 static void register_endpoint_callbacks(void);
-static void endpoint_exit_callback(int code, Datum arg);
 static void sender_xact_abort_callback(XactEvent ev, void* vp);
 static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
                                     SubTransactionId parentSubid, void *arg);
@@ -299,8 +296,12 @@ Size
 Endpoint_ShmemSize(void)
 {
     Size		size;
-    size = mul_size(sizeof(LWLockPadded), 2);
-    size = add_size(size, sizeof(EndpointSharedCTX));
+    size = MAXALIGN(sizeof(EndpointSharedCTX));
+    size = add_size(size, mul_size(sizeof(LWLockPadded), 2));
+    if (Gp_role == GP_ROLE_DISPATCH) {
+		size += MAXALIGN(mul_size(MAX_ENDPOINT_SIZE, sizeof(ParallelCursorTokenDesc)));
+    }
+	size += MAXALIGN(mul_size(MAX_ENDPOINT_SIZE, sizeof(EndpointDesc)));
     return size;
 }
 
@@ -310,238 +311,49 @@ Endpoint_ShmemSize(void)
  */
 void
 Endpoint_CTX_ShmemInit(void) {
-	bool foundLWLocks,
-	     is_shmem_ready;
+	bool is_shmem_ready;
+	Size		offset;
+	char	   *ptr;
 
-	endpointLWLocks = (LWLockPadded *)ShmemInitStruct(
-		SHMEM_ENDPOINT_LWLOCKS, sizeof(LWLockPadded) * 2, &foundLWLocks);
-	Assert(foundLWLocks || !IsUnderPostmaster);
-
-	endpointSC = (EndpointSharedCTX *)ShmemInitStruct(
-		SHMEM_TOKENDSMCTX, sizeof(EndpointSharedCTX), &is_shmem_ready);
+	endpointSC = (EndpointSharedCTX *) ShmemInitStruct(
+		SHMEM_TOKENDSMCTX,
+		MAXALIGN(sizeof(EndpointSharedCTX)) + sizeof(LWLockPadded) * 2,
+		&is_shmem_ready);
 	Assert(is_shmem_ready || !IsUnderPostmaster);
-	if (!is_shmem_ready)
-	{
-		endpointSC->token_info_handle = DSM_HANDLE_INVALID;
-		endpointSC->endpoint_info_handle = DSM_HANDLE_INVALID;
+	if (!is_shmem_ready) {
+		offset = MAXALIGN(sizeof(EndpointSharedCTX));
+		ptr = (char *) endpointSC;
 		endpointSC->tranche_id = LWLockNewTrancheId();
 		endpointSC->tranche.name = "EndpointDSMLocks";
-		endpointSC->tranche.array_base = endpointLWLocks;
+		endpointSC->tranche.array_base = ptr + offset;
 		endpointSC->tranche.array_stride = sizeof(LWLockPadded);
-	}
-    LWLockRegisterTranche(endpointSC->tranche_id, &endpointSC->tranche);
-	if (!foundLWLocks) {
+		endpointSC->endpointLWLocks = (LWLockPadded *) (ptr + offset);
+
+		LWLockRegisterTranche(endpointSC->tranche_id, &endpointSC->tranche);
 		LWLockInitialize(EndpointsDSMLWLock, endpointSC->tranche_id);
 		LWLockInitialize(TokensDSMLWLock, endpointSC->tranche_id);
 	}
-
-	shareCTXLock = (slock_t *)ShmemInitStruct(
-		SHMEM_TOKEN_CTX_SLOCK, sizeof(slock_t), &is_shmem_ready);
-	Assert(is_shmem_ready || !IsUnderPostmaster);
-	if (!is_shmem_ready)
-		SpinLockInit(shareCTXLock);
-}
-
-/*
- * Callback for EndpointDesc entries DSM detach.
- */
-static void
-on_endpoint_dsm_detach_callback (dsm_segment* seg, Datum arg) {
-	SharedEndpoints = NULL;
-}
-
-/*
- * Callback for ParallelCursorTokenDesc entries DSM detach.
- */
-static void
-on_token_dsm_detach_callback (dsm_segment* seg, Datum arg) {
-	SharedTokens = NULL;
-}
-
-/*
- * Callback for EndpointDesc entries DSM destroy.
- */
-static void
-on_endpoint_dsm_destroy_callback (dsm_segment* seg, Datum arg) {
-	SpinLockAcquire(shareCTXLock);
-	endpointSC->endpoint_info_handle = DSM_HANDLE_INVALID;
-	SpinLockRelease(shareCTXLock);
-}
-
-/*
- * Callback for ParallelCursorTokenDesc entries DSM destroy.
- */
-static void
-on_token_dsm_destroy_callback (dsm_segment* seg, Datum arg) {
-	SpinLockAcquire(shareCTXLock);
-	endpointSC->token_info_handle = DSM_HANDLE_INVALID;
-	SpinLockRelease(shareCTXLock);
-}
-
-/*
- * AttachOrCreateEndpointAndTokenDSM - attach or create DSMs.
- *
- * Try to attach or create DSMs for EndpointDesc entries and
- * ParallelCursorTokenDesc entries. This function is called in
- * declare parallel cursor on QD.
- */
-void
-AttachOrCreateEndpointAndTokenDSM(void) {
-    if (AttachOrCreateEndpointDsm(false)) {
-        register_endpoint_callbacks();
-    }
 	if (Gp_role == GP_ROLE_DISPATCH) {
-        // Init token info dsm only on QD.
-        AttachOrCreateTokenDsm(false);
-	}
-}
-
-/*
- * AttachOrCreateEndpointDsm - attach or create EndpointDesc entries DSM
- *
- * Try to attach or create DSM for EndpointDesc entries. If it's already
- * have the dsm, no need to attach/create anymore.
- *
- * If attachOnly is true, only apply attach for EndpointDesc entries DSM.
- *
- * Return true if the dsm get attached/created.
- *
- */
-bool
-AttachOrCreateEndpointDsm(bool attachOnly) {
-	dsm_segment* dsm_seg;
-
-	if (SharedEndpoints) {
-		return false;
-	}
-	Assert(SharedEndpoints == NULL);
-
-	SpinLockAcquire(shareCTXLock);
-	if (endpointSC->endpoint_info_handle == DSM_HANDLE_INVALID) {
-		// create
-		if (attachOnly) {
-			SpinLockRelease(shareCTXLock);
-			elog(DEBUG3, "CDB_ENDPOINT: SKIP create endpoint dsm since required attach only.");
-			return false;
+		SharedTokens = (ParallelCursorTokenDesc *) ShmemInitStruct(
+			SHMEM_PARALLEL_CURSOR_ENTRIES,
+			MAXALIGN(mul_size(MAX_ENDPOINT_SIZE, sizeof(ParallelCursorTokenDesc))),
+			&is_shmem_ready);
+		Assert(is_shmem_ready || !IsUnderPostmaster);
+		if (!is_shmem_ready) {
+			init_shared_tokens(SharedTokens);
 		}
-		dsm_seg = create_endpoint_info_dsm();
-		elog(DEBUG3, "CDB_ENDPOINT: Create endpoint dsm ...");
-		if (dsm_seg) {
-			endpointSC->endpoint_info_handle = dsm_segment_handle(dsm_seg);
-			init_shared_endpoints(dsm_segment_address(dsm_seg));
-		}
-	} else {
-	    // attach
-		dsm_seg = dsm_attach(endpointSC->endpoint_info_handle);
-		elog(DEBUG3, "CDB_ENDPOINT: Attach endpoint dsm ...");
+		on_shmem_exit(parallel_cursor_exit_callback, (Datum)0);
 	}
-	SpinLockRelease(shareCTXLock);
-	if (dsm_seg == NULL) {
-		elog(ERROR, "CDB_ENDPOINT: Could not create / map endpoint dynamic shared memory segment.");
-		return false; // Should not reach this line.
+	SharedEndpoints = (EndpointDesc *) ShmemInitStruct(
+		SHMEM_ENDPOINTS_ENTRIES,
+		MAXALIGN(mul_size(MAX_ENDPOINT_SIZE, sizeof(EndpointDesc))),
+		&is_shmem_ready);
+	Assert(is_shmem_ready || !IsUnderPostmaster);
+	if (!is_shmem_ready) {
+		init_shared_endpoints(SharedEndpoints);
 	}
-	dsm_pin_mapping(dsm_seg); // Since we want to handle the life of the dsm, we need pin it.
-
-	// Register callback to deal with dsm detach and destroy
-	on_dsm_detach(dsm_seg, on_endpoint_dsm_detach_callback, (Datum)0);
-	on_dsm_destroy(dsm_seg, on_endpoint_dsm_destroy_callback, 0);
-
-    // Register callback to deal with proc exit.
-    before_shmem_exit(endpoint_exit_callback, PointerGetDatum(dsm_seg));
-
-    // Bind SharedEndpoints to EndpointDesc entries in DSM
-	SharedEndpoints = dsm_segment_address(dsm_seg);
-	return true;
-}
-
-/*
- * AttachOrCreateTokenDsm - attach or create ParallelCursorTokenDesc entries DSM
- *
- * Try to attach or create DSM for ParallelCursorTokenDesc entries. If it's already
- * have the dsm, no need to attach/create anymore.
- *
- * If attachOnly is true, only apply attach for ParallelCursorTokenDesc entries DSM.
- *
- * Return true if the dsm get attached/created.
- *
- */
-bool
-AttachOrCreateTokenDsm(bool attachOnly) {
-	dsm_segment* dsm_seg;
-
-    Assert(Gp_role == GP_ROLE_DISPATCH);
-	if (SharedTokens) {
-		return false;
-	}
-	Assert(SharedTokens == NULL);
-
-	SpinLockAcquire(shareCTXLock);
-	if (endpointSC->token_info_handle == DSM_HANDLE_INVALID) {
-        // create
-        if (attachOnly) {
-			SpinLockRelease(shareCTXLock);
-			elog(DEBUG3, "CDB_ENDPOINT: SKIP create endpoint token dsm since required attach only.");
-			return false;
-        }
-		dsm_seg = create_token_info_dsm();
-        elog(DEBUG3, "CDB_ENDPOINT: Create endpoint token dsm ...");
-        if (dsm_seg) {
-            endpointSC->token_info_handle = dsm_segment_handle(dsm_seg);
-            init_shared_tokens(dsm_segment_address(dsm_seg));
-        }
-	} else {
-	    // attach
-		dsm_seg = dsm_attach(endpointSC->token_info_handle);
-        elog(DEBUG3, "CDB_ENDPOINT: Attach endpoint token dsm ...");
-	}
-    SpinLockRelease(shareCTXLock);
-    if (dsm_seg == NULL) {
-        elog(ERROR, "CDB_ENDPOINT: Could not create / map endpoint token dynamic shared memory segment.");
-        return false; // Should not reach this line.
-    }
-    dsm_pin_mapping(dsm_seg); // Since we want to handle the life of the dsm, we need pin it.
-
-    // Register callback to deal with dsm detach and destroy
-    on_dsm_detach(dsm_seg, on_token_dsm_detach_callback, (Datum)0);
-    on_dsm_destroy(dsm_seg, on_token_dsm_destroy_callback, 0);
-
-    /* Register callback to deal with QD process exit.
-     * Don't need to deal with xact abort, cause once xact abort, the xact
-     * must call rollback or exit the session connection.
-     * In rollback, the PortalDrop will clean parallel cursor token info.
-     * So here only need to deal with proc exit.
-     */
-    before_shmem_exit(parallel_cursor_exit_callback, PointerGetDatum(dsm_seg));
-    SharedTokens = dsm_segment_address(dsm_seg);
-    return true;
-}
-
-/*
- * Create EndpointDesc entries DSM
- */
-static struct dsm_segment*
-create_endpoint_info_dsm() {
-	// Calculate size of the dsm
-	Size		size;
-    dsm_segment *dsm_seg = NULL;
-
-	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(EndpointDesc));
-    dsm_seg = dsm_create(size);
-    return dsm_seg;
-}
-
-/*
- * Create ParallelCursorTokenDesc entries DSM
- */
-static struct dsm_segment*
-create_token_info_dsm() {
-	// Calculate size of the dsm
-	Size		size;
-	dsm_segment *dsm_seg = NULL;
-
-	size = mul_size(MAX_ENDPOINT_SIZE, sizeof(ParallelCursorTokenDesc));
-	dsm_seg = dsm_create(size);
-	return dsm_seg;
+	// Register callback to deal with proc exit.
+	register_endpoint_callbacks();
 }
 
 /*
@@ -584,36 +396,27 @@ init_shared_tokens(void *address) {
 /*
  * On QD, if the process exit, the ParallelCursorTokenDesc entries that allocated
  * in this QD need to be removed.
- * And then detach the ParallelCursorTokenDesc entries DSM.
  *
- * This function must registered in before_shmem_exit. Cause when proc exit,
+ * This function registered in on_shmem_exit. Cause when proc exit,
  * the call stack is:
  * shmem_exit()
- * --> ... (other before shmem callback if exists)
- * --> parallel_cursor_exit_callback
- *     --> RemoveParallelCursorToken
- *     --> detach dsm.
- * --> ... (other callbacks)
- * --> ShutdownPostgres (the last before shmem callback)
- *     --> AbortOutOfAnyTransaction
- *         --> ...
- *         --> CleanupTransaction
- *             --> AtCleanup_Portals
- *                 --> PortalDrop
- *                     --> RemoveParallelCursorToken
- * --> dsm_backend_shutdown
- *
- * Question:
- * Is it better to detach the dsm we created/attached before dsm_backend_shutdown?
- * Or we can let dsm_backend_shutdown do the detach for us, so we don't need register
- * call back in before_shmem_exit.
- *
- * The function RemoveParallelCursorToken will be called twice during proc exit.
+ * --> before_shmem_exit
+ *     --> ... (other before shmem callback if exists)
+ *     --> ... (other callbacks)
+ *     --> ShutdownPostgres (the last before shmem callback)
+ *         --> AbortOutOfAnyTransaction
+ *             --> ...
+ *             --> CleanupTransaction
+ *                 --> AtCleanup_Portals
+ *                     --> PortalDrop
+ *                         --> RemoveParallelCursorToken for current token
+ * --> on_shmem_exit
+ *     --> parallel_cursor_exit_callback
+ *         --> RemoveParallelCursorToken for remain tokens
  */
 static void
 parallel_cursor_exit_callback(int code, Datum arg) {
     ListCell    *l;
-    dsm_segment *dsm_seg = (dsm_segment*) DatumGetPointer(arg);
 
     if (EndpointCtl.Cursor_tokens != NIL)
     {
@@ -626,11 +429,6 @@ parallel_cursor_exit_callback(int code, Datum arg) {
         list_free(EndpointCtl.Cursor_tokens);
         EndpointCtl.Cursor_tokens = NIL;
     }
-
-    if (dsm_seg != NULL) {
-        dsm_detach(dsm_seg);
-        elog(DEBUG3, "CDB_ENDPOINT: Detach endpoint token dsm.");
-    }
 }
 
 /*
@@ -642,8 +440,6 @@ GetUniqueGpToken(void)
 	int64			token;
 	char            *token_str;
 	struct timespec ts;
-
-	Assert(SharedTokens);
 
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 
@@ -671,7 +467,7 @@ GetUniqueGpToken(void)
 }
 
 /*
- * AddParallelCursorToken - allocate parallel cursor token into dsm.
+ * AddParallelCursorToken - allocate parallel cursor token into shared memory.
  * Memory the information of parallel cursor tokens on all or which segments,
  * while DECLARE PARALLEL CURSOR
  *
@@ -685,7 +481,6 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 
 	Assert(token != InvalidToken && name != NULL
 		   && session_id != InvalidSession);
-	Assert(SharedTokens);
 
 	LWLockAcquire(TokensDSMLWLock, LW_EXCLUSIVE);
 
@@ -894,16 +689,9 @@ UnsetSenderPidOfToken(int64 token)
 }
 
 /*
- * Remove the target token information from parallel cursor token DSM.
- * We need clean the token from dsm when cursor close and exception happens.
- *
- * If PANIC exception happens, proc exit, the function will be called twice.
- * Cause the dsm get detached in shmem_exit. So we need make sure we remove token
- * info before detach.
- *
- * The system do PortalDrop after our dsm detach for exception. So when PortalDrop
- * happens, it's actually done the clean. More details see
- * function parallel_cursor_exit_callback.
+ * RemoveParallelCursorToken - Remove the target token information from parallel
+ * cursor token shared memory. We need clean the token from shared memory
+ * when cursor close and exception happens.
  */
 void
 RemoveParallelCursorToken(int64 token)
@@ -912,12 +700,7 @@ RemoveParallelCursorToken(int64 token)
 	bool		endpoint_on_QD = false,
 		found = false;
 	List	   *seg_list = NIL;
-	if (SharedTokens == NULL) {
-		elog(DEBUG3, "CDB_ENDPOINT: <RemoveParallelCursorToken> Need remove token " INT64_FORMAT ", "
-				     "but seems already destroy the endpoint token DSM, we expect the token should "
-				     "already removed before detach dsm.", token);
-		return;
-	}
+
 	LWLockAcquire(TokensDSMLWLock, LW_EXCLUSIVE);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -1389,12 +1172,6 @@ unset_endpoint_receiver_pid(volatile EndpointDesc * endPointDesc)
 /*
  * Clean up EndpointDesc entry for specify token.
  *
- * If no PANIC exception happens, FreeEndpointOfToken will only
- * be called once in current function.
- *
- * Buf if the PANIC happens, proc exit, FreeEndpointOfToken method
- * will be called twice. Since we call it during dsm detach.
- *
  * The sender should only have one in EndpointCtl.TokensInXact list.
  */
 static void endpoint_cleanup(void) {
@@ -1428,54 +1205,7 @@ register_endpoint_callbacks(void) {
 }
 
 /*
- * If endpoint/sender on exit, we need to do sender clean jobs.
- * Same with parallel_cursor_exit_callback, it's a callback in
- * before shmem exit.
- *
- * shmem_exit()
- * --> ... (other before shmem callback if exists)
- * --> retrieve_exit_callback if is retriever
- * --> endpoint_exit_callback
- *     --> endpoint clean if is endpoint
- *     --> dsm_detach, called by both endpoint and retriever
- * --> ... (other callbacks)
- * --> ShutdownPostgres (the last before shmem callback)
- *     --> AbortOutOfAnyTransaction
- *         --> AbortTransaction
- *             --> CallXactCallbacks
- *                 --> sender_xact_abort_callback if current proc is endpoint
- *         --> CleanupTransaction
- * --> dsm_backend_shutdown
- *
- * If is normal abort, endpoint clean job will be done in xact abort
- * callback sender_xact_abort_callback
- *
- * If is proc exit, endpoint clean job must be done in endpoint_exit_callback before
- * dsm detach.
- */
-static void endpoint_exit_callback(int code, Datum arg) {
-    dsm_segment *dsm_seg = (dsm_segment*) DatumGetPointer(arg);
-
-    if (EndpointCtl.Gp_pce_role == PCER_SENDER) {
-        sender_close();
-    }
-    // If endpoint finish send job, the role get cleaned. Still need to consider
-    // clean the EndpointDesc entry when exit.
-    endpoint_cleanup();
-    if (dsm_seg != NULL) {
-        dsm_detach(dsm_seg);
-        elog(DEBUG3, "CDB_ENDPOINT: Detach endpoint dsm.");
-    }
-}
-
-/*
  * If endpoint/sender on xact abort, we need to do sender clean jobs.
- *
- * If normal abort, sender_close and endpoint_cleanup will only
- * be called once in current function.
- *
- * Buf if it's proc exit, these two methods will be called twice. Since we
- * call these two methods before dsm detach.
  */
 static void sender_xact_abort_callback(XactEvent ev, void* vp) {
     if (ev == XACT_EVENT_ABORT) {
@@ -1504,14 +1234,10 @@ bool
 FindEndpointTokenByUser(Oid user_id, const char *token_str)
 {
 	bool		isFound = false;
-	AttachOrCreateEndpointDsm(true);
 	before_shmem_exit(retrieve_exit_callback, (Datum)0);
 	RegisterSubXactCallback(retrieve_subxact_callback, NULL);
     RegisterXactCallback(retrieve_xact_abort_callback, NULL);
-	if (SharedEndpoints == NULL) {
-		return isFound;
-	}
-	Assert(SharedEndpoints);
+
 	LWLockAcquire(EndpointsDSMLWLock, LW_SHARED);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -1565,9 +1291,6 @@ AttachEndpoint(void)
 	if (my_shared_endpoint)
 		elog(ERROR, "endpoint is already attached");
 
-    if (SharedEndpoints == NULL) {
-        elog(ERROR, "No endpoint exists.");
-    }
 	check_token_valid();
 
 	LWLockAcquire(EndpointsDSMLWLock, LW_EXCLUSIVE);
@@ -1947,8 +1670,8 @@ DetachEndpoint(bool reset_pid)
 	 * Or during the retrieve abort stage, sender cleaned the EndpointDesc entry
 	 * my_shared_endpoint pointed to. And another endpoint gets allocated just
 	 * after the clean, which will occupy current my_shared_endpoint entry.
-	 * Then DetachEndpoint gets the lock but at this time, the token in dsm is not
-	 * current retrieve token. Nothing should be done.
+	 * Then DetachEndpoint gets the lock but at this time, the token in shared memory
+	 * is not current retrieve token. Nothing should be done.
 	 */
 	if (!my_shared_endpoint->empty &&
 	    EndpointCtl.Gp_token == my_shared_endpoint->token) {
@@ -1984,9 +1707,6 @@ DetachEndpoint(bool reset_pid)
 static void
 retrieve_cancel_action(int64 token, char *msg)
 {
-    if (SharedEndpoints == NULL)
-        return;
-
     /*
      * If current role is not receiver, the retrieve must already finished success
      * or get cleaned before.
@@ -2017,8 +1737,7 @@ retrieve_cancel_action(int64 token, char *msg)
  *
  * If retrieve role session do retrieve for more than one token.
  * On exit, we need to detach all message queue.
- * Same with parallel_cursor_exit_callback, it's a callback in
- * before shmem exit.
+ * It's a callback in before shmem exit.
  *
  * shmem_exit()
  * --> ... (other before shmem callback if exists)
@@ -2041,6 +1760,11 @@ retrieve_cancel_action(int64 token, char *msg)
  *
  * If is proc exit, retriever clean job must be done in retrieve_exit_callback before
  * dsm detach.
+ *
+ * Question:
+ * Is it better to detach the dsm we created/attached before dsm_backend_shutdown?
+ * Or we can let dsm_backend_shutdown do the detach for us, so we don't need register
+ * call back in before_shmem_exit.
  */
 static void retrieve_exit_callback(int code, Datum arg) {
 	HASH_SEQ_STATUS status;
@@ -2076,10 +1800,10 @@ static void retrieve_exit_callback(int code, Datum arg) {
  * Retrieve role xact abort callback.
  *
  * If normal abort, DetachEndpoint and retrieve_cancel_action will only
- * be called once in current function.
+ * be called once in current function for current token.
  *
- * Buf if it's proc exit, these two methods will be called twice. Since we
- * call these two methods before dsm detach.
+ * Buf if it's proc exit, these two methods will be called twice for current token.
+ * Since we call these two methods before dsm detach.
  */
 static void retrieve_xact_abort_callback(XactEvent ev, void* vp) {
     elog(DEBUG3, "CDB_ENDPOINT: retrieve xact abort callback");
@@ -2277,7 +2001,7 @@ List *
 GetContentIDsByToken(int64 token)
 {
 	List	   *l = NIL;
-	Assert(SharedTokens);
+
 	LWLockAcquire(TokensDSMLWLock, LW_SHARED);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
@@ -2518,11 +2242,6 @@ find_endpoint_by_token(int64 token)
     EndpointDesc *res = NULL;
 
     LWLockAcquire(EndpointsDSMLWLock, LW_SHARED);
-    if (SharedEndpoints == NULL) {
-        LWLockRelease(EndpointsDSMLWLock);
-        return res;
-    }
-
     for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
     {
         if (!SharedEndpoints[i].empty &&
@@ -2653,9 +2372,6 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 {
 	if (Gp_role != GP_ROLE_DISPATCH)
 		elog(ERROR, "gp_endpoints_info() only can be called on query dispatcher");
-	// Attach to the endpoints and tokens dsm if in other sessions.
-	AttachOrCreateEndpointDsm(true);
-	AttachOrCreateTokenDsm(true);
 
 	bool is_all = PG_GETARG_BOOL(0);
 	FuncCallContext *funcctx;
@@ -2952,9 +2668,6 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 Datum
 gp_endpoints_status_info(PG_FUNCTION_ARGS)
 {
-	// Attach to the token info dsm if in other sessions.
-	AttachOrCreateEndpointDsm(true);
-
 	FuncCallContext *funcctx;
 	EndpointsStatusInfo *mystatus;
 	MemoryContext oldcontext;
