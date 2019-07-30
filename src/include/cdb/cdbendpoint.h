@@ -122,9 +122,6 @@ extern void RemoveParallelCursorToken(int64 token);
 extern void AllocEndpointOfToken(int64 token);
 extern void FreeEndpointOfToken(int64 token);
 
-// "gp_endpoints_token_operation" GUC hook.
-extern void assign_gp_endpoints_token_operation(const char *newval, void *extra);
-
 /* Retrieve role auth */
 extern bool FindEndpointTokenByUser(Oid user_id, const char *token_str);
 
@@ -155,6 +152,8 @@ extern List *GetContentIDsByToken(int64 token);
 
 
 /* UDFs for endpoint */
+extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
+
 extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
 extern Datum gp_endpoints_status_info(PG_FUNCTION_ARGS);
 

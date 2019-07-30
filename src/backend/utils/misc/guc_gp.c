@@ -4492,16 +4492,6 @@ struct config_string ConfigureNamesString_gp[] =
 		NULL, NULL, NULL
 	},
 
-	{
-		{"gp_endpoints_token_operation", PGC_USERSET, UNGROUPED,
-		 gettext_noop("Forces the writer gang to do endpoint token operation in shared memory on QEs."),
-		 NULL,
-		 GUC_NO_SHOW_ALL | GUC_NO_RESET_ALL | GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
-		},
-		&Gp_endpoints_token_operation, "",
-		NULL, assign_gp_endpoints_token_operation, NULL
-	},
-
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, NULL, NULL, NULL

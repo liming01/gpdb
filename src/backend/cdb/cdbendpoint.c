@@ -971,7 +971,7 @@ RemoveParallelCursorToken(int64 token)
 		{
 			char		cmd[255];
 
-			sprintf(cmd, "SET gp_endpoints_token_operation='f" INT64_FORMAT "'", token);
+			sprintf(cmd, "select __gp_operate_endpoints_token('f', '" INT64_FORMAT "')", token);
 			if (seg_list != NIL)
 			{
 				/* dispatch to some segments. */
@@ -1116,53 +1116,6 @@ FreeEndpointOfToken(int64 token)
     endPointDesc->user_id = InvalidOid;
     endPointDesc->empty = true;
     LWLockRelease(EndpointsDSMLWLock);
-}
-
-/*
- * "gp_endpoints_token_operation" GUC hook.
- * Endpoint actions, push, free or unset
- */
-void
-assign_gp_endpoints_token_operation(const char *newval, void *extra)
-{
-	const char *token;
-	int64	tokenid;
-
-	/*
-	 * May be called in AtEOXact_GUC() to set to default value (i.e. empty
-	 * string)
-	 */
-	if (newval == NULL || strlen(newval) == 0)
-		return;
-
-	token = newval + 1;
-	tokenid = atoll(token);
-
-	if (tokenid != InvalidToken && Gp_role == GP_ROLE_EXECUTE && Gp_is_writer)
-	{
-		if (AttachOrCreateEndpointDsm(false)) {
-		    // Register endpoint/sender proc exit callback if not registered before.
-		    // The endpoint is on QE.
-            register_endpoint_callbacks();
-		}
-		switch (newval[0])
-		{
-			case 'p':
-				/* Push endpoint */
-				AllocEndpointOfToken(tokenid);
-				break;
-			case 'f':
-				/* Free endpoint */
-				FreeEndpointOfToken(tokenid);
-				break;
-			case 'u':
-				/* Unset sender pid of endpoint */
-				UnsetSenderPidOfToken(tokenid);
-				break;
-			default:
-				elog(ERROR, "Failed to SET gp_endpoints_token_operation: %s", newval);
-		}
-	}
 }
 
 /*
@@ -2644,6 +2597,52 @@ static char * endpoint_status_enum_to_string(EndpointStatus *ep_status)
 		/* called on QD, if endpoint status is null, and token info is not release*/
 		return GP_ENDPOINT_STATUS_RELEASED;
 	}
+}
+
+
+/*
+ * gp_operate_endpoints_token - Operation for EndpointDesc entries on endpoint.
+ *
+ * Alloc/free/unset sender pid operations for a EndpointDesc entry base on the token.
+ */
+Datum
+gp_operate_endpoints_token(PG_FUNCTION_ARGS)
+{
+	char operation;
+	const char *token;
+	Assert(Gp_role == GP_ROLE_EXECUTE);
+
+	if (PG_ARGISNULL(0) || PG_ARGISNULL(1))
+		PG_RETURN_BOOL(false);
+
+	operation = PG_GETARG_CHAR(0);
+	token = PG_GETARG_CSTRING(1);
+
+	int64	tokenid;
+	tokenid = atoll(token);
+
+	if (tokenid != InvalidToken && Gp_role == GP_ROLE_EXECUTE && Gp_is_writer)
+	{
+		switch (operation)
+		{
+			case 'p':
+				/* Push endpoint */
+				AllocEndpointOfToken(tokenid);
+				break;
+			case 'f':
+				/* Free endpoint */
+				FreeEndpointOfToken(tokenid);
+				break;
+			case 'u':
+				/* Unset sender pid of endpoint */
+				UnsetSenderPidOfToken(tokenid);
+				break;
+			default:
+				elog(ERROR, "Failed to execute gp_operate_endpoints_token('%c', '%s')", operation, token);
+				PG_RETURN_BOOL(false);
+		}
+	}
+	PG_RETURN_BOOL(true);
 }
 
 /*

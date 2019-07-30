@@ -180,7 +180,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 		List *cids;
 		enum EndPointExecPosition endPointExecPosition;
 
-		sprintf(cmd, "SET gp_endpoints_token_operation='p" INT64_FORMAT "'", portal->parallel_cursor_token);
+		sprintf(cmd, "select __gp_operate_endpoints_token('p', '" INT64_FORMAT "')", portal->parallel_cursor_token);
 
 		cids = ChooseEndpointContentIDForParallelCursor(
 			stmt->planTree, &endPointExecPosition);

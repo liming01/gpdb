@@ -1918,7 +1918,7 @@ DoPortalRunFetch(Portal portal,
 			char		cmd[255];
 
 			/* Unset sender pid for end-point */
-			sprintf(cmd, "set gp_endpoints_token_operation='u" INT64_FORMAT "'", portal->parallel_cursor_token);
+			sprintf(cmd, "select __gp_operate_endpoints_token('u', '" INT64_FORMAT "')", portal->parallel_cursor_token);
 
 			List* l = GetContentIDsByToken(portal->parallel_cursor_token);
 			if (l)
