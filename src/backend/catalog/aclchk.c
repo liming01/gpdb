@@ -5050,7 +5050,20 @@ pg_database_aclcheck(Oid db_oid, Oid roleid, AclMode mode)
 AclResult
 pg_proc_aclcheck(Oid proc_oid, Oid roleid, AclMode mode)
 {
-	/* Only builtin function can be called for retrieve role */
+	/*
+	 * In retrieve mode connection, user need to check endpoint is READY before
+	 * retrieving, because there is a minor time gap between the
+	 * "EXECUTE PARALLEL CURSOR" and the endpoint becomes ready.
+	 * The check statement like:
+	 * > SELECT * FROM GP_ENDPOINTS_STATUS_INFO() where token='tk01065229061552603877';
+	 *
+	 * So not only UDF GP_ENDPOINTS_STATUS_INFO() but also the operator '='
+	 * for string (which will call some built-in function) is needed.
+	 *
+	 * However thinking that some UDF user-added may have some dangerous
+	 * operation for other users to call, so we just not allowed to call all
+	 * user added UDF.
+	 */
 	if ((Gp_role == GP_ROLE_RETRIEVE) && (proc_oid >= FirstNormalObjectId))
 		elog(ERROR, "Only builtin functions can be called for retrieve role");
 

@@ -242,6 +242,7 @@ static struct EndpointControl EndpointCtl = {
 static void init_shared_endpoints(void *address);
 static void init_shared_tokens(void *address);
 static void parallel_cursor_exit_callback(int code, Datum arg);
+static bool remove_parallel_cursor(int64 token, bool *on_qd, List** seg_list);
 
 
 /* sender which is an endpoint */
@@ -342,7 +343,7 @@ Endpoint_CTX_ShmemInit(void) {
 		if (!is_shmem_ready) {
 			init_shared_tokens(SharedTokens);
 		}
-		on_shmem_exit(parallel_cursor_exit_callback, (Datum)0);
+		before_shmem_exit(parallel_cursor_exit_callback, (Datum)0);
 	}
 	SharedEndpoints = (EndpointDesc *) ShmemInitStruct(
 		SHMEM_ENDPOINTS_ENTRIES,
@@ -401,6 +402,9 @@ init_shared_tokens(void *address) {
  * the call stack is:
  * shmem_exit()
  * --> before_shmem_exit
+ *     --> parallel_cursor_exit_callback
+ *         --> remove_parallel_cursor all tokens, no need to free endpoints since
+ *         endpoint's callback will free itself.
  *     --> ... (other before shmem callback if exists)
  *     --> ... (other callbacks)
  *     --> ShutdownPostgres (the last before shmem callback)
@@ -409,26 +413,25 @@ init_shared_tokens(void *address) {
  *             --> CleanupTransaction
  *                 --> AtCleanup_Portals
  *                     --> PortalDrop
- *                         --> RemoveParallelCursorToken for current token
- * --> on_shmem_exit
- *     --> parallel_cursor_exit_callback
- *         --> RemoveParallelCursorToken for remain tokens
+ *                         --> DestoryParallelCursor
+ *                         	   --> remove_parallel_cursor will do nothing cause
+ *                         	   clean job already done in parallel_cursor_exit_callback
  */
 static void
 parallel_cursor_exit_callback(int code, Datum arg) {
-    ListCell    *l;
+	ListCell    *l;
 
-    if (EndpointCtl.Cursor_tokens != NIL)
-    {
-        foreach(l, EndpointCtl.Cursor_tokens)
-        {
-            int64		token = atoll(lfirst(l));
-            RemoveParallelCursorToken(token);
-            pfree(lfirst(l));
-        }
-        list_free(EndpointCtl.Cursor_tokens);
-        EndpointCtl.Cursor_tokens = NIL;
-    }
+	if (EndpointCtl.Cursor_tokens != NIL)
+	{
+		foreach(l, EndpointCtl.Cursor_tokens)
+		{
+			int64		token = atoll(lfirst(l));
+			remove_parallel_cursor(token, NULL, NULL);
+			pfree(lfirst(l));
+		}
+		list_free(EndpointCtl.Cursor_tokens);
+		EndpointCtl.Cursor_tokens = NIL;
+	}
 }
 
 /*
@@ -689,71 +692,31 @@ UnsetSenderPidOfToken(int64 token)
 }
 
 /*
- * RemoveParallelCursorToken - Remove the target token information from parallel
+ * DestoryParallelCursor - Remove the target token information from parallel
  * cursor token shared memory. We need clean the token from shared memory
  * when cursor close and exception happens.
  */
 void
-RemoveParallelCursorToken(int64 token)
+DestoryParallelCursor(int64 token)
 {
 	Assert(token != InvalidToken);
-	bool		endpoint_on_QD = false,
-		found = false;
-	List	   *seg_list = NIL;
+	bool		found;
+	bool        on_qd = false;
+	List		*seg_list = NIL;
 
-	LWLockAcquire(TokensDSMLWLock, LW_EXCLUSIVE);
+	found = remove_parallel_cursor(token, &on_qd, &seg_list);
 
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (SharedTokens[i].token == token)
-		{
-			found = true;
-			if (endpoint_on_qd(&SharedTokens[i]))
-			{
-				endpoint_on_QD = true;
-			}
-			else
-			{
-				if (!SharedTokens[i].all_seg)
-				{
-					int16		x = -1;
-					CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
-
-					while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
-					{
-						seg_list = lappend_int(seg_list, dbid_to_contentid(cdbs, x));
-					}
-					Assert(seg_list->length == SharedTokens[i].endpoint_cnt);
-				}
-			}
-
-			elog(DEBUG3, "CDB_ENDPOINT: <RemoveParallelCursorToken> removed token: " INT64_FORMAT ", session id: %d, cursor name: %s from shared memory",
-				 token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
-			SharedTokens[i].token = InvalidToken;
-			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
-			SharedTokens[i].session_id = InvalidSession;
-			SharedTokens[i].user_id = InvalidOid;
-			SharedTokens[i].endpoint_cnt = 0;
-			SharedTokens[i].all_seg = false;
-			memset(SharedTokens[i].dbIds, 0, sizeof(int32) * MAX_NWORDS);
-			break;
-		}
-	}
-
-	LWLockRelease(TokensDSMLWLock);
 
 	if (found)
 	{
 		/* free end-point */
-
-		if (endpoint_on_QD)
+		if (on_qd)
 		{
 			FreeEndpointOfToken(token);
 		}
 		else
 		{
 			char		cmd[255];
-
 			sprintf(cmd, "select __gp_operate_endpoints_token('f', '" INT64_FORMAT "')", token);
 			if (seg_list != NIL)
 			{
@@ -767,6 +730,50 @@ RemoveParallelCursorToken(int64 token)
 			}
 		}
 	}
+}
+
+bool
+remove_parallel_cursor(int64 token, bool *on_qd, List** seg_list) {
+	Assert(token != InvalidToken);
+	bool found = false;
+
+	LWLockAcquire(TokensDSMLWLock, LW_EXCLUSIVE);
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedTokens[i].token == token)
+		{
+			found = true;
+			if (on_qd != NULL && endpoint_on_qd(&SharedTokens[i]))
+			{
+				*on_qd = true;
+			} else {
+				if (seg_list != NULL && !SharedTokens[i].all_seg)
+				{
+					int16		x = -1;
+					CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
+					while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
+					{
+						*seg_list = lappend_int(*seg_list, dbid_to_contentid(cdbs, x));
+					}
+					Assert((*seg_list)->length == SharedTokens[i].endpoint_cnt);
+				}
+			}
+
+			elog(DEBUG3, "CDB_ENDPOINT: <RemoveParallelCursorToken> removed token: " INT64_FORMAT
+			             ", session id: %d, cursor name: %s from shared memory",
+				 token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
+			SharedTokens[i].token = InvalidToken;
+			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
+			SharedTokens[i].session_id = InvalidSession;
+			SharedTokens[i].user_id = InvalidOid;
+			SharedTokens[i].endpoint_cnt = 0;
+			SharedTokens[i].all_seg = false;
+			memset(SharedTokens[i].dbIds, 0, sizeof(int32) * MAX_NWORDS);
+			break;
+		}
+	}
+	LWLockRelease(TokensDSMLWLock);
+	return found;
 }
 
 /*
