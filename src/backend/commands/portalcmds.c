@@ -286,6 +286,12 @@ PerformPortalFetch(FetchStmt *stmt,
 				        errhint("Using 'EXECUTE PARALLEL CURSOR' statement instead.")));
 		}
 	}
+	if (is_parallel && !CheckParallelCursorPrivilege(portal->parallel_cursor_token)) {
+		ereport(ERROR,
+			(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				errmsg("The parallel cursor was created by a different user."),
+				errhint("Using the same user as the parallel cursor creator to execute.")));
+	}
 
 	/* Adjust dest if needed.  MOVE wants destination DestNone */
 	if (stmt->ismove)

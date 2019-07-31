@@ -124,6 +124,8 @@ extern TupleDesc TupleDescOfRetrieve(void);
 extern void RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest);
 extern void DetachEndpoint(bool reset_pid);
 
+/* Check if the given token is created by the current user. */
+extern bool CheckParallelCursorPrivilege(int64 token);
 
 /* Utilities */
 extern int64 GpToken(void);

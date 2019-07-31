@@ -148,9 +148,6 @@ END
 
 
 --------- Test2: Admin should NOT be able to execute other user's parallel cursor
---- FIXME: This test doesn't work for now. When admin execute u1's parallel cursor,
----        the endpoint will belong to admin. Then the u1 won't be able to see the
----        endpoint in retrieve mode.
 --- c1 is declared by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
@@ -167,10 +164,16 @@ SET
 --------------
  adminuser    
 (1 row)
---- FIXME: ENABLE THIS
---1&: EXECUTE PARALLEL CURSOR c1;
-1: CLOSE c1;
-CLOSE
+1: EXECUTE PARALLEL CURSOR c1;
+ERROR:  The parallel cursor was created by a different user.
+HINT:  Using the same user as the parallel cursor creator to execute.
+2: SELECT usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
+ usename | status   
+---------+----------
+ u1      | RELEASED 
+ u1      | RELEASED 
+ u1      | RELEASED 
+(3 rows)
 1: END;
 END
 
@@ -194,8 +197,6 @@ DECLARE
 (3 rows)
 
 --- adminuser should NOT be able to retrieve from other's parallel cursor
---- FIXME: The error message "ERROR:  failed to attach non-existing endpoint of token
----        tk06467030257775938939 (cdbendpoint.c:1774)" is not user friendly.
 *R: SET SESSION AUTHORIZATION adminuser;
 SET
 
@@ -227,11 +228,14 @@ SET
 *R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
 ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
 
-ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
+ERROR:  The parallel cursor was created by a different user.
+HINT:  Using the same user as the parallel cursor creator to retrieve.
 
-ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
+ERROR:  The parallel cursor was created by a different user.
+HINT:  Using the same user as the parallel cursor creator to retrieve.
 
-ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
+ERROR:  The parallel cursor was created by a different user.
+HINT:  Using the same user as the parallel cursor creator to retrieve.
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
@@ -341,11 +345,14 @@ SET
 *R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
 ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
 
-ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
+ERROR:  The parallel cursor was created by a different user.
+HINT:  Using the same user as the parallel cursor creator to retrieve.
 
-ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
+ERROR:  The parallel cursor was created by a different user.
+HINT:  Using the same user as the parallel cursor creator to retrieve.
 
-ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
+ERROR:  The parallel cursor was created by a different user.
+HINT:  Using the same user as the parallel cursor creator to retrieve.
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
@@ -392,14 +399,13 @@ DECLARE
 1: SET SESSION AUTHORIZATION u2;
 SET
 1: EXECUTE PARALLEL CURSOR c1;
-ERROR:  permission denied for relation t1
+ERROR:  The parallel cursor was created by a different user.
+HINT:  Using the same user as the parallel cursor creator to execute.
 
 1: END;
 END
 
 --------- Test7: u2 should NOT be able to execute other u1's parallel cursor even when it can access t1
---- FIXME: This test doesn't work for now. Similar as the admin case.
---- c1 is declared by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
 1: BEGIN;
@@ -414,8 +420,21 @@ SET
 GRANT
 1: SET SESSION AUTHORIZATION u2;
 SET
---- FIXME: Enable below
--- 1: EXECUTE PARALLEL CURSOR c1;
+1: EXECUTE PARALLEL CURSOR c1;
+ERROR:  The parallel cursor was created by a different user.
+HINT:  Using the same user as the parallel cursor creator to execute.
 
+1: END;
+END
+
+--------- Test8: u2 should NOT be able to execute parallel cursor for table t2 since it cannot access t2
+1: SET SESSION AUTHORIZATION u2;
+SET
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+DECLARE
+1: EXECUTE PARALLEL CURSOR c1;
+ERROR:  permission denied for relation t1
 1: END;
 END

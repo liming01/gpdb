@@ -1275,6 +1275,7 @@ AttachEndpoint(void)
 	bool		is_other_pid = false;	/* indicate other process has been
 										 * attached to this token before */
 	bool		is_invalid_sendpid = false;
+	bool 		has_privilege = true;
 	pid_t		attached_pid = InvalidPid;
 
 	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
@@ -1291,9 +1292,12 @@ AttachEndpoint(void)
 	{
 		if (SharedEndpoints[i].database_id == MyDatabaseId &&
 			SharedEndpoints[i].token == EndpointCtl.Gp_token &&
-			SharedEndpoints[i].user_id == GetUserId() &&
 			!SharedEndpoints[i].empty)
 		{
+			if (SharedEndpoints[i].user_id != GetUserId()) {
+				has_privilege = false;
+				break;
+			}
 			if (SharedEndpoints[i].sender_pid == InvalidPid)
 			{
 				is_invalid_sendpid = true;
@@ -1335,6 +1339,13 @@ AttachEndpoint(void)
 	}
 
 	LWLockRelease(EndpointsLWLock);
+
+	if (!has_privilege) {
+		ereport(ERROR,
+			(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				errmsg("The parallel cursor was created by a different user."),
+				errhint("Using the same user as the parallel cursor creator to retrieve.")));
+	}
 
 	if (is_invalid_sendpid)
 	{
@@ -1691,6 +1702,27 @@ DetachEndpoint(bool reset_pid)
 
     my_shared_endpoint = NULL;
     currentMQEntry = NULL;
+}
+
+/*
+ * Returns true if the given token is created by the current user.
+ */
+bool
+CheckParallelCursorPrivilege(int64 token) {
+	bool result = false;
+
+	Assert(IsUnderPostmaster);
+	LWLockAcquire(TokensDSMLWLock, LW_SHARED);
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedTokens[i].token == token)
+		{
+			result = SharedTokens[i].user_id == GetUserId();
+			break;
+		}
+	}
+	LWLockRelease(TokensDSMLWLock);
+	return result;
 }
 
 /*
