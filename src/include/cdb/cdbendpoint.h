@@ -13,7 +13,7 @@
  * When the parallel cursor executed, user can setup retrieve mode connection
  * (in retrieve mode connection, the libpq authentication will not depends on
  * pg_hba) to all endpoints for retrieving result data parallelly. The RETRIEVE
- * statement hebavior is similar to the "FETCH count" statement, while it only
+ * statement behavior is similar to the "FETCH count" statement, while it only
  * can be executed in retrieve mode connection to endpoint.
  *
  *
