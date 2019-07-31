@@ -248,10 +248,11 @@ main(int argc, char **argv)
 	}
 
 	/*
-	 * call it to suspend the main thread, so that the thread of "execute the
-	 * parallel cursor" will run fistly
+	 * Call it to suspend the main thread, so that the thread of "execute the
+	 * parallel cursor" will run fistly, which will make the statement printed
+	 * out not misunderstanding. This is not necessary for functionality.
 	 */
-	usleep(1);
+    usleep(1);
 
 	/*
 	 * Waiting for the status to becomes 'READY', and then retrieve the result
@@ -286,7 +287,7 @@ LABEL_RETRY:
 			goto LABEL_RETRY;
 		}
 
-		snprintf(sql, sizeof(sql), "RETRIEVE ALL FROM %s", token);
+		snprintf(sql, sizeof(sql), "RETRIEVE ALL FROM %s;", token);
 		exec_sql_with_resultset(endpoint_conns[i], sql);
 		printf("\n------ End retrieving data from Endpoint %d# ------.\n", i);
 	}
