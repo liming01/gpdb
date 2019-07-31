@@ -61,7 +61,18 @@ installcheck: install
 installcheck-resgroup: install
 	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_resgroup --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2resgrouptest --load-extension=gp_inject_fault --schedule=$(srcdir)/isolation2_resgroup_schedule
 
-installcheck-parallel-cursor: install
+# Parallel cursor related tests require 3 running segment. Some issues have been seen on CI that
+# one segment is not running during the test. Add check here to make it fails earlier.
+installcheck-parallel-cursor-check-segments:
+	gp_state=$$(gpstate) && \
+	seg_count=$$(echo "$${gp_state}" | grep "Total primary segment valid (at master)" | awk '{print $$NF}') ; \
+	if [ "$$seg_count" != 3 ] ; then \
+		echo "The tests require 3 valid segments." ; \
+		echo "$$gp_state" ; \
+		exit -1 ; \
+	fi
+
+installcheck-parallel-cursor: install installcheck-parallel-cursor-check-segments
 	# before running test, set statement_timeout to 1 minute so that even if some
 	# error make 'EXECUTE PARALLEL CURSOR' hang, it will be canceled when timeout.
 	default_master_timeout=$$(gpconfig -s statement_timeout | grep "Master" | cut -d':' -f2) && \
@@ -70,6 +81,6 @@ installcheck-parallel-cursor: install
 	gpconfig -s statement_timeout && \
 	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_cursor --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2parallelcursor --schedule=$(srcdir)/parallel_cursor_schedule ; \
 	ret=$$? ; \
-	gpconfig -c statement_timeout -v $${default_segment_timeout} -m $${default_master_timeout} && gpstop -u ; \
+	gpconfig -c statement_timeout -v $${default_segment_timeout} -m $${default_master_timeout} && gpstop -u && \
 	gpconfig -s statement_timeout && \
 	exit $${ret}
