@@ -487,7 +487,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 			if (SharedTokens[i].token == InvalidToken)
 			{
 				/* pretend to set a valid token */
-				strncpy(SharedTokens[i].cursor_name, FJ_CURSOR, strlen(FJ_CURSOR));
+				snprintf(SharedTokens[i].cursor_name, NAMEDATALEN, "%s", FJ_CURSOR);
 				SharedTokens[i].session_id = session_id;
 				SharedTokens[i].token = DummyToken;
 				SharedTokens[i].user_id = user_id;
@@ -512,7 +512,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 	{
 		if (SharedTokens[i].token == InvalidToken)
 		{
-			strncpy(SharedTokens[i].cursor_name, name, strlen(name));
+			snprintf(SharedTokens[i].cursor_name, NAMEDATALEN, "%s", name);
 			SharedTokens[i].session_id = session_id;
 			SharedTokens[i].token = token;
 			SharedTokens[i].user_id = user_id;
