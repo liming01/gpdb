@@ -218,6 +218,9 @@ main(int argc, char **argv)
 	 */
 	for (i = 0; i < ntup; i++)
 	{
+		char* host = PQgetvalue(res1, i, 0);
+		char* port = PQgetvalue(res1, i, 1);
+
 		if (i == 0)
 		{
 			/*
@@ -226,10 +229,9 @@ main(int argc, char **argv)
 			 */
 			token = strdup(PQgetvalue(res1, i, 2));
 		}
-
-		endpoint_conns[i] = PQsetdbLogin(PQgetvalue(res1, i, 0), PQgetvalue(res1, i, 1),
-									  pgoptions_retrieve_mode, pgtty, dbName,
-										 NULL, PQgetvalue(res1, i, 2));
+		endpoint_conns[i] = PQsetdbLogin(host, port, pgoptions_retrieve_mode,
+										 pgtty, dbName,
+										 NULL, token);
 		check_prepare_conn(endpoint_conns[i], dbName);
 	}
 	PQclear(res1);
