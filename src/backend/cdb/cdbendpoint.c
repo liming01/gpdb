@@ -239,8 +239,8 @@ static void create_and_connect_mq(TupleDesc tupleDesc);
 static void wait_receiver(void);
 static void sender_finish(void);
 static void sender_close(void);
-static void unset_endpoint_sender_pid(volatile EndpointDesc * endPointDesc);
-static void unset_endpoint_receiver_pid(volatile EndpointDesc * endPointDesc);
+static void unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc);
+static void signal_receiver_abort(volatile EndpointDesc *endPointDesc);
 static void endpoint_cleanup(void);
 static void register_endpoint_callbacks(void);
 static void sender_xact_abort_callback(XactEvent ev, void* vp);
@@ -1068,51 +1068,30 @@ sender_close(void)
 static void
 unset_endpoint_sender_pid(volatile EndpointDesc * endPointDesc)
 {
-    pid_t		pid;
-
-    if (!endPointDesc && !endPointDesc->empty)
+    if (!endPointDesc || (endPointDesc && endPointDesc->empty))
         return;
 
     /*
      * Since the receiver is not in the session, sender has the duty to cancel
      * it
      */
-    unset_endpoint_receiver_pid(endPointDesc);
+	signal_receiver_abort(endPointDesc);
 
-    while (true)
-    {
-        pid = InvalidPid;
+	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
 
-        LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	/*
+	 * Only the endpoint QE/QD execute this unset sender pid function.
+	 * The sender pid in Endpoint entry must be MyProcPid or InvalidPid.
+	 * Note the "gp_operate_endpoints_token" UDF dispatch comment.
+	 */
+	Assert(MyProcPid == endPointDesc->sender_pid || endPointDesc->sender_pid == InvalidPid);
+	if (MyProcPid == endPointDesc->sender_pid) {
+		endPointDesc->sender_pid = InvalidPid;
+		ResetLatch(&endPointDesc->ack_done);
+		DisownLatch(&endPointDesc->ack_done);
+	}
 
-        pid = endPointDesc->sender_pid;
-
-        /*
-         * Only reset by this process itself, other process just send signal
-         * to sendpid
-         */
-        if (pid == MyProcPid)
-        {
-            endPointDesc->sender_pid = InvalidPid;
-            ResetLatch(&endPointDesc->ack_done);
-            DisownLatch(&endPointDesc->ack_done);
-        }
-
-        LWLockRelease(EndpointsLWLock);
-        if (pid != InvalidPid && pid != MyProcPid)
-        {
-            if (kill(pid, SIGINT) < 0)
-            {
-                /* no permission or non-existing */
-                if (errno == EPERM || errno == ESRCH)
-                    break;
-                else
-                    elog(WARNING, "failed to kill sender process(pid: %d): %m", (int) pid);
-            }
-        }
-        else
-            break;
-    }
+	LWLockRelease(EndpointsLWLock);
 }
 
 /*
@@ -1120,45 +1099,24 @@ unset_endpoint_sender_pid(volatile EndpointDesc * endPointDesc)
  * Called by endpoint.
  */
 static void
-unset_endpoint_receiver_pid(volatile EndpointDesc * endPointDesc)
+signal_receiver_abort(volatile EndpointDesc *endPointDesc)
 {
     pid_t		receiver_pid;
     bool		is_attached;
 
-    if (!endPointDesc && !endPointDesc->empty)
+    if (!endPointDesc || (endPointDesc && endPointDesc->empty))
         return;
 
-    while (true)
-    {
-        receiver_pid = InvalidPid;
-        is_attached = false;
+	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
 
-        LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	receiver_pid = endPointDesc->receiver_pid;
+	is_attached = endPointDesc->attach_status == Status_Attached;
 
-        receiver_pid = endPointDesc->receiver_pid;
-        is_attached = endPointDesc->attach_status == Status_Attached;
-
-        if (receiver_pid == MyProcPid)
-        {
-            endPointDesc->receiver_pid = InvalidPid;
-            endPointDesc->attach_status = Status_NotAttached;
-        }
-
-        LWLockRelease(EndpointsLWLock);
-        if (receiver_pid != InvalidPid && is_attached && receiver_pid != MyProcPid)
-        {
-            if (kill(receiver_pid, SIGINT) < 0)
-            {
-                /* no permission or non-existing */
-                if (errno == EPERM || errno == ESRCH)
-                    break;
-                else
-                    elog(WARNING, "failed to kill sender process(pid: %d): %m", (int) receiver_pid);
-            }
-        }
-        else
-            break;
-    }
+	LWLockRelease(EndpointsLWLock);
+	if (receiver_pid != InvalidPid && is_attached && receiver_pid != MyProcPid)
+	{
+		pg_signal_backend(receiver_pid, SIGINT, "Signal the receiver to abort.");
+	}
 }
 
 /*
@@ -2347,6 +2305,10 @@ static char * endpoint_status_enum_to_string(EndpointStatus *ep_status)
  * gp_operate_endpoints_token - Operation for EndpointDesc entries on endpoint.
  *
  * Alloc/free/unset sender pid operations for a EndpointDesc entry base on the token.
+ *
+ * We dispatch this UDF by "CdbDispatchCommandToSegments" and "CdbDispatchCommand",
+ * It'll always dispatch to writer gang, which is the gang that allocate endpoints on.
+ * Since we always allocate endpoints on the top most slice gang.
  */
 Datum
 gp_operate_endpoints_token(PG_FUNCTION_ARGS)
