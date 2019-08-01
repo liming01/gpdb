@@ -1712,7 +1712,7 @@ CheckParallelCursorPrivilege(int64 token) {
 	bool result = false;
 
 	Assert(IsUnderPostmaster);
-	LWLockAcquire(TokensDSMLWLock, LW_SHARED);
+	LWLockAcquire(TokensLWLock, LW_SHARED);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedTokens[i].token == token)
@@ -1721,7 +1721,7 @@ CheckParallelCursorPrivilege(int64 token) {
 			break;
 		}
 	}
-	LWLockRelease(TokensDSMLWLock);
+	LWLockRelease(TokensLWLock);
 	return result;
 }
 
