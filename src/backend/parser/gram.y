@@ -11904,14 +11904,14 @@ RetrieveStmt:
 			RETRIEVE SignedIconst FROM name
 				{
 					RetrieveStmt *n = makeNode(RetrieveStmt);
-					n->token = parseToken($4);
+					n->token = ParseToken($4);
 					n->count = $2;
 					$$ = (Node *)n;
 				}
 			| RETRIEVE ALL FROM name
 				{
 					RetrieveStmt *n = makeNode(RetrieveStmt);
-					n->token = parseToken($4);
+					n->token = ParseToken($4);
 					n->count = -1;
 					n->is_all = true;
 					$$ = (Node *)n;

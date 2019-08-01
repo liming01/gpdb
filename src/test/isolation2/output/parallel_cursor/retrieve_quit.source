@@ -108,10 +108,10 @@ DECLARE
 
 -- a new retrieve session
 3R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE 10 FROM "@TOKEN1";
-ERROR:  Endpoint token_id1 is already attached by receiver(pid: 50084) (cdbendpoint.c:1339)
+ERROR:  Endpoint token_id1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
 3R: @in_sh 'sub @TOKEN2 $TOKEN2' : RETRIEVE all FROM "@TOKEN2";
-ERROR:  Endpoint token_id2 is already attached by receiver(pid: 50084) (cdbendpoint.c:1339)
+ERROR:  Endpoint token_id2 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
 3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
  a  
@@ -195,9 +195,9 @@ ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished
 (9 rows)
 
 *R: @in_sh 'sub @TOKEN2 $TOKEN2' : RETRIEVE all FROM "@TOKEN2";
-ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c:1342)
+ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpointretrieve.c:214)
 
-ERROR:  Endpoint token_id2 is already attached by receiver(pid: PID) (cdbendpoint.c:LINENO)
+ERROR:  Endpoint token_id2 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
 
  a  

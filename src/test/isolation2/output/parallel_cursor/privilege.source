@@ -125,7 +125,7 @@ SET
 
 SET
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a 
 ---
@@ -226,7 +226,7 @@ SET
  adminuser    
 (1 row)
 *R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
-ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpointretrieve.c:214)
 
 ERROR:  The parallel cursor was created by a different user.
 HINT:  Using the same user as the parallel cursor creator to retrieve.
@@ -247,7 +247,7 @@ SET
 
 SET
 *R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
-ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpointretrieve.c:214)
 
  a 
 ---
@@ -343,7 +343,7 @@ SET
 
 --- u2 is not able to retrieve from u1's endpoints in RETRIEVE mode
 *R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
-ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpointretrieve.c:214)
 
 ERROR:  The parallel cursor was created by a different user.
 HINT:  Using the same user as the parallel cursor creator to retrieve.
@@ -364,7 +364,7 @@ SET
 
 SET
 *R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
-ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpoint.c:1774)
+ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpointretrieve.c:214)
 
  a 
 ---

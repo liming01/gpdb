@@ -81,7 +81,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:949)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
 
  a  
 ----
@@ -296,7 +296,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN2 $TOKEN2' : RETRIEVE ALL FROM "@TOKEN2";
-ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c:948)
+ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpointretrieve.c:LINENO)
 
  a  
 ----
@@ -481,14 +481,14 @@ ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"  (seg0 12
 --------
 (0 rows)
 1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
 
 2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
 2R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
 
 1<:  <... completed>
 FAILED:  Execution failed
@@ -545,14 +545,14 @@ ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"  (seg1 12
 --------
 (0 rows)
 0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
 
 2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
  status 
 --------
 (0 rows)
 2R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
 
 1<:  <... completed>
 FAILED:  Execution failed
@@ -651,7 +651,7 @@ ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"  (seg0 12
 --------
 (0 rows)
 2R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
 
 1<:  <... completed>
 FAILED:  Execution failed

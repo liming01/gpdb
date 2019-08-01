@@ -30,17 +30,24 @@
 
 #include <inttypes.h>
 
+#include "executor/tqueue.h"
+#include "storage/dsm.h"
+#include "storage/shm_toc.h"
 #include "nodes/parsenodes.h"
 #include "tcop/dest.h"
+#include "storage/lwlock.h"
 
 #define InvalidToken        (-1)
 #define InvalidSession      (-1)
 
-#define GP_ENDPOINT_STATUS_INIT		  "INIT"
-#define GP_ENDPOINT_STATUS_READY	  "READY"
-#define GP_ENDPOINT_STATUS_RETRIEVING "RETRIEVING"
-#define GP_ENDPOINT_STATUS_FINISH	  "FINISH"
-#define GP_ENDPOINT_STATUS_RELEASED   "RELEASED"
+#define MAX_NWORDS                       128
+#define MAX_ENDPOINT_SIZE                1024
+
+#define GP_ENDPOINT_STATUS_INIT          "INIT"
+#define GP_ENDPOINT_STATUS_READY         "READY"
+#define GP_ENDPOINT_STATUS_RETRIEVING    "RETRIEVING"
+#define GP_ENDPOINT_STATUS_FINISH        "FINISH"
+#define GP_ENDPOINT_STATUS_RELEASED      "RELEASED"
 
 /*
  * Roles that used in parallel cursor execution.
@@ -62,7 +69,8 @@ enum ParallelCursorExecRole
 /*
  * Endpoint allocate positions.
  */
-enum EndPointExecPosition {
+enum EndPointExecPosition
+{
 	ENDPOINT_ON_QD,
 	ENDPOINT_ON_SINGLE_QE,
 	ENDPOINT_ON_SOME_QE,
@@ -78,78 +86,172 @@ enum AttachStatus
 	Status_Prepared,
 	Status_Attached,
 	Status_Finished
-}	AttachStatus;
+} AttachStatus;
 
 /*
  * Retrieve role status.
  */
 enum RetrieveStatus
 {
-    RETRIEVE_STATUS_INVALID,
-    RETRIEVE_STATUS_INIT,
-    RETRIEVE_STATUS_GET_TUPLEDSCR,
-    RETRIEVE_STATUS_GET_DATA,
-    RETRIEVE_STATUS_FINISH,
+	RETRIEVE_STATUS_INVALID,
+	RETRIEVE_STATUS_INIT,
+	RETRIEVE_STATUS_GET_TUPLEDSCR,
+	RETRIEVE_STATUS_GET_DATA,
+	RETRIEVE_STATUS_FINISH,
 };
 
+/*
+ * ParallelCursorTokenDesc is a entry to store the information of a parallel cursor token.
+ * These entries are maintained in shared memory on QD.
+ */
+typedef struct ParallelCursorTokenDesc
+{
+	int64 token;                       /* Token number */
+	char cursor_name[NAMEDATALEN];     /* The parallel cursor's name */
+	int session_id;                    /* Which session created this parallel cursor */
+	int endpoint_cnt;                  /* How many endpoints are created */
+	Oid user_id;                       /* User ID of the current executed parallel cursor */
+	bool all_seg;                      /* A flag to indicate if the endpoints are on all segments */
+	int32 dbIds[MAX_NWORDS];           /* A bitmap stores the dbids of every endpoint, size is 4906 bits(32X128) */
+} ParallelCursorTokenDesc;
+
+/*
+ * Endpoint Description, entries are maintained in shared memory.
+ */
+typedef struct EndpointDesc
+{
+	Oid database_id;                   /* Database OID */
+	pid_t sender_pid;                  /* The PID of EPR_SENDER(endpoint), set before endpoint sends data */
+	pid_t receiver_pid;                /* The retrieve role's PID that connect to current endpoint */
+	int64 token;                       /* The token of the endpoint's running parallel cursor */
+	dsm_handle handle;                 /* DSM handle, which contains shared message queue */
+	Latch ack_done;                    /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
+	enum AttachStatus attach_status;   /* The attach status of the endpoint */
+	int session_id;                    /* Connection session id */
+	Oid user_id;                       /* User ID of the current executed parallel cursor */
+	bool empty;                        /* Whether current EndpointDesc slot in DSM is free */
+} EndpointDesc;
+
+/*
+ * Shared memory structure LWLocks for ParallelCursorTokenDesc entries
+ * and EndpointDesc entries.
+ */
+typedef struct EndpointSharedCTX
+{
+	int tranche_id;                    /* Tranche id for parallel cursor endpoint lwlocks.
+                                          Read only, don't need acquire lock*/
+	LWLockTranche tranche;
+	LWLockPadded *endpointLWLocks;     /* LWLocks to protect ParallelCursorTokenDesc entries
+                                          and EndpointDesc entries */
+} EndpointSharedCTX;
+
+/*
+ * For receiver, we have a hash table to store connected endpoint's shared message queue.
+ * So that we can retrieve from different endpoints in the same retriever and switch
+ * between different endpoints.
+ */
+typedef struct MsgQueueStatusEntry
+{
+	int64 retrieve_token;              /* The parallel cursor token, also as the hash table entry key */
+	dsm_segment *mq_seg;               /* The dsm handle which contains shared memory message queue */
+	shm_mq_handle *mq_handle;          /* Shared memory message queue */
+	TupleTableSlot *retrieve_ts;       /* tuple slot */
+	TupleQueueReader *tq_reader;
+	enum RetrieveStatus retrieve_status;
+} MsgQueueStatusEntry;
+
+/*
+ * Local structure to record current parallel cursor token and other info.
+ */
+typedef struct EndpointControl
+{
+	int64 Gp_token;                            /* Current parallel cursor token */
+	enum ParallelCursorExecRole Gp_pce_role;   /* Current parallel cursor role */
+	List *Endpoint_tokens;                     /* Tokens in current xact of current endpoint,
+                                                  we can clean them in case of exception */
+	List *Cursor_tokens;                       /* Tokens in current xact of QD, same purpose with Endpoint_tokens */
+} EndpointControl;
+
+typedef ParallelCursorTokenDesc *ParaCursorToken;
+typedef EndpointDesc *Endpoint;
+static MsgQueueStatusEntry *currentMQEntry = NULL;
+
+static volatile EndpointDesc *my_shared_endpoint = NULL;  /* Current EndpointDesc entry */
+
+/*
+ * Shared memory variables
+ */
+EndpointSharedCTX *endpointSC;
+
+#define EndpointsLWLock (LWLock*) endpointSC->endpointLWLocks    /* LWLocks to protect EndpointDesc entries */
+#define TokensLWLock (LWLock*)(endpointSC->endpointLWLocks + 1)  /* LWLocks to protect ParallelCursorTokenDesc entries */
+
+/* cbdendpoint.c */
 /* Endpoint shared memory context init */
 extern Size Endpoint_ShmemSize(void);
 extern void Endpoint_CTX_ShmemInit(void);
 
-/* Declare parallel cursor stage */
+/*
+ * Functions used in declare parallel cursor stage on QD.
+ */
 extern int64 GetUniqueGpToken(void);
+extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
+	const struct Plan *planTree);
+extern List *ChooseEndpointContentIDForParallelCursor(
+	const struct Plan *planTree, enum EndPointExecPosition *position);
 extern void AddParallelCursorToken(int64 token, const char *name, int session_id,
-                                   Oid user_id, bool all_seg, List *seg_list);
+								   Oid user_id, bool all_seg, List *seg_list);
 
-/* Execute parallel cursor stage, start sender job */
+/*
+ * Check if the given token is created by the current user.
+ * Called during EXECUTE CURSOR stage on QD.
+ */
+extern bool CheckParallelCursorPrivilege(int64 token);
+
+/* Functions used in execute parallel cursor stage, on Endpoint(QE/QD) */
 extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc);
 extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 
-/* Execute parallel cursor finish stage, unset sender pid and exit retrieve if needed */
+/* Functions used in execute parallel cursor finish stage, on Endpoint(QE/QD) */
 extern void UnsetSenderPidOfToken(int64 token);
 
-/* Remove parallel cursor during cursor portal drop/abort */
+/* Remove parallel cursor during cursor portal drop/abort, on QD */
 extern void DestoryParallelCursor(int64 token);
 
-/* Endpoint backend register/free, execute on endpoints(QE or QD) */
+/* Endpoint backend register/free, execute on endpoints(QE/QD) */
 extern void AllocEndpointOfToken(int64 token);
+
 extern void FreeEndpointOfToken(int64 token);
 
+/* Utilities */
+extern EndpointDesc *GetSharedEndpoints(void);
+extern EndpointControl *GetSharedEndpointControlPtr(void);
+extern int64 GpToken(void);
+extern void CheckTokenValid(void);
+extern void SetGpToken(int64 token);
+extern void ClearGpToken(void);
+extern int64 ParseToken(char *token);
+extern char *PrintToken(int64 token_id); /* Need to pfree() the result */
+extern List *GetContentIDsByToken(int64 token);
+extern void SetParallelCursorExecRole(enum ParallelCursorExecRole role);
+extern void ClearParallelCursorExecRole(void);
+extern enum ParallelCursorExecRole GetParallelCursorExecRole(void);
+extern const char *EndpointRoleToString(enum ParallelCursorExecRole role);
+
+/* UDFs for endpoints */
+extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
+extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
+extern Datum gp_endpoints_status_info(PG_FUNCTION_ARGS);
+
+
+/* cdbendpointretrieve.c */
 /* Retrieve role auth */
 extern bool FindEndpointTokenByUser(Oid user_id, const char *token_str);
 
 /* For retrieve role. Must have endpoint allocated */
 extern void AttachEndpoint(void);
 extern TupleDesc TupleDescOfRetrieve(void);
-extern void RetrieveResults(RetrieveStmt * stmt, DestReceiver *dest);
+extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
 extern void DetachEndpoint(bool reset_pid);
-
-/* Check if the given token is created by the current user. */
-extern bool CheckParallelCursorPrivilege(int64 token);
-
-/* Utilities */
-extern int64 GpToken(void);
-extern void SetGpToken(int64 token);
-extern void ClearGpToken(void);
-extern int64 parseToken(char *token);
-extern char* printToken(int64 token_id); /* Need to pfree() the result */
-
-extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
-	const struct Plan *planTree);
-extern List * ChooseEndpointContentIDForParallelCursor(
-	const struct Plan *planTree, enum EndPointExecPosition *position);
-
-extern void SetParallelCursorExecRole(enum ParallelCursorExecRole role);
-extern void ClearParallelCursorExecRole(void);
-extern enum ParallelCursorExecRole GetParallelCursorExecRole(void);
-
-extern List *GetContentIDsByToken(int64 token);
-
-
-/* UDFs for endpoint */
-extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
-
-extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
-extern Datum gp_endpoints_status_info(PG_FUNCTION_ARGS);
 
 #endif   /* CDBENDPOINT_H */

@@ -41,7 +41,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 ${TOKEN1}': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
 
  a  
 ----
@@ -202,7 +202,7 @@ DECLARE
 (3 rows)
 -- test RETRIEVE report error if parallel cursor not executed
 0R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE 10 FROM "@TOKEN2";
-ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED (cdbendpoint.c:866)
+ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED (cdbendpointretrieve.c:LINENO)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
 -- check initial status after "EXECUTE PARALLEL CURSOR"
@@ -321,7 +321,7 @@ ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED 
 (0 rows)
 -- finished retrieving all endpoints and check status
 *R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE ALL FROM "@TOKEN2";
-ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpointretrieve.c:LINENO)
 
  a  
 ----
@@ -477,7 +477,7 @@ DECLARE
 (10 rows)
 -- a new retrieve session should report error
 3R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE 10 FROM "@TOKEN3";
-ERROR:  Endpoint token_id3 is already attached by receiver(pid: PID) (cdbendpoint.c:1334)
+ERROR:  Endpoint token_id3 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
 -- quit this new retrieve session
 3Rq: ... <quitting>

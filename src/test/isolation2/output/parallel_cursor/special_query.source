@@ -58,7 +58,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:1262)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
 
  make_record 
 -------------

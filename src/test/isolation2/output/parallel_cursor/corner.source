@@ -162,7 +162,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a  
 ----
@@ -337,7 +337,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a  
 ----
@@ -508,11 +508,11 @@ DECLARE
  10 
 (10 rows)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
 1<:  <... completed>
 EXECUTE
@@ -559,11 +559,11 @@ DECLARE
 ---
 (0 rows)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
 1<:  <... completed>
 EXECUTE
@@ -610,7 +610,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a 
 ---
@@ -671,7 +671,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a     
 -------
@@ -742,7 +742,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a 
 ---
@@ -917,7 +917,7 @@ DECLARE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:874)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a | b 
 ---+---
@@ -1015,7 +1015,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a  
 ----
@@ -1153,7 +1153,7 @@ EXECUTE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a  
 ----
@@ -1313,7 +1313,7 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a  
 ----
@@ -1455,7 +1455,7 @@ EXECUTE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpoint.c:881)
+ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
 
  a  
 ----
