@@ -251,6 +251,56 @@ parallel_cursor_exit_callback(int code, Datum arg)
 }
 
 /*
+ * remove_parallel_cursor - remove parallel cursor from shared memory
+ */
+bool
+remove_parallel_cursor(int64 token, bool *on_qd, List **seg_list)
+{
+	Assert(token != InvalidToken);
+	bool found = false;
+
+	LWLockAcquire(TokensLWLock, LW_EXCLUSIVE);
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedTokens[i].token == token)
+		{
+			found = true;
+			if (on_qd != NULL && endpoint_on_qd(&SharedTokens[i]))
+			{
+				*on_qd = true;
+			} else
+			{
+				if (seg_list != NULL && !SharedTokens[i].all_seg)
+				{
+					int16 x = -1;
+					CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
+					while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
+					{
+						*seg_list = lappend_int(*seg_list, dbid_to_contentid(cdbs, x));
+					}
+					Assert((*seg_list)->length == SharedTokens[i].endpoint_cnt);
+				}
+			}
+
+			elog(DEBUG3, "CDB_ENDPOINT: <RemoveParallelCursorToken> removed token: "
+				INT64_FORMAT
+				", session id: %d, cursor name: %s from shared memory",
+				 token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
+			SharedTokens[i].token = InvalidToken;
+			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
+			SharedTokens[i].session_id = InvalidSession;
+			SharedTokens[i].user_id = InvalidOid;
+			SharedTokens[i].endpoint_cnt = 0;
+			SharedTokens[i].all_seg = false;
+			memset(SharedTokens[i].dbIds, 0, sizeof(int32) * MAX_NWORDS);
+			break;
+		}
+	}
+	LWLockRelease(TokensLWLock);
+	return found;
+}
+
+/*
  * GetUniqueGpToken - Generate an unique int64 token
  */
 int64
@@ -615,7 +665,7 @@ UnsetSenderPidOfToken(int64 token)
  * when cursor close and exception happens.
  */
 void
-DestoryParallelCursor(int64 token)
+DestroyParallelCursor(int64 token)
 {
 	Assert(token != InvalidToken);
 	bool found;
@@ -624,7 +674,15 @@ DestoryParallelCursor(int64 token)
 
 	found = remove_parallel_cursor(token, &on_qd, &seg_list);
 
-	if (found)
+	/*
+	 * During abort progress, the Endpoints'(on QE/QD) xact abort will
+	 * clean endpoint info. So there's no need dispatch the free endpoint
+	 * UDF cmd to Endpoints(on QE/QD).
+	 *
+	 * Also, if dispatch free endpoint UDF cmd to Endpoints during in
+	 * abort progress, it'll trigger "signal 6: Abort trap" exception.
+	 */
+	if (found && !IsAbortInProgress())
 	{
 		/* free end-point */
 		if (on_qd)
@@ -647,53 +705,6 @@ DestoryParallelCursor(int64 token)
 			}
 		}
 	}
-}
-
-bool
-remove_parallel_cursor(int64 token, bool *on_qd, List **seg_list)
-{
-	Assert(token != InvalidToken);
-	bool found = false;
-
-	LWLockAcquire(TokensLWLock, LW_EXCLUSIVE);
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (SharedTokens[i].token == token)
-		{
-			found = true;
-			if (on_qd != NULL && endpoint_on_qd(&SharedTokens[i]))
-			{
-				*on_qd = true;
-			} else
-			{
-				if (seg_list != NULL && !SharedTokens[i].all_seg)
-				{
-					int16 x = -1;
-					CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
-					while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
-					{
-						*seg_list = lappend_int(*seg_list, dbid_to_contentid(cdbs, x));
-					}
-					Assert((*seg_list)->length == SharedTokens[i].endpoint_cnt);
-				}
-			}
-
-			elog(DEBUG3, "CDB_ENDPOINT: <RemoveParallelCursorToken> removed token: "
-				INT64_FORMAT
-				", session id: %d, cursor name: %s from shared memory",
-				 token, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
-			SharedTokens[i].token = InvalidToken;
-			memset(SharedTokens[i].cursor_name, 0, NAMEDATALEN);
-			SharedTokens[i].session_id = InvalidSession;
-			SharedTokens[i].user_id = InvalidOid;
-			SharedTokens[i].endpoint_cnt = 0;
-			SharedTokens[i].all_seg = false;
-			memset(SharedTokens[i].dbIds, 0, sizeof(int32) * MAX_NWORDS);
-			break;
-		}
-	}
-	LWLockRelease(TokensLWLock);
-	return found;
 }
 
 /*

@@ -215,7 +215,7 @@ extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 extern void UnsetSenderPidOfToken(int64 token);
 
 /* Remove parallel cursor during cursor portal drop/abort, on QD */
-extern void DestoryParallelCursor(int64 token);
+extern void DestroyParallelCursor(int64 token);
 
 /* Endpoint backend register/free, execute on endpoints(QE/QD) */
 extern void AllocEndpointOfToken(int64 token);
