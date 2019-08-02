@@ -175,6 +175,10 @@ typedef struct EndpointControl
 typedef ParallelCursorTokenDesc *ParaCursorToken;
 typedef EndpointDesc *Endpoint;
 
+#define ENDPOINT_KEY_TUPLE_DESC_LEN     1
+#define ENDPOINT_KEY_TUPLE_DESC         2
+#define ENDPOINT_KEY_TUPLE_QUEUE        3
+
 extern EndpointSharedCTX *endpointSC;          /* Shared memory context with LWLocks */
 extern EndpointDesc *SharedEndpoints;          /* Point to EndpointDesc entries in shared memory */
 extern EndpointControl EndpointCtl;            /* Endpoint ctrl */
@@ -245,5 +249,10 @@ extern void AttachEndpoint(void);
 extern TupleDesc TupleDescOfRetrieve(void);
 extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
 extern void DetachEndpoint(bool reset_pid);
+
+extern ParallelCursorTokenDesc *SharedTokens;
+extern EndpointDesc *SharedEndpoints;
+extern bool endpoint_on_qd(ParaCursorToken token);
+extern bool dbid_has_token(ParaCursorToken token, int16 dbid);
 
 #endif   /* CDBENDPOINT_H */

@@ -27,17 +27,6 @@
 #include "utils/faultinjector.h"
 #include "utils/dynahash.h"
 
-#define ENDPOINT_KEY_TUPLE_DESC_LEN     1
-#define ENDPOINT_KEY_TUPLE_DESC         2
-#define ENDPOINT_KEY_TUPLE_QUEUE        3
-
-#define SHMEM_TOKENCTX                  "ShareTokenCTX"
-#define SHMEM_PARALLEL_CURSOR_ENTRIES   "SharedMemoryParallelCursorTokens"
-#define SHMEM_ENDPOINTS_ENTRIES         "SharedMemoryEndpointDescEntries"
-
-#define GP_ENDPOINTS_INFO_ATTRNUM       8
-
-
 /* Hash table to cache tuple descriptors for all tokens which have been retrieved
  * in this retrieve session */
 static HTAB *MsgQueueHTB = NULL;

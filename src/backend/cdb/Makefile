@@ -43,6 +43,7 @@ OBJS = cdbappendonlystorageformat.o \
 	   cdbvars.o cdbvarblock.o \
 	   partitionselection.o cdbdtxrecovery.o \
 	   cdbendpoint.o \
+	   cdbendpointutils.o \
 	   cdbendpointretrieve.o
 
 ifeq ($(PORTNAME),cygwin)
