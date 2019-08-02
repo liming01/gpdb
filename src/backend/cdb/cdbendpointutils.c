@@ -22,6 +22,9 @@
 #include "utils/builtins.h"
 
 #define GP_ENDPOINTS_INFO_ATTRNUM       8
+#define BITS_PER_BITMAPWORD             32
+#define WORDNUM(x)                      ((x) / BITS_PER_BITMAPWORD)
+#define BITNUM(x)                       ((x) % BITS_PER_BITMAPWORD)
 
 /*
  * EndpointStatus, EndpointsInfo and EndpointsStatusInfo structures are used
@@ -51,6 +54,28 @@ typedef struct
 	int endpoints_num;            /* number of EndpointDesc in the list */
 	int current_idx;              /* current index of EndpointDesc in the list */
 } EndpointsStatusInfo;
+
+/*
+ * Used for bigmap
+ */
+static const uint8 rightmost_one_pos[256] = {
+	0, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	7, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0
+};
 
 static EndpointStatus *
 find_endpoint_status(EndpointStatus *status_array, int number,
@@ -124,6 +149,119 @@ static char *endpoint_status_enum_to_string(EndpointStatus *ep_status)
 		/* called on QD, if endpoint status is null, and token info is not release*/
 		return GP_ENDPOINT_STATUS_RELEASED;
 	}
+}
+
+/*
+ * Return true if this end-point exists on QD.
+ */
+bool endpoint_on_qd(ParaCursorToken token)
+{
+	return (token->endpoint_cnt == 1) && (dbid_has_token(token, MASTER_DBID));
+}
+
+/*
+ * End-points with same token can exist in some or all segments.
+ * This function is to determine if the end-point exists in the segment(dbid).
+ */
+bool dbid_has_token(ParaCursorToken token, int16 dbid)
+{
+	if (token->all_seg)
+		return true;
+
+	return dbid_in_bitmap(token->dbIds, dbid);
+}
+
+/*
+ * If the dbid is in this bitmap.
+ */
+bool dbid_in_bitmap(int32 *bitmap, int16 dbid)
+{
+	if (dbid < 0 || dbid >= sizeof(int32) * 8 * MAX_NWORDS)
+		elog(ERROR, "invalid dbid");
+	if (bitmap == NULL)
+		elog(ERROR, "invalid dbid bitmap");
+
+	if ((bitmap[WORDNUM(dbid)] & ((uint32) 1 << BITNUM(dbid))) != 0)
+		return true;
+	return false;
+}
+
+/*
+ * Add a dbid into bitmap.
+ */
+void add_dbid_into_bitmap(int32 *bitmap, int16 dbid)
+{
+	if (dbid < 0 || dbid >= sizeof(int32) * 8 * MAX_NWORDS)
+		elog(ERROR, "invalid dbid");
+	if (bitmap == NULL)
+		elog(ERROR, "invalid dbid bitmap");
+
+	bitmap[WORDNUM(dbid)] |= ((uint32) 1 << BITNUM(dbid));
+}
+
+/*
+ * Get the next dbid from bitmap.
+ *	The typical pattern is to iterate the dbid bitmap
+ *
+ *		x = -1;
+ *		while ((x = get_next_dbid_from_bitmap(bitmap, x)) >= 0)
+ *			process member x;
+ *	This implementation is copied from bitmapset.c
+ */
+int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit)
+{
+	int wordnum;
+	uint32 mask;
+
+	if (bitmap == NULL)
+		elog(ERROR, "invalid dbid bitmap");
+
+	prevbit++;
+	mask = (~(uint32) 0) << BITNUM(prevbit);
+	for (wordnum = WORDNUM(prevbit); wordnum < MAX_NWORDS; wordnum++)
+	{
+		uint32 w = bitmap[wordnum];
+
+		/* ignore bits before prevbit */
+		w &= mask;
+
+		if (w != 0)
+		{
+			int result;
+
+			result = wordnum * BITS_PER_BITMAPWORD;
+			while ((w & 255) == 0)
+			{
+				w >>= 8;
+				result += 8;
+			}
+			result += rightmost_one_pos[w & 255];
+			return result;
+		}
+
+		/* in subsequent words, consider all bits */
+		mask = (~(bitmapword) 0);
+	}
+	return -2;
+}
+
+volatile EndpointDesc * find_endpoint_by_token(int64 token)
+{
+	EndpointDesc *res = NULL;
+
+	LWLockAcquire(EndpointsLWLock, LW_SHARED);
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (!SharedEndpoints[i].empty &&
+			SharedEndpoints[i].token == token)
+		{
+
+			res = &SharedEndpoints[i];
+			break;
+		}
+	}
+	LWLockRelease(EndpointsLWLock);
+	return res;
 }
 
 /*

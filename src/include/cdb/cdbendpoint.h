@@ -252,7 +252,13 @@ extern void DetachEndpoint(bool reset_pid);
 
 extern ParallelCursorTokenDesc *SharedTokens;
 extern EndpointDesc *SharedEndpoints;
+
+/* Utility functions to handle tokens and endpoints in shared memory */
 extern bool endpoint_on_qd(ParaCursorToken token);
 extern bool dbid_has_token(ParaCursorToken token, int16 dbid);
+extern bool dbid_in_bitmap(int32 *bitmap, int16 dbid);
+extern void add_dbid_into_bitmap(int32 *bitmap, int16 dbid);
+extern int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit);
+extern volatile EndpointDesc *find_endpoint_by_token(int64 token);
 
 #endif   /* CDBENDPOINT_H */
