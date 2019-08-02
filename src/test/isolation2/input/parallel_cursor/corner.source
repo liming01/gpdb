@@ -1,15 +1,15 @@
 DROP TABLE IF EXISTS t1;
-CREATE TABLE t1 (a INT);
+CREATE TABLE t1 (a INT) DISTRIBUTED by (a);
 insert into t1 select generate_series(1,100);
 DROP TABLE IF EXISTS t2;
-CREATE TABLE t2 (a INT);
+CREATE TABLE t2 (a INT) DISTRIBUTED by (a);
 DROP TABLE IF EXISTS t3;
-CREATE TABLE t3 (a text);
+CREATE TABLE t3 (a text) DISTRIBUTED by (a);
 COPY t3 FROM PROGRAM 'for i in `seq 1 10`; do echo ${i}test; done';
 DROP TABLE IF EXISTS t4;
-CREATE TABLE t4 (a text);
+CREATE TABLE t4 (a text) DISTRIBUTED by (a);
 DROP TABLE IF EXISTS t5;
-CREATE TABLE t5 (b INT);
+CREATE TABLE t5 (b INT) DISTRIBUTED by (b);
 INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
 -- Test1: close not executed parallel cursor

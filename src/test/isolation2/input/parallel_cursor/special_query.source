@@ -3,7 +3,7 @@
 
 --------- Test1: test for parallel cursor on select transient record types
 DROP TABLE IF EXISTS t1;
-CREATE TABLE t1 AS SELECT generate_series(1, 10) AS x;
+CREATE TABLE t1 AS SELECT generate_series(1, 10) AS x DISTRIBUTED by (x);
 
 CREATE OR REPLACE FUNCTION make_record(n int) RETURNS RECORD LANGUAGE plpgsql AS ' BEGIN RETURN CASE n WHEN 1 THEN ROW(1) WHEN 2 THEN ROW(1, 2) WHEN 3 THEN ROW(1, 2, 3) WHEN 4 THEN ROW(1, 2, 3, 4) ELSE ROW(1, 2, 3, 4, 5) END; END; ';
 
