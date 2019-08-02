@@ -174,14 +174,10 @@ typedef struct EndpointControl
 
 typedef ParallelCursorTokenDesc *ParaCursorToken;
 typedef EndpointDesc *Endpoint;
-static MsgQueueStatusEntry *currentMQEntry = NULL;
 
-static volatile EndpointDesc *my_shared_endpoint = NULL;  /* Current EndpointDesc entry */
-
-/*
- * Shared memory variables
- */
-EndpointSharedCTX *endpointSC;
+extern EndpointSharedCTX *endpointSC;          /* Shared memory context with LWLocks */
+extern EndpointDesc *SharedEndpoints;          /* Point to EndpointDesc entries in shared memory */
+extern EndpointControl EndpointCtl;            /* Endpoint ctrl */
 
 #define EndpointsLWLock (LWLock*) endpointSC->endpointLWLocks    /* LWLocks to protect EndpointDesc entries */
 #define TokensLWLock (LWLock*)(endpointSC->endpointLWLocks + 1)  /* LWLocks to protect ParallelCursorTokenDesc entries */
@@ -201,7 +197,6 @@ extern List *ChooseEndpointContentIDForParallelCursor(
 	const struct Plan *planTree, enum EndPointExecPosition *position);
 extern void AddParallelCursorToken(int64 token, const char *name, int session_id,
 								   Oid user_id, bool all_seg, List *seg_list);
-
 /*
  * Check if the given token is created by the current user.
  * Called during EXECUTE CURSOR stage on QD.
@@ -220,12 +215,9 @@ extern void DestoryParallelCursor(int64 token);
 
 /* Endpoint backend register/free, execute on endpoints(QE/QD) */
 extern void AllocEndpointOfToken(int64 token);
-
 extern void FreeEndpointOfToken(int64 token);
 
 /* Utilities */
-extern EndpointDesc *GetSharedEndpoints(void);
-extern EndpointControl *GetSharedEndpointControlPtr(void);
 extern int64 GpToken(void);
 extern void CheckTokenValid(void);
 extern void SetGpToken(int64 token);

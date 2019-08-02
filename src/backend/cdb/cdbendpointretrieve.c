@@ -27,10 +27,6 @@
 #include "utils/faultinjector.h"
 #include "utils/dynahash.h"
 
-/*
- * Macros
- */
-
 #define ENDPOINT_KEY_TUPLE_DESC_LEN     1
 #define ENDPOINT_KEY_TUPLE_DESC         2
 #define ENDPOINT_KEY_TUPLE_QUEUE        3
@@ -45,9 +41,10 @@
 /* Hash table to cache tuple descriptors for all tokens which have been retrieved
  * in this retrieve session */
 static HTAB *MsgQueueHTB = NULL;
+static MsgQueueStatusEntry *currentMQEntry = NULL;
 
-static EndpointDesc *SharedEndpoints = NULL;              /* Point to EndpointDesc entries in shared memory */
-static struct EndpointControl *EndpointCtlPtr = NULL;
+/* Current EndpointDesc entry */
+static volatile EndpointDesc *my_shared_endpoint = NULL;
 
 /* receiver which is a backend connected by retrieve mode */
 static void init_conn_for_receiver(void);
@@ -74,8 +71,6 @@ FindEndpointTokenByUser(Oid user_id, const char *token_str)
 	before_shmem_exit(retrieve_exit_callback, (Datum) 0);
 	RegisterSubXactCallback(retrieve_subxact_callback, NULL);
 	RegisterXactCallback(retrieve_xact_abort_callback, NULL);
-	SharedEndpoints = GetSharedEndpoints();
-	EndpointCtlPtr = GetSharedEndpointControlPtr();
 	LWLockAcquire(EndpointsLWLock, LW_SHARED);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -122,8 +117,8 @@ AttachEndpoint(void)
 	bool has_privilege = true;
 	pid_t attached_pid = InvalidPid;
 
-	if (EndpointCtlPtr->Gp_pce_role != PCER_RECEIVER)
-		elog(ERROR, "%s could not attach endpoint", EndpointRoleToString(EndpointCtlPtr->Gp_pce_role));
+	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
+		elog(ERROR, "%s could not attach endpoint", EndpointRoleToString(EndpointCtl.Gp_pce_role));
 
 	if (my_shared_endpoint)
 		elog(ERROR, "endpoint is already attached");
@@ -135,7 +130,7 @@ AttachEndpoint(void)
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedEndpoints[i].database_id == MyDatabaseId &&
-			SharedEndpoints[i].token == EndpointCtlPtr->Gp_token &&
+			SharedEndpoints[i].token == EndpointCtl.Gp_token &&
 			!SharedEndpoints[i].empty)
 		{
 			if (SharedEndpoints[i].user_id != GetUserId())
@@ -194,23 +189,23 @@ AttachEndpoint(void)
 	if (is_invalid_sendpid)
 	{
 		elog(ERROR, "the PARALLEL CURSOR related to endpoint token %s is not EXECUTED",
-			 PrintToken(EndpointCtlPtr->Gp_token));
+			 PrintToken(EndpointCtl.Gp_token));
 	}
 
 	if (already_attached)
 		elog(ERROR, "Endpoint %s is already being retrieved by receiver(pid: %d)",
-			 PrintToken(EndpointCtlPtr->Gp_token), attached_pid);
+			 PrintToken(EndpointCtl.Gp_token), attached_pid);
 
 	if (is_other_pid)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("Endpoint %s is already attached by receiver(pid: %d)",
-						   PrintToken(EndpointCtlPtr->Gp_token), attached_pid),
+						   PrintToken(EndpointCtl.Gp_token), attached_pid),
 					errdetail("An endpoint can be attached by only one retrieving session "
 							  "for each 'EXECUTE PARALLEL CURSOR'")));
 
 	if (!my_shared_endpoint)
-		elog(ERROR, "failed to attach non-existing endpoint of token %s", PrintToken(EndpointCtlPtr->Gp_token));
+		elog(ERROR, "failed to attach non-existing endpoint of token %s", PrintToken(EndpointCtl.Gp_token));
 
 	/*
 	 * Search all tokens that retrieved in this session, set
@@ -220,13 +215,13 @@ AttachEndpoint(void)
 	{
 		HASHCTL ctl;
 		MemSet(&ctl, 0, sizeof(ctl));
-		ctl.keysize = sizeof(EndpointCtlPtr->Gp_token);
+		ctl.keysize = sizeof(EndpointCtl.Gp_token);
 		ctl.entrysize = sizeof(MsgQueueStatusEntry);
 		ctl.hash = tag_hash;
 		MsgQueueHTB = hash_create("endpoint hash", MAX_ENDPOINT_SIZE, &ctl,
 								  (HASH_ELEM | HASH_FUNCTION));
 	}
-	currentMQEntry = hash_search(MsgQueueHTB, &EndpointCtlPtr->Gp_token, HASH_ENTER, &isFound);
+	currentMQEntry = hash_search(MsgQueueHTB, &EndpointCtl.Gp_token, HASH_ENTER, &isFound);
 	if (!isFound)
 	{
 		currentMQEntry->mq_seg = NULL;
@@ -270,7 +265,7 @@ init_conn_for_receiver(void)
 		elog(ERROR, "attach to shared message queue failed.");
 	}
 	dsm_pin_mapping(dsm_seg);
-	shm_toc *toc = shm_toc_attach(EndpointCtlPtr->Gp_token, dsm_segment_address(dsm_seg));
+	shm_toc *toc = shm_toc_attach(EndpointCtl.Gp_token, dsm_segment_address(dsm_seg));
 	shm_mq *mq = shm_toc_lookup(toc, ENDPOINT_KEY_TUPLE_QUEUE);
 	shm_mq_set_receiver(mq, MyProc);
 	currentMQEntry->mq_handle = shm_mq_attach(mq, dsm_seg, NULL);
@@ -509,9 +504,9 @@ receiver_mq_close(void)
 void
 DetachEndpoint(bool reset_pid)
 {
-	if (EndpointCtlPtr->Gp_pce_role != PCER_RECEIVER ||
+	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER ||
 		!my_shared_endpoint ||
-		EndpointCtlPtr->Gp_token == InvalidToken)
+		EndpointCtl.Gp_token == InvalidToken)
 		return;
 
 	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
@@ -526,7 +521,7 @@ DetachEndpoint(bool reset_pid)
 	 * is not current retrieve token. Nothing should be done.
 	 */
 	if (!my_shared_endpoint->empty &&
-		EndpointCtlPtr->Gp_token == my_shared_endpoint->token)
+		EndpointCtl.Gp_token == my_shared_endpoint->token)
 	{
 		/*
 		 * If the receiver pid get retrieve_cancel_action, the pid is InvalidToken
@@ -564,7 +559,7 @@ retrieve_cancel_action(int64 token, char *msg)
 	 * If current role is not receiver, the retrieve must already finished success
 	 * or get cleaned before.
 	 */
-	if (EndpointCtlPtr->Gp_pce_role != PCER_RECEIVER)
+	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
 		elog(DEBUG3, "CDB_ENDPOINT: retrieve_cancel_action current role is not receiver.");
 
 	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
@@ -664,11 +659,11 @@ static void retrieve_xact_abort_callback(XactEvent ev, void *vp)
 	elog(DEBUG3, "CDB_ENDPOINT: retrieve xact abort callback");
 	if (ev == XACT_EVENT_ABORT)
 	{
-		if (EndpointCtlPtr->Gp_pce_role == PCER_RECEIVER &&
+		if (EndpointCtl.Gp_pce_role == PCER_RECEIVER &&
 			my_shared_endpoint != NULL &&
-			EndpointCtlPtr->Gp_token != InvalidToken)
+			EndpointCtl.Gp_token != InvalidToken)
 		{
-			retrieve_cancel_action(EndpointCtlPtr->Gp_token, "Endpoint retrieve statement aborted");
+			retrieve_cancel_action(EndpointCtl.Gp_token, "Endpoint retrieve statement aborted");
 			DetachEndpoint(true);
 		}
 		ClearGpToken();

@@ -48,10 +48,6 @@
 #include "utils/elog.h"
 #include "utils/faultinjector.h"
 
-/*
- * Macros
- */
-
 #define TOKEN_STR_LEN                   21     /* length 21 = length of max int64 value + '\0' */
 #define WAIT_RECEIVE_TIMEOUT            50
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
@@ -101,7 +97,7 @@ typedef struct
 } EndpointsStatusInfo;
 
 /*
- * Static variables
+ * Used for bigmap
  */
 static const uint8 rightmost_one_pos[256] = {
 	0, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
@@ -122,12 +118,16 @@ static const uint8 rightmost_one_pos[256] = {
 	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0
 };
 
-static ParallelCursorTokenDesc *SharedTokens = NULL;      /* Point to ParallelCursorTokenDesc entries in shared memory */
-static EndpointDesc *SharedEndpoints = NULL;              /* Point to EndpointDesc entries in shared memory */
+EndpointSharedCTX *endpointSC = NULL;                    /* Shared memory context with LWLocks */
+static ParallelCursorTokenDesc *SharedTokens = NULL;     /* Point to ParallelCursorTokenDesc entries in shared memory */
+EndpointDesc *SharedEndpoints = NULL;                    /* Point to EndpointDesc entries in shared memory */
 
-static struct EndpointControl EndpointCtl = {
+struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
 	InvalidToken, PCER_NONE, NIL, NIL
 };
+
+static MsgQueueStatusEntry *currentMQEntry = NULL;       /* Current message queue entry */
+static volatile EndpointDesc *my_shared_endpoint = NULL; /* Current EndpointDesc entry */
 
 /* Endpoint and parallel cursor token helper function */
 static void init_shared_endpoints(void *address);
@@ -1180,17 +1180,6 @@ static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid
 	{
 		sender_xact_abort_callback(XACT_EVENT_ABORT, arg);
 	}
-}
-
-EndpointDesc *
-GetSharedEndpoints(void)
-{
-	return SharedEndpoints;
-}
-
-EndpointControl *GetSharedEndpointControlPtr(void)
-{
-	return &EndpointCtl;
 }
 
 /*
