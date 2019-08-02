@@ -77,7 +77,7 @@ installcheck-parallel-cursor: install installcheck-parallel-cursor-check-segment
 	# setting when it is supported.
 	# before running test, set statement_timeout to 1 minute so that even if some
 	# error make 'EXECUTE PARALLEL CURSOR' hang, it will be canceled when timeout.
-	default_optimizer=$$(gpconfig -s optimizer) && \
+	default_optimizer=$$(gpconfig -s optimizer | grep "Master" | cut -d':' -f2) && \
 	default_master_timeout=$$(gpconfig -s statement_timeout | grep "Master" | cut -d':' -f2) && \
 	default_segment_timeout=$$(gpconfig -s statement_timeout | grep "Segment" | cut -d':' -f2) && \
 	gpconfig -c statement_timeout -v 60000 && \

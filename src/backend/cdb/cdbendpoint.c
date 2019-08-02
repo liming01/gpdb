@@ -51,10 +51,6 @@
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
 #define DummyToken                      (0)    /* For fault injection */
 
-#define ENDPOINT_KEY_TUPLE_DESC_LEN     1
-#define ENDPOINT_KEY_TUPLE_DESC         2
-#define ENDPOINT_KEY_TUPLE_QUEUE        3
-
 #define SHMEM_TOKENCTX                  "ShareTokenCTX"
 #define SHMEM_PARALLEL_CURSOR_ENTRIES   "SharedMemoryParallelCursorTokens"
 #define SHMEM_ENDPOINTS_ENTRIES         "SharedMemoryEndpointDescEntries"
@@ -62,10 +58,6 @@
 EndpointSharedCTX *endpointSC = NULL;                    /* Shared memory context with LWLocks */
 ParallelCursorTokenDesc *SharedTokens = NULL;            /* Point to ParallelCursorTokenDesc entries in shared memory */
 EndpointDesc *SharedEndpoints = NULL;                    /* Point to EndpointDesc entries in shared memory */
-
-struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
-	InvalidToken, PCER_NONE, NIL, NIL
-};
 
 static MsgQueueStatusEntry *currentMQEntry = NULL;       /* Current message queue entry */
 static volatile EndpointDesc *my_shared_endpoint = NULL; /* Current EndpointDesc entry */
@@ -92,7 +84,6 @@ static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid
 
 /* utility */
 static int16 dbid_to_contentid(CdbComponentDatabases *dbs, int16 dbid);
-extern char *get_token_name_format_str(void);
 static void check_end_point_allocated(void);
 static void set_attach_status(enum AttachStatus status);
 
@@ -102,7 +93,7 @@ static void set_attach_status(enum AttachStatus status);
  * The size contains LWLocks and EndpointSharedCTX.
  */
 Size
-Endpoint_ShmemSize(void)
+EndpointShmemSize(void)
 {
 	Size size;
 	size = MAXALIGN(sizeof(EndpointSharedCTX));
@@ -119,7 +110,7 @@ Endpoint_ShmemSize(void)
  * Endpoint_CTX_ShmemInit - Init shared memory structure for parallel cursor execute.
  */
 void
-Endpoint_CTX_ShmemInit(void)
+EndpointCTXShmemInit(void)
 {
 	bool is_shmem_ready;
 	Size offset;
@@ -508,6 +499,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 }
 
 /*
+ * Check if the given token is created by the current user.
  * Returns true if the given token is created by the current user.
  */
 bool
@@ -527,6 +519,121 @@ CheckParallelCursorPrivilege(int64 token)
 	}
 	LWLockRelease(TokensLWLock);
 	return result;
+}
+
+/*
+ * GetContentIDsByToken - get endpoint content ids.
+ */
+List *
+GetContentIDsByToken(int64 token)
+{
+	List *l = NIL;
+
+	LWLockAcquire(TokensLWLock, LW_SHARED);
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (SharedTokens[i].token == token)
+		{
+			if (SharedTokens[i].all_seg)
+			{
+				l = NIL;
+				break;
+			} else
+			{
+				int16 x = -1;
+				CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
+
+				while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
+				{
+					l = lappend_int(l, dbid_to_contentid(cdbs, x));
+				}
+				Assert(l->length == SharedTokens[i].endpoint_cnt);
+				break;
+			}
+		}
+	}
+	LWLockRelease(TokensLWLock);
+	return l;
+}
+
+/*
+ * DestoryParallelCursor - Remove the target token information from parallel
+ * cursor token shared memory. We need clean the token from shared memory
+ * when cursor close and exception happens.
+ */
+void
+DestroyParallelCursor(int64 token)
+{
+	Assert(token != InvalidToken);
+	bool found;
+	bool on_qd = false;
+	List *seg_list = NIL;
+
+	found = remove_parallel_cursor(token, &on_qd, &seg_list);
+
+	/*
+	 * During abort progress, the Endpoints'(on QE/QD) xact abort will
+	 * clean endpoint info. So there's no need dispatch the free endpoint
+	 * UDF cmd to Endpoints(on QE/QD).
+	 *
+	 * Also, if dispatch free endpoint UDF cmd to Endpoints during in
+	 * abort progress, it'll trigger "signal 6: Abort trap" exception.
+	 */
+	if (found && !IsAbortInProgress())
+	{
+		/* free end-point */
+		if (on_qd)
+		{
+			FreeEndpointOfToken(token);
+		} else
+		{
+			char cmd[255];
+			sprintf(cmd, "select __gp_operate_endpoints_token('f', '"
+				INT64_FORMAT
+				"')", token);
+			if (seg_list != NIL)
+			{
+				/* dispatch to some segments. */
+				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, seg_list, NULL);
+			} else
+			{
+				/* dispatch to all segments. */
+				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+			}
+		}
+	}
+}
+
+/*
+ * Obtain the content-id of a segment by given dbid
+ */
+static int16
+dbid_to_contentid(CdbComponentDatabases *cdbs, int16 dbid)
+{
+	/* Can only run on a master node. */
+	if (!IS_QUERY_DISPATCHER())
+		elog(ERROR, "dbid_to_contentid() should only execute on execution segments");
+
+	for (int i = 0; i < cdbs->total_entry_dbs; i++)
+	{
+		CdbComponentDatabaseInfo *cdi = &cdbs->entry_db_info[i];
+		if (cdi->config->dbid == dbid)
+		{
+			return cdi->config->segindex;
+		}
+	}
+
+	for (int i = 0; i < cdbs->total_segment_dbs; i++)
+	{
+		CdbComponentDatabaseInfo *cdi = &cdbs->segment_db_info[i];
+		if (cdi->config->dbid == dbid)
+		{
+			return cdi->config->segindex;
+		}
+	}
+
+	elog(ERROR, "CDB_ENDPOINT: No content id for current dbid %d", dbid);
+	return -2; // Should not reach this line.
 }
 
 /*
@@ -657,54 +764,6 @@ UnsetSenderPidOfToken(int64 token)
 			"", token);
 	}
 	unset_endpoint_sender_pid(endPointDesc);
-}
-
-/*
- * DestoryParallelCursor - Remove the target token information from parallel
- * cursor token shared memory. We need clean the token from shared memory
- * when cursor close and exception happens.
- */
-void
-DestroyParallelCursor(int64 token)
-{
-	Assert(token != InvalidToken);
-	bool found;
-	bool on_qd = false;
-	List *seg_list = NIL;
-
-	found = remove_parallel_cursor(token, &on_qd, &seg_list);
-
-	/*
-	 * During abort progress, the Endpoints'(on QE/QD) xact abort will
-	 * clean endpoint info. So there's no need dispatch the free endpoint
-	 * UDF cmd to Endpoints(on QE/QD).
-	 *
-	 * Also, if dispatch free endpoint UDF cmd to Endpoints during in
-	 * abort progress, it'll trigger "signal 6: Abort trap" exception.
-	 */
-	if (found && !IsAbortInProgress())
-	{
-		/* free end-point */
-		if (on_qd)
-		{
-			FreeEndpointOfToken(token);
-		} else
-		{
-			char cmd[255];
-			sprintf(cmd, "select __gp_operate_endpoints_token('f', '"
-				INT64_FORMAT
-				"')", token);
-			if (seg_list != NIL)
-			{
-				/* dispatch to some segments. */
-				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, seg_list, NULL);
-			} else
-			{
-				/* dispatch to all segments. */
-				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
-			}
-		}
-	}
 }
 
 /*
@@ -1122,209 +1181,6 @@ static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid
 	{
 		sender_xact_abort_callback(XACT_EVENT_ABORT, arg);
 	}
-}
-
-/*
- * Return the value of static variable Gp_token
- */
-int64
-GpToken(void)
-{
-	return EndpointCtl.Gp_token;
-}
-
-void
-CheckTokenValid(void)
-{
-	if (Gp_role == GP_ROLE_EXECUTE && EndpointCtl.Gp_token == InvalidToken)
-		elog(ERROR, "invalid endpoint token");
-}
-
-/*
- * Set the variable Gp_token
- */
-void
-SetGpToken(int64 token)
-{
-	if (EndpointCtl.Gp_token != InvalidToken)
-		elog(ERROR, "endpoint token %s is already set", PrintToken(EndpointCtl.Gp_token));
-
-	EndpointCtl.Gp_token = token;
-}
-
-/*
- * Clear the variable Gp_token
- */
-void
-ClearGpToken(void)
-{
-	EndpointCtl.Gp_token = InvalidToken;
-}
-
-/*
- * Convert the string tk0123456789 to int 0123456789
- */
-int64
-ParseToken(char *token)
-{
-	int64 token_id = InvalidToken;
-	char *tokenFmtStr = get_token_name_format_str();
-
-	if (token[0] == tokenFmtStr[0] && token[1] == tokenFmtStr[1])
-	{
-		token_id = atoll(token + 2);
-	} else
-	{
-		elog(ERROR, "invalid token \"%s\"", token);
-	}
-
-	return token_id;
-}
-
-/*
- * Generate a string tk0123456789 from int 0123456789
- *
- * Note: need to pfree() the result
- */
-char *
-PrintToken(int64 token_id)
-{
-	Insist(token_id != InvalidToken);
-
-	char *res = palloc(23);        /* length 13 = 2('tk') + 20(length of max int64 value) + 1('\0') */
-
-	sprintf(res, get_token_name_format_str(), token_id);
-	return res;
-}
-
-List *
-GetContentIDsByToken(int64 token)
-{
-	List *l = NIL;
-
-	LWLockAcquire(TokensLWLock, LW_SHARED);
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (SharedTokens[i].token == token)
-		{
-			if (SharedTokens[i].all_seg)
-			{
-				l = NIL;
-				break;
-			} else
-			{
-				int16 x = -1;
-				CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
-
-				while ((x = get_next_dbid_from_bitmap(SharedTokens[i].dbIds, x)) >= 0)
-				{
-					l = lappend_int(l, dbid_to_contentid(cdbs, x));
-				}
-				Assert(l->length == SharedTokens[i].endpoint_cnt);
-				break;
-			}
-		}
-	}
-	LWLockRelease(TokensLWLock);
-	return l;
-}
-
-/*
- * Set the role of endpoint, sender or receiver
- */
-void
-SetParallelCursorExecRole(enum ParallelCursorExecRole role)
-{
-	if (EndpointCtl.Gp_pce_role != PCER_NONE)
-		elog(ERROR, "endpoint role %s is already set",
-			 EndpointRoleToString(EndpointCtl.Gp_pce_role));
-
-	elog(DEBUG3, "CDB_ENDPOINT: set endpoint role to %s", EndpointRoleToString(role));
-
-	EndpointCtl.Gp_pce_role = role;
-}
-
-/*
- * Clear the role of endpoint
- */
-void
-ClearParallelCursorExecRole(void)
-{
-	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint role %s", EndpointRoleToString(EndpointCtl.Gp_pce_role));
-
-	EndpointCtl.Gp_pce_role = PCER_NONE;
-}
-
-/*
- * Return the value of static variable Gp_pce_role
- */
-enum ParallelCursorExecRole GetParallelCursorExecRole(void)
-{
-	return EndpointCtl.Gp_pce_role;
-}
-
-const char *
-EndpointRoleToString(enum ParallelCursorExecRole role)
-{
-	switch (role)
-	{
-		case PCER_SENDER:
-			return "[END POINT SENDER]";
-
-		case PCER_RECEIVER:
-			return "[END POINT RECEIVER]";
-
-		case PCER_NONE:
-			return "[END POINT NONE]";
-
-		default:
-			elog(ERROR, "unknown end point role %d", role);
-			return NULL;
-	}
-}
-
-/*
- * Obtain the content-id of a segment by given dbid
- */
-static int16
-dbid_to_contentid(CdbComponentDatabases *cdbs, int16 dbid)
-{
-	/* Can only run on a master node. */
-	if (!IS_QUERY_DISPATCHER())
-		elog(ERROR, "dbid_to_contentid() should only execute on execution segments");
-
-	for (int i = 0; i < cdbs->total_entry_dbs; i++)
-	{
-		CdbComponentDatabaseInfo *cdi = &cdbs->entry_db_info[i];
-		if (cdi->config->dbid == dbid)
-		{
-			return cdi->config->segindex;
-		}
-	}
-
-	for (int i = 0; i < cdbs->total_segment_dbs; i++)
-	{
-		CdbComponentDatabaseInfo *cdi = &cdbs->segment_db_info[i];
-		if (cdi->config->dbid == dbid)
-		{
-			return cdi->config->segindex;
-		}
-	}
-
-	elog(ERROR, "CDB_ENDPOINT: No content id for current dbid %d", dbid);
-	return -2; // Should not reach this line.
-}
-
-char *
-get_token_name_format_str(void)
-{
-	static char tokenNameFmtStr[64] = "";
-	if (strlen(tokenNameFmtStr) == 0)
-	{
-		char *p = INT64_FORMAT;
-		snprintf(tokenNameFmtStr, sizeof(tokenNameFmtStr), "tk%%020%s", p + 1);
-	}
-	return tokenNameFmtStr;
 }
 
 static void

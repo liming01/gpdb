@@ -180,6 +180,7 @@ typedef EndpointDesc *Endpoint;
 #define ENDPOINT_KEY_TUPLE_QUEUE        3
 
 extern EndpointSharedCTX *endpointSC;          /* Shared memory context with LWLocks */
+extern ParallelCursorTokenDesc *SharedTokens;  /* Point to ParallelCursorTokenDesc entries in shared memory */
 extern EndpointDesc *SharedEndpoints;          /* Point to EndpointDesc entries in shared memory */
 extern EndpointControl EndpointCtl;            /* Endpoint ctrl */
 
@@ -188,12 +189,13 @@ extern EndpointControl EndpointCtl;            /* Endpoint ctrl */
 
 /* cbdendpoint.c */
 /* Endpoint shared memory context init */
-extern Size Endpoint_ShmemSize(void);
-extern void Endpoint_CTX_ShmemInit(void);
+extern Size EndpointShmemSize(void);
+extern void EndpointCTXShmemInit(void);
 
 /*
- * Functions used in declare parallel cursor stage on QD.
+ * Below functions should run on dispatcher.
  */
+/* Functions used in declare parallel cursor stage on QD. */
 extern int64 GetUniqueGpToken(void);
 extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
 	const struct Plan *planTree);
@@ -201,64 +203,63 @@ extern List *ChooseEndpointContentIDForParallelCursor(
 	const struct Plan *planTree, enum EndPointExecPosition *position);
 extern void AddParallelCursorToken(int64 token, const char *name, int session_id,
 								   Oid user_id, bool all_seg, List *seg_list);
-/*
- * Check if the given token is created by the current user.
- * Called during EXECUTE CURSOR stage on QD.
- */
+/* Called during EXECUTE CURSOR stage on QD. */
 extern bool CheckParallelCursorPrivilege(int64 token);
-
-/* Functions used in execute parallel cursor stage, on Endpoint(QE/QD) */
-extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc);
-extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
-
-/* Functions used in execute parallel cursor finish stage, on Endpoint(QE/QD) */
-extern void UnsetSenderPidOfToken(int64 token);
-
+/* Get Content ID for Endpoints in execute parallel cursor finish stage on QD*/
+extern List *GetContentIDsByToken(int64 token);
 /* Remove parallel cursor during cursor portal drop/abort, on QD */
 extern void DestroyParallelCursor(int64 token);
 
-/* Endpoint backend register/free, execute on endpoints(QE/QD) */
+/*
+ * Below functions should run on Endpoints(QE/QD).
+ */
+/* Functions used in execute parallel cursor stage, on Endpoints(QE/QD) */
+extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc);
+extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
+/* Function used in execute parallel cursor finish stage, on Endpoints(QE/QD) */
+extern void UnsetSenderPidOfToken(int64 token);
+/* Endpoint backend register/free, execute on Endpoints(QE/QD) */
 extern void AllocEndpointOfToken(int64 token);
 extern void FreeEndpointOfToken(int64 token);
 
-/* Utilities */
+/* UDFs for endpoints operation */
+extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
+
+
+/* cdbendpointretrieve.c */
+/*
+ * Below functions should run on retrieve role backend.
+ */
+extern bool FindEndpointTokenByUser(Oid user_id, const char *token_str);
+extern void AttachEndpoint(void);
+extern TupleDesc TupleDescOfRetrieve(void);
+extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
+extern void DetachEndpoint(bool reset_pid);
+
+
+/* cdbendpointutils.c */
+/* Utility functions */
 extern int64 GpToken(void);
 extern void CheckTokenValid(void);
 extern void SetGpToken(int64 token);
 extern void ClearGpToken(void);
 extern int64 ParseToken(char *token);
 extern char *PrintToken(int64 token_id); /* Need to pfree() the result */
-extern List *GetContentIDsByToken(int64 token);
 extern void SetParallelCursorExecRole(enum ParallelCursorExecRole role);
 extern void ClearParallelCursorExecRole(void);
 extern enum ParallelCursorExecRole GetParallelCursorExecRole(void);
 extern const char *EndpointRoleToString(enum ParallelCursorExecRole role);
 
-/* UDFs for endpoints */
-extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
-extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
-extern Datum gp_endpoints_status_info(PG_FUNCTION_ARGS);
-
-
-/* cdbendpointretrieve.c */
-/* Retrieve role auth */
-extern bool FindEndpointTokenByUser(Oid user_id, const char *token_str);
-
-/* For retrieve role. Must have endpoint allocated */
-extern void AttachEndpoint(void);
-extern TupleDesc TupleDescOfRetrieve(void);
-extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
-extern void DetachEndpoint(bool reset_pid);
-
-extern ParallelCursorTokenDesc *SharedTokens;
-extern EndpointDesc *SharedEndpoints;
-
 /* Utility functions to handle tokens and endpoints in shared memory */
-extern bool endpoint_on_qd(ParaCursorToken token);
-extern bool dbid_has_token(ParaCursorToken token, int16 dbid);
+extern bool endpoint_on_qd(ParaCursorToken para_cursor_token);
+extern bool dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid);
 extern bool dbid_in_bitmap(int32 *bitmap, int16 dbid);
 extern void add_dbid_into_bitmap(int32 *bitmap, int16 dbid);
 extern int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit);
 extern volatile EndpointDesc *find_endpoint_by_token(int64 token);
+
+/* UDFs for endpoints info*/
+extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
+extern Datum gp_endpoints_status_info(PG_FUNCTION_ARGS);
 
 #endif   /* CDBENDPOINT_H */

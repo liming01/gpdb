@@ -77,6 +77,152 @@ static const uint8 rightmost_one_pos[256] = {
 	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0
 };
 
+struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
+	InvalidToken, PCER_NONE, NIL, NIL
+};
+
+/* utility */
+static char *get_token_name_format_str(void);
+
+/*
+ * Return the value of static variable Gp_token
+ */
+int64
+GpToken(void)
+{
+	return EndpointCtl.Gp_token;
+}
+
+void
+CheckTokenValid(void)
+{
+	if (Gp_role == GP_ROLE_EXECUTE && EndpointCtl.Gp_token == InvalidToken)
+		elog(ERROR, "invalid endpoint token");
+}
+
+/*
+ * Set the variable Gp_token
+ */
+void
+SetGpToken(int64 token)
+{
+	if (EndpointCtl.Gp_token != InvalidToken)
+		elog(ERROR, "endpoint token %s is already set", PrintToken(EndpointCtl.Gp_token));
+
+	EndpointCtl.Gp_token = token;
+}
+
+/*
+ * Clear the variable Gp_token
+ */
+void
+ClearGpToken(void)
+{
+	EndpointCtl.Gp_token = InvalidToken;
+}
+
+/*
+ * Convert the string tk0123456789 to int 0123456789
+ */
+int64
+ParseToken(char *token)
+{
+	int64 token_id = InvalidToken;
+	char *tokenFmtStr = get_token_name_format_str();
+
+	if (token[0] == tokenFmtStr[0] && token[1] == tokenFmtStr[1])
+	{
+		token_id = atoll(token + 2);
+	} else
+	{
+		elog(ERROR, "invalid token \"%s\"", token);
+	}
+
+	return token_id;
+}
+
+/*
+ * Generate a string tk0123456789 from int 0123456789
+ *
+ * Note: need to pfree() the result
+ */
+char *
+PrintToken(int64 token_id)
+{
+	Insist(token_id != InvalidToken);
+
+	char *res = palloc(23);        /* length 13 = 2('tk') + 20(length of max int64 value) + 1('\0') */
+
+	sprintf(res, get_token_name_format_str(), token_id);
+	return res;
+}
+
+/*
+ * Set the role of endpoint, sender or receiver
+ */
+void
+SetParallelCursorExecRole(enum ParallelCursorExecRole role)
+{
+	if (EndpointCtl.Gp_pce_role != PCER_NONE)
+		elog(ERROR, "endpoint role %s is already set",
+			 EndpointRoleToString(EndpointCtl.Gp_pce_role));
+
+	elog(DEBUG3, "CDB_ENDPOINT: set endpoint role to %s", EndpointRoleToString(role));
+
+	EndpointCtl.Gp_pce_role = role;
+}
+
+/*
+ * Clear the role of endpoint
+ */
+void
+ClearParallelCursorExecRole(void)
+{
+	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint role %s", EndpointRoleToString(EndpointCtl.Gp_pce_role));
+
+	EndpointCtl.Gp_pce_role = PCER_NONE;
+}
+
+/*
+ * Return the value of static variable Gp_pce_role
+ */
+enum ParallelCursorExecRole GetParallelCursorExecRole(void)
+{
+	return EndpointCtl.Gp_pce_role;
+}
+
+const char *
+EndpointRoleToString(enum ParallelCursorExecRole role)
+{
+	switch (role)
+	{
+		case PCER_SENDER:
+			return "[END POINT SENDER]";
+
+		case PCER_RECEIVER:
+			return "[END POINT RECEIVER]";
+
+		case PCER_NONE:
+			return "[END POINT NONE]";
+
+		default:
+			elog(ERROR, "unknown end point role %d", role);
+			return NULL;
+	}
+}
+
+char *
+get_token_name_format_str(void)
+{
+	static char tokenNameFmtStr[64] = "";
+	if (strlen(tokenNameFmtStr) == 0)
+	{
+		char *p = INT64_FORMAT;
+		snprintf(tokenNameFmtStr, sizeof(tokenNameFmtStr), "tk%%020%s", p + 1);
+	}
+	return tokenNameFmtStr;
+}
+
 static EndpointStatus *
 find_endpoint_status(EndpointStatus *status_array, int number,
 					 int64 token, int dbid)
@@ -154,21 +300,21 @@ static char *endpoint_status_enum_to_string(EndpointStatus *ep_status)
 /*
  * Return true if this end-point exists on QD.
  */
-bool endpoint_on_qd(ParaCursorToken token)
+bool endpoint_on_qd(ParaCursorToken para_cursor_token)
 {
-	return (token->endpoint_cnt == 1) && (dbid_has_token(token, MASTER_DBID));
+	return (para_cursor_token->endpoint_cnt == 1) && (dbid_has_token(para_cursor_token, MASTER_DBID));
 }
 
 /*
  * End-points with same token can exist in some or all segments.
  * This function is to determine if the end-point exists in the segment(dbid).
  */
-bool dbid_has_token(ParaCursorToken token, int16 dbid)
+bool dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid)
 {
-	if (token->all_seg)
+	if (para_cursor_token->all_seg)
 		return true;
 
-	return dbid_in_bitmap(token->dbIds, dbid);
+	return dbid_in_bitmap(para_cursor_token->dbIds, dbid);
 }
 
 /*
