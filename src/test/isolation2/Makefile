@@ -66,9 +66,9 @@ installcheck-resgroup: install
 installcheck-parallel-cursor-check-segments:
 	gp_state=$$(gpstate) && \
 	seg_count=$$(echo "$${gp_state}" | grep "Total primary segment valid (at master)" | awk '{print $$NF}') ; \
-	if [ "$$seg_count" != 3 ] ; then \
+	if [ -z "$${seg_count}" ] || [ "$${seg_count}" != 3 ] ; then \
 		echo "The tests require 3 valid segments." ; \
-		echo "$$gp_state" ; \
+		echo "gpstate is: \n $${gp_state}" ; \
 		exit -1 ; \
 	fi
 
@@ -80,6 +80,12 @@ installcheck-parallel-cursor: install installcheck-parallel-cursor-check-segment
 	default_optimizer=$$(gpconfig -s optimizer | grep "Master" | cut -d':' -f2) && \
 	default_master_timeout=$$(gpconfig -s statement_timeout | grep "Master" | cut -d':' -f2) && \
 	default_segment_timeout=$$(gpconfig -s statement_timeout | grep "Segment" | cut -d':' -f2) && \
+	if [ -z "$${default_optimizer}" ] || [ -z "$${default_master_timeout}" ] || [ -z "$${default_segment_timeout}" ] ; then \
+	  echo " \n --- default_optimizer is: $${default_optimizer} ---"; \
+	  echo " --- default_master_timeout is: $${default_master_timeout} ---"; \
+	  echo " --- default_segment_timeout is: $${default_segment_timeout} ---"; \
+	  echo " Get gpconfig returns empty result " && exit -1; \
+	fi; \
 	gpconfig -c statement_timeout -v 60000 && \
 	gpconfig -c optimizer -v false && \
 	gpstop -u && \
