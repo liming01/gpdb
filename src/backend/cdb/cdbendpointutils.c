@@ -42,9 +42,8 @@ typedef struct
 typedef struct
 {
 	int curTokenIdx;              /* current index in shared token list. */
-	GpSegConfigEntry *seg_db_list;
-	int segment_num;              /* number of segments */
-	int curSegIdx;                /* current index of segment id */
+	CdbComponentDatabases *cdbs;
+	int currIdx;                   /* current index of node (master + segment) id */
 	EndpointStatus *status;
 	int status_num;
 } EndpointsInfo;
@@ -302,19 +301,32 @@ static char *endpoint_status_enum_to_string(EndpointStatus *ep_status)
  */
 bool endpoint_on_qd(ParaCursorToken para_cursor_token)
 {
-	return (para_cursor_token->endpoint_cnt == 1) && (dbid_has_token(para_cursor_token, MASTER_DBID));
+	return (para_cursor_token->endpoint_cnt == 1) && (para_cursor_token->endPointExecPosition == ENDPOINT_ON_QD);
 }
 
 /*
  * End-points with same token can exist in some or all segments.
  * This function is to determine if the end-point exists in the segment(dbid).
  */
-bool dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid)
+bool
+seg_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid)
 {
-	if (para_cursor_token->all_seg)
+	if (para_cursor_token->endPointExecPosition == ENDPOINT_ON_ALL_QE)
 		return true;
 
 	return dbid_in_bitmap(para_cursor_token->dbIds, dbid);
+}
+
+/*
+ * This function is to determine if the end-point exists on the master(dbid).
+ */
+bool
+master_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid)
+{
+	if (para_cursor_token->endPointExecPosition == ENDPOINT_ON_QD)
+		return dbid_in_bitmap(para_cursor_token->dbIds, dbid);
+
+	return false;
 }
 
 /*
@@ -470,9 +482,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		mystatus = (EndpointsInfo *) palloc0(sizeof(EndpointsInfo));
 		funcctx->user_fctx = (void *) mystatus;
 		mystatus->curTokenIdx = 0;
-		mystatus->seg_db_list = cdbcomponent_getComponentInfo(MASTER_CONTENT_ID)->cdbs->segment_db_info->config;
-		mystatus->segment_num = cdbcomponent_getComponentInfo(MASTER_CONTENT_ID)->cdbs->total_segment_dbs;
-		mystatus->curSegIdx = 0;
+		mystatus->cdbs = cdbcomponent_getCdbComponents();
+		mystatus->currIdx= 0;
 		mystatus->status = NULL;
 		mystatus->status_num = 0;
 
@@ -569,133 +580,80 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	LWLockAcquire(TokensLWLock, LW_SHARED);
 	while (mystatus->curTokenIdx < MAX_ENDPOINT_SIZE && SharedTokens != NULL)
 	{
-		memset(values, 0, sizeof(values));
-		memset(nulls, 0, sizeof(nulls));
-		Datum result;
+
 		GpSegConfigEntry *dbinfo;
 
 		ParaCursorToken entry = &SharedTokens[mystatus->curTokenIdx];
 
 		if (entry->token != InvalidToken
-			&& (superuser() || entry->user_id == GetUserId()))
+			&& (superuser() || entry->user_id == GetUserId())
+			&& (entry->session_id == gp_session_id|| is_all))
 		{
-			if (endpoint_on_qd(entry))
+			CdbComponentDatabases *cdb_dbs = mystatus->cdbs;
+			while (cdb_dbs != NULL && mystatus->currIdx
+				< cdb_dbs->total_segment_dbs + cdb_dbs->total_entry_dbs)
 			{
-				if (gp_session_id == entry->session_id || is_all)
-				{
-					/* one end-point on master */
-					dbinfo = dbid_get_dbinfo(MASTER_DBID);
+				CdbComponentDatabaseInfo *db;
+				bool dbid_has_token = false;
 
+				if (mystatus->currIdx < cdb_dbs->total_entry_dbs){
+					db = &cdb_dbs->entry_db_info[mystatus->currIdx];
+					dbid_has_token = master_dbid_has_token(entry, db->config->dbid);
+				}
+				else{
+					db = &cdb_dbs->segment_db_info[mystatus->currIdx - cdb_dbs->total_entry_dbs];
+					dbid_has_token = seg_dbid_has_token(entry, db->config->dbid);
+				}
+
+				mystatus->currIdx++;
+
+				dbinfo = db->config;
+				if (dbinfo->role == 'p' && dbid_has_token)
+				{
+					/* get a primary node and return this token with this node info*/
+					Datum result;
 					char *token = PrintToken(entry->token);
 
+					memset(values, 0, sizeof(values));
+					memset(nulls, 0, sizeof(nulls));
+
 					values[0] = CStringGetTextDatum(token);
-					nulls[0] = false;
+					nulls[0]  = false;
 					values[1] = CStringGetTextDatum(entry->cursor_name);
-					nulls[1] = false;
+					nulls[1]  = false;
 					values[2] = Int32GetDatum(entry->session_id);
-					nulls[2] = false;
+					nulls[2]  = false;
 					values[3] = CStringGetTextDatum(dbinfo->hostname);
-					nulls[3] = false;
+					nulls[3]  = false;
 					values[4] = Int32GetDatum(dbinfo->port);
-					nulls[4] = false;
-					values[5] = Int32GetDatum(MASTER_DBID);
-					nulls[5] = false;
+					nulls[4]  = false;
+					values[5] = Int32GetDatum(dbinfo->dbid);
+					nulls[5]  = false;
 					values[6] = ObjectIdGetDatum(entry->user_id);
-					nulls[6] = false;
+					nulls[6]  = false;
 
 					/*
 					 * find out the status of end-point
 					 */
-					EndpointStatus *ep_status = find_endpoint_status(mystatus->status, mystatus->status_num,
-																	 entry->token, MASTER_DBID);
-					values[7] = CStringGetTextDatum(endpoint_status_enum_to_string(ep_status));
-					nulls[7] = false;
+					EndpointStatus *qe_status = find_endpoint_status(mystatus->status,
+						                                  mystatus->status_num,
+						                                  entry->token,
+						                                  dbinfo->dbid);
+					values[7] = CStringGetTextDatum(endpoint_status_enum_to_string( qe_status));
+					nulls[7]  = false;
 
-					mystatus->curTokenIdx++;
-					tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+					tuple  = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 					result = HeapTupleGetDatum(tuple);
 					LWLockRelease(TokensLWLock);
-					SRF_RETURN_NEXT(funcctx, result);
 					pfree(token);
-				} else
-				{
-					mystatus->curTokenIdx++;
-				}
-			} else
-			{
-				/* end-points on segments */
-				while ((mystatus->curSegIdx < mystatus->segment_num) &&
-					   ((mystatus->seg_db_list[mystatus->curSegIdx].role != 'p') ||
-						!dbid_has_token(entry, mystatus->seg_db_list[mystatus->curSegIdx].dbid)))
-				{
-					mystatus->curSegIdx++;
-				}
-
-				if (mystatus->curSegIdx == mystatus->segment_num)
-				{
-					/* go to the next token */
-					mystatus->curTokenIdx++;
-					mystatus->curSegIdx = 0;
-				} else if (mystatus->seg_db_list[mystatus->curSegIdx].role == 'p'
-						   && mystatus->curSegIdx < mystatus->segment_num)
-				{
-					if (gp_session_id == entry->session_id || is_all)
-					{
-						/* get a primary segment and return this token and segment */
-						char *token = PrintToken(entry->token);
-
-						values[0] = CStringGetTextDatum(token);
-						nulls[0] = false;
-						values[1] = CStringGetTextDatum(entry->cursor_name);
-						nulls[1] = false;
-						values[2] = Int32GetDatum(entry->session_id);
-						nulls[2] = false;
-						values[3] = CStringGetTextDatum(mystatus->seg_db_list[mystatus->curSegIdx].hostname);
-						nulls[3] = false;
-						values[4] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].port);
-						nulls[4] = false;
-						values[5] = Int32GetDatum(mystatus->seg_db_list[mystatus->curSegIdx].dbid);
-						nulls[5] = false;
-						values[6] = ObjectIdGetDatum(entry->user_id);
-						nulls[6] = false;
-
-						/*
-						 * find out the status of end-point
-						 */
-						EndpointStatus *qe_status = find_endpoint_status(mystatus->status,
-																		 mystatus->status_num,
-																		 entry->token,
-																		 mystatus->seg_db_list[mystatus->curSegIdx].dbid);
-						values[7] = CStringGetTextDatum(endpoint_status_enum_to_string(qe_status));
-						nulls[7] = false;
-
-						mystatus->curSegIdx++;
-						if (mystatus->curSegIdx == mystatus->segment_num)
-						{
-							mystatus->curTokenIdx++;
-							mystatus->curSegIdx = 0;
-						}
-
-						tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-						result = HeapTupleGetDatum(tuple);
-						LWLockRelease(TokensLWLock);
-						SRF_RETURN_NEXT(funcctx, result);
-						pfree(token);
-					} else
-					{
-						mystatus->curSegIdx++;
-						if (mystatus->curSegIdx == mystatus->segment_num)
-						{
-							mystatus->curTokenIdx++;
-							mystatus->curSegIdx = 0;
-						}
-					}
+					SRF_RETURN_NEXT(funcctx, result);
 				}
 			}
-		} else
-		{
-			mystatus->curTokenIdx++;
+			/* go to the next token so reset currIdx to 0 */
+			mystatus->currIdx= 0;
 		}
+		/* go to the next token */
+		mystatus->curTokenIdx++;
 	}
 	LWLockRelease(TokensLWLock);
 	SRF_RETURN_DONE(funcctx);

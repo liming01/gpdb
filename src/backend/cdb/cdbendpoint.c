@@ -261,7 +261,7 @@ remove_parallel_cursor(int64 token, bool *on_qd, List **seg_list)
 				*on_qd = true;
 			} else
 			{
-				if (seg_list != NULL && !SharedTokens[i].all_seg)
+				if (seg_list != NULL && SharedTokens[i].endPointExecPosition != ENDPOINT_ON_ALL_QE)
 				{
 					int16 x = -1;
 					CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
@@ -282,7 +282,7 @@ remove_parallel_cursor(int64 token, bool *on_qd, List **seg_list)
 			SharedTokens[i].session_id = InvalidSession;
 			SharedTokens[i].user_id = InvalidOid;
 			SharedTokens[i].endpoint_cnt = 0;
-			SharedTokens[i].all_seg = false;
+			SharedTokens[i].endPointExecPosition = ENDPOINT_POS_INVALID;
 			memset(SharedTokens[i].dbIds, 0, sizeof(int32) * MAX_NWORDS);
 			break;
 		}
@@ -414,7 +414,7 @@ ChooseEndpointContentIDForParallelCursor(const struct Plan *planTree,
  */
 void
 AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_id,
-					   bool all_seg, List *seg_list)
+                       enum EndPointExecPosition endPointExecPosition, List *seg_list)
 {
 	int i;
 
@@ -440,7 +440,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 				SharedTokens[i].session_id = session_id;
 				SharedTokens[i].token = DummyToken;
 				SharedTokens[i].user_id = user_id;
-				SharedTokens[i].all_seg = all_seg;
+				SharedTokens[i].endPointExecPosition = endPointExecPosition;
 			}
 		}
 	} else if (typeE == FaultInjectorTypeRevertMemorySlot)
@@ -464,7 +464,7 @@ AddParallelCursorToken(int64 token, const char *name, int session_id, Oid user_i
 			SharedTokens[i].session_id = session_id;
 			SharedTokens[i].token = token;
 			SharedTokens[i].user_id = user_id;
-			SharedTokens[i].all_seg = all_seg;
+			SharedTokens[i].endPointExecPosition = endPointExecPosition;
 			if (seg_list != NIL)
 			{
 				ListCell *l;
@@ -534,7 +534,7 @@ GetContentIDsByToken(int64 token)
 	{
 		if (SharedTokens[i].token == token)
 		{
-			if (SharedTokens[i].all_seg)
+			if (SharedTokens[i].endPointExecPosition == ENDPOINT_ON_ALL_QE)
 			{
 				l = NIL;
 				break;

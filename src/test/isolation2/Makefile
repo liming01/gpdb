@@ -69,6 +69,7 @@ installcheck-parallel-cursor-check-segments:
 	if [ -z "$${seg_count}" ] || [ "$${seg_count}" != 3 ] ; then \
 		echo "The tests require 3 valid segments." ; \
 		echo "gpstate is: \n $${gp_state}" ; \
+		echo "seg_count is: \n $${seg_count}" ; \
 		exit -1 ; \
 	fi
 

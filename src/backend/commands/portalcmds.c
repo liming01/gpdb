@@ -191,7 +191,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 									   portal->name,
 									   gp_session_id,
 									   GetUserId(),
-									   false,
+									   endPointExecPosition,
 									   cids);
 				if (endPointExecPosition == ENDPOINT_ON_QD)
 					AllocEndpointOfToken(portal->parallel_cursor_token);
@@ -206,7 +206,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 									   portal->name,
 									   gp_session_id,
 									   GetUserId(),
-									   true,
+									   endPointExecPosition,
 									   NULL);
 				/* Push token to all segments */
 				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);

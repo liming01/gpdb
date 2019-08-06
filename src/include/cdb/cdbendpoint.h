@@ -71,6 +71,7 @@ enum ParallelCursorExecRole
  */
 enum EndPointExecPosition
 {
+	ENDPOINT_POS_INVALID,
 	ENDPOINT_ON_QD,
 	ENDPOINT_ON_SINGLE_QE,
 	ENDPOINT_ON_SOME_QE,
@@ -111,7 +112,7 @@ typedef struct ParallelCursorTokenDesc
 	int session_id;                    /* Which session created this parallel cursor */
 	int endpoint_cnt;                  /* How many endpoints are created */
 	Oid user_id;                       /* User ID of the current executed parallel cursor */
-	bool all_seg;                      /* A flag to indicate if the endpoints are on all segments */
+	enum EndPointExecPosition endPointExecPosition;  /* Position: on QD, On all QE, On Some QEs */
 	int32 dbIds[MAX_NWORDS];           /* A bitmap stores the dbids of every endpoint, size is 4906 bits(32X128) */
 } ParallelCursorTokenDesc;
 
@@ -202,7 +203,7 @@ extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
 extern List *ChooseEndpointContentIDForParallelCursor(
 	const struct Plan *planTree, enum EndPointExecPosition *position);
 extern void AddParallelCursorToken(int64 token, const char *name, int session_id,
-								   Oid user_id, bool all_seg, List *seg_list);
+								   Oid user_id, enum EndPointExecPosition endPointExecPosition, List *seg_list);
 /* Called during EXECUTE CURSOR stage on QD. */
 extern bool CheckParallelCursorPrivilege(int64 token);
 /* Get Content ID for Endpoints in execute parallel cursor finish stage on QD*/
@@ -252,7 +253,8 @@ extern const char *EndpointRoleToString(enum ParallelCursorExecRole role);
 
 /* Utility functions to handle tokens and endpoints in shared memory */
 extern bool endpoint_on_qd(ParaCursorToken para_cursor_token);
-extern bool dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid);
+extern bool seg_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid);
+extern bool master_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid);
 extern bool dbid_in_bitmap(int32 *bitmap, int16 dbid);
 extern void add_dbid_into_bitmap(int32 *bitmap, int16 dbid);
 extern int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit);
