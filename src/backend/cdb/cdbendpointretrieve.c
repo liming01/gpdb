@@ -235,6 +235,7 @@ init_conn_for_receiver(void)
 	CheckTokenValid();
 	Assert(currentMQEntry);
 
+	elog(DEBUG3, "CDB_ENDPOINTS: init message queue conn for receiver");
 	dsm_segment *dsm_seg;
 	LWLockAcquire(EndpointsLWLock, LW_SHARED);
 	if (currentMQEntry->mq_seg && dsm_segment_handle(currentMQEntry->mq_seg) == my_shared_endpoint->handle)
@@ -401,7 +402,7 @@ receive_tuple_slot(void)
 		currentMQEntry->retrieve_status = RETRIEVE_STATUS_GET_DATA;
 
 		/* at the first time to retrieve data, tell sender not to wait at wait_receiver()*/
-		elog(DEBUG3, "CDB_ENDPOINT:receiver set latch in receive_tuple_slot() at the first time to retrieve data");
+		elog(DEBUG3, "CDB_ENDPOINT: receiver set latch in receive_tuple_slot() at the first time to retrieve data");
 		SetLatch(&my_shared_endpoint->ack_done);
 	}
 
@@ -424,7 +425,7 @@ receive_tuple_slot(void)
 		DestroyTupleQueueReader(currentMQEntry->tq_reader);
 		currentMQEntry->tq_reader = NULL;
 		/* when finish retrieving data, tell sender not to wait at sender_finish()*/
-		elog(DEBUG3, "CDB_ENDPOINT:receiver set latch in receive_tuple_slot() when finish retrieving data");
+		elog(DEBUG3, "CDB_ENDPOINT: receiver set latch in receive_tuple_slot() when finish retrieving data");
 		SetLatch(&my_shared_endpoint->ack_done);
 		currentMQEntry->retrieve_status = RETRIEVE_STATUS_FINISH;
 		return NULL;
@@ -462,6 +463,7 @@ receiver_mq_close(void)
 {
 	bool found;
 
+	elog(DEBUG3, "CDB_ENDPOINTS: receiver message queue close");
 	// If error happened, currentMQEntry could be none.
 	if (currentMQEntry != NULL && currentMQEntry->mq_seg != NULL)
 	{
@@ -560,7 +562,7 @@ retrieve_cancel_action(int64 token, char *msg)
 		{
 			SharedEndpoints[i].receiver_pid = InvalidPid;
 			SharedEndpoints[i].attach_status = Status_NotAttached;
-			elog(DEBUG3, "CDB_ENDPOINT: pg_signal_backend");
+			elog(DEBUG3, "CDB_ENDPOINT: signal sender to abort");
 			pg_signal_backend(SharedEndpoints[i].sender_pid, SIGINT, msg);
 			break;
 		}
@@ -608,6 +610,7 @@ static void retrieve_exit_callback(int code, Datum arg)
 	HASH_SEQ_STATUS status;
 	MsgQueueStatusEntry *entry;
 
+	elog(DEBUG3, "CDB_ENDPOINTS: retrieve exit callback");
 	/* Cancel all partially retrieved endpoints in this retrieve session */
 	hash_seq_init(&status, MsgQueueHTB);
 	while ((entry = (MsgQueueStatusEntry *) hash_seq_search(&status)) != NULL)
@@ -645,9 +648,9 @@ static void retrieve_exit_callback(int code, Datum arg)
  */
 static void retrieve_xact_abort_callback(XactEvent ev, void *vp)
 {
-	elog(DEBUG3, "CDB_ENDPOINT: retrieve xact abort callback");
 	if (ev == XACT_EVENT_ABORT)
 	{
+		elog(DEBUG3, "CDB_ENDPOINT: retrieve xact abort callback");
 		if (EndpointCtl.Gp_pce_role == PCER_RECEIVER &&
 			my_shared_endpoint != NULL &&
 			EndpointCtl.Gp_token != InvalidToken)

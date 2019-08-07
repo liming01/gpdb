@@ -4,6 +4,10 @@ DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (a INT) DISTRIBUTED by (a);
 insert into t1 select generate_series(1,100);
 
+DROP TABLE IF EXISTS t2;
+CREATE TABLE t2 (a INT) DISTRIBUTED by (a);
+insert into t2 select generate_series(1,10000000);
+
 CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 
 --------- Test1: fault injection end-point shared memory slot full on QE
@@ -145,3 +149,63 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 1: ROLLBACK;
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
 
+-- Test6: error inject at the 5th time while retrieving tuples from endpoint. other retrieve session still retrieving.
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 4);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 2::smallint);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 4::smallint);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', '', '', '', 5, 5, 0, 3::smallint);
+
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1&: EXECUTE PARALLEL CURSOR c1;
+
+0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+0R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+
+2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+2R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+
+1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+
+1<:
+
+0R<:
+2R<:
+
+1<:
+1: ROLLBACK;
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 4);
+
+
+-- Test7: error inject at the 5th time while retrieving tuples from endpoint. other retrieve session finished.
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', '', '', '', 1000, 1000, 0, 3::smallint);
+
+1: BEGIN;
+1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t2;
+1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1&: EXECUTE PARALLEL CURSOR c1;
+
+0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+0R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+
+2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+2R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+
+1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+
+1<:
+
+0R<:
+2R<:
+
+1<:
+1: ROLLBACK;
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);

@@ -228,6 +228,7 @@ parallel_cursor_exit_callback(int code, Datum arg)
 {
 	ListCell *l;
 
+	elog(DEBUG3, "CDB_ENDPOINT: parallel cursor exit callback.");
 	if (EndpointCtl.Cursor_tokens != NIL)
 	{
 		foreach(l, EndpointCtl.Cursor_tokens)
@@ -701,6 +702,7 @@ set_sender_pid(void)
 
 	Assert(SharedEndpoints);
 
+	elog(DEBUG3, "CDB_ENDPOINT: set sender pid");
 	if (EndpointCtl.Gp_pce_role != PCER_SENDER)
 		elog(ERROR, "%s could not allocate endpoint slot",
 			 EndpointRoleToString(EndpointCtl.Gp_pce_role));
@@ -759,10 +761,9 @@ UnsetSenderPidOfToken(int64 token)
 	volatile EndpointDesc *endPointDesc = find_endpoint_by_token(token);
 	if (!endPointDesc)
 	{
-		elog(ERROR, "no valid endpoint info for token "
-			INT64_FORMAT
-			"", token);
+		elog(ERROR, "no valid endpoint info for token " INT64_FORMAT "", token);
 	}
+	elog(DEBUG3, "CDB_ENDPOINTS: unset sender pid for token " INT64_FORMAT ".", token);
 	unset_endpoint_sender_pid(endPointDesc);
 }
 
@@ -885,6 +886,7 @@ FreeEndpointOfToken(int64 token)
 	if (!endPointDesc && !endPointDesc->empty)
 		elog(ERROR, "not an valid endpoint");
 
+	elog(DEBUG3, "CDB_ENDPOINTS: Free endpoint of token " INT64_FORMAT ".", token);
 	unset_endpoint_sender_pid(endPointDesc);
 
 	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
@@ -913,6 +915,7 @@ create_and_connect_mq(TupleDesc tupleDesc)
 	if (currentMQEntry->mq_handle != NULL)
 		return;
 
+	elog(DEBUG3, "CDB_ENDPOINTS: create and setup the shared memory message queue.");
 	dsm_segment *dsm_seg;
 	shm_toc *toc;
 	shm_mq *mq;
@@ -983,6 +986,7 @@ create_and_connect_mq(TupleDesc tupleDesc)
 static void
 wait_receiver(void)
 {
+	elog(DEBUG3, "CDB_ENDPOINTS: wait receiver.");
 	while (true)
 	{
 		int wr;
@@ -1040,6 +1044,7 @@ wait_receiver(void)
 static void
 sender_finish(void)
 {
+	elog(DEBUG3, "CDB_ENDPOINTS: sender finish");
 	/* wait for receiver to finish retrieving */
 	wait_receiver();
 }
@@ -1081,6 +1086,7 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
 	 */
 	signal_receiver_abort(endPointDesc);
 
+	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint sender pid.");
 	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
 
 	/*
@@ -1112,16 +1118,17 @@ signal_receiver_abort(volatile EndpointDesc *endPointDesc)
 	if (!endPointDesc || (endPointDesc && endPointDesc->empty))
 		return;
 
+	elog(DEBUG3, "CDB_ENDPOINT: signal the receiver to abort.");
 	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
 
 	receiver_pid = endPointDesc->receiver_pid;
 	is_attached = endPointDesc->attach_status == Status_Attached;
-
-	LWLockRelease(EndpointsLWLock);
 	if (receiver_pid != InvalidPid && is_attached && receiver_pid != MyProcPid)
 	{
 		pg_signal_backend(receiver_pid, SIGINT, "Signal the receiver to abort.");
 	}
+
+	LWLockRelease(EndpointsLWLock);
 }
 
 /*
@@ -1166,8 +1173,20 @@ static void sender_xact_abort_callback(XactEvent ev, void *vp)
 {
 	if (ev == XACT_EVENT_ABORT)
 	{
-		sender_close();
+		if (Gp_role == GP_ROLE_RETRIEVE || Gp_role == GP_ROLE_UTILITY) {
+			return;
+		}
+		elog(DEBUG3, "CDB_ENDPOINT: sender xact abort callback");
 		endpoint_cleanup();
+		/*
+		 * During xact abort, should make sure the endpoint_cleanup called first.
+		 * Cause if call sender_close to detach the message queue first, the retriever
+		 * may read NULL from message queue, then retrieve mark itself down.
+		 *
+		 * So here, we need to make sure signal retrieve abort first before endpoint
+		 * detach message queue.
+		 */
+		sender_close();
 	}
 }
 
