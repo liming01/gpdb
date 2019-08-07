@@ -30,8 +30,8 @@ BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT make_record(x) FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
- token                  | status
-------------------------+--------
+ token                              | status
+------------------------------------+--------
  token_id1 | INIT
  token_id1 | INIT
  token_id1 | INIT

@@ -95,7 +95,7 @@ typedef struct DispatchCommandQueryParms
 	int			serializedDtxContextInfolen;
 
 	/* the token for parallel cursor */
-	int64		token;
+	const int8		*token;
 } DispatchCommandQueryParms;
 
 static int fillSliceVector(SliceTable *sliceTable,
@@ -459,7 +459,7 @@ cdbdisp_buildCommandQueryParms(const char *strCommand, int flags)
 	pQueryParms->serializedQuerytreelen = 0;
 	pQueryParms->serializedQueryDispatchDesc = NULL;
 	pQueryParms->serializedQueryDispatchDesclen = 0;
-	pQueryParms->token = InvalidToken;
+	pQueryParms->token = NULL;
 
 	/*
 	 * Serialize a version of our DTX Context Info
@@ -531,7 +531,7 @@ cdbdisp_buildUtilityQueryParms(struct Node *stmt,
 	pQueryParms->serializedQuerytreelen = serializedQuerytree_len;
 	pQueryParms->serializedQueryDispatchDesc = serializedQueryDispatchDesc;
 	pQueryParms->serializedQueryDispatchDesclen = serializedQueryDispatchDesc_len;
-	pQueryParms->token = InvalidToken;
+	pQueryParms->token = NULL;
 
 	/*
 	 * Serialize a version of our DTX Context Info
@@ -616,7 +616,7 @@ cdbdisp_buildPlanQueryParms(struct QueryDesc *queryDesc,
 	pQueryParms->serializedParamslen = sparams_len;
 	pQueryParms->serializedQueryDispatchDesc = sddesc;
 	pQueryParms->serializedQueryDispatchDesclen = sddesc_len;
-	pQueryParms->token = InvalidToken;
+	pQueryParms->token = NULL;
 
 	/*
 	 * Serialize a version of our snapshot, and generate our transction
@@ -837,7 +837,10 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	int32		numsegments = getgpsegmentCount();
 	StringInfoData resgroupInfo;
 
-	int64		token = pQueryParms->token;
+	const int8	*token = pQueryParms->token;
+	/* If token doesn't exist, a empty string will be appended. */
+	int			token_len = 1;
+	char		*token_str = NULL;
 
 	int			tmp,
 				len;
@@ -869,6 +872,11 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	if (IsResGroupActivated())
 		SerializeResGroupInfo(&resgroupInfo);
 
+	if (token) {
+		token_str = PrintToken(token);
+		token_len = strlen(token_str) + 1;
+	}
+
 	total_query_len = 1 /* 'M' */ +
 		sizeof(len) /* message length */ +
 		sizeof(gp_command_count) +
@@ -891,7 +899,7 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		sizeof(numsegments) +
 		sizeof(resgroupInfo.len) +
 		resgroupInfo.len +
-		sizeof(token);
+		token_len;
 
 	shared_query = palloc0(total_query_len);
 
@@ -1006,21 +1014,14 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		pos += resgroupInfo.len;
 	}
 
-	/*
-	 * High order half first, since we're doing MSB-first
-	 */
-	n32 = (uint32) (token >> 32);
-	n32 = htonl(n32);
-	memcpy(pos, &n32, sizeof(n32));
-	pos += sizeof(n32);
-
-	/*
-	 * Now the low order half
-	 */
-	n32 = (uint32) token;
-	n32 = htonl(n32);
-	memcpy(pos, &n32, sizeof(n32));
-	pos += sizeof(n32);
+	if (token_str) {
+		memcpy(pos, token_str, token_len);
+		pfree(token_str);
+	} else {
+		// Use an empty string if there is no token info.
+		*pos = 0;
+	}
+	pos += token_len;
 
 	len = pos - shared_query - 1;
 
@@ -1098,7 +1099,7 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 	nSlices = fillSliceVector(sliceTbl, rootIdx, sliceVector, nTotalSlices);
 
 	pQueryParms = cdbdisp_buildPlanQueryParms(queryDesc, planRequiresTxn);
-	if (portal != NULL)
+	if (portal != NULL && IsEndpointTokenValid(portal->parallel_cursor_token))
 		pQueryParms->token = portal->parallel_cursor_token;
 	queryText = buildGpQueryString(pQueryParms, &queryTextLength);
 

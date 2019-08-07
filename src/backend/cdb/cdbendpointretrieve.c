@@ -33,7 +33,7 @@ static HTAB *MsgQueueHTB = NULL;
 static MsgQueueStatusEntry *currentMQEntry = NULL;
 
 /* Current EndpointDesc entry */
-static volatile EndpointDesc *my_shared_endpoint = NULL;
+static EndpointDesc *my_shared_endpoint = NULL;
 
 /* receiver which is a backend connected by retrieve mode */
 static void init_conn_for_receiver(void);
@@ -41,11 +41,13 @@ static TupleDesc read_tuple_desc_info(shm_toc *toc);
 static TupleTableSlot *receive_tuple_slot(void);
 static void receiver_finish(void);
 static void receiver_mq_close(void);
-static void retrieve_cancel_action(int64 token, char *msg);
+static void retrieve_cancel_action(const int8 *token, char *msg);
 static void retrieve_exit_callback(int code, Datum arg);
 static void retrieve_xact_abort_callback(XactEvent ev, void *vp);
 static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 									  SubTransactionId parentSubid, void *arg);
+extern bool compare_token(const int8 *token1, const int8 *token2);
+extern uint64 create_magic_num_from_token(const int8 *token);
 
 /*
  * FindEndpointTokenByUser - authenticate for retrieve role connection.
@@ -68,19 +70,19 @@ FindEndpointTokenByUser(Oid user_id, const char *token_str)
 			SharedEndpoints[i].user_id == user_id)
 		{
 			/*
-			 * Here convert token from int32 to string before comparation so
+			 * Here convert token from bytes array to string before comparation so
 			 * that even if the password can not be parsed to int32, there is
 			 * no crash.
 			 */
-			char *token = PrintToken(SharedEndpoints[i].token);
+			char *tmpTokenStr = PrintToken(SharedEndpoints[i].token);
 
-			if (strcmp(token, token_str) == 0)
+			if (strncmp(token_str, tmpTokenStr, ENDPOINT_TOKEN_STR_LEN) == 0)
 			{
 				isFound = true;
-				pfree(token);
+				pfree(tmpTokenStr);
 				break;
 			}
-			pfree(token);
+			pfree(tmpTokenStr);
 		}
 	}
 	LWLockRelease(EndpointsLWLock);
@@ -119,7 +121,7 @@ AttachEndpoint(void)
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedEndpoints[i].database_id == MyDatabaseId &&
-			SharedEndpoints[i].token == EndpointCtl.Gp_token &&
+			compare_token(SharedEndpoints[i].token, EndpointCtl.Gp_token) &&
 			!SharedEndpoints[i].empty)
 		{
 			if (SharedEndpoints[i].user_id != GetUserId())
@@ -254,7 +256,7 @@ init_conn_for_receiver(void)
 		elog(ERROR, "attach to shared message queue failed.");
 	}
 	dsm_pin_mapping(dsm_seg);
-	shm_toc *toc = shm_toc_attach(EndpointCtl.Gp_token, dsm_segment_address(dsm_seg));
+	shm_toc *toc = shm_toc_attach(create_magic_num_from_token(my_shared_endpoint->token), dsm_segment_address(dsm_seg));
 	shm_mq *mq = shm_toc_lookup(toc, ENDPOINT_KEY_TUPLE_QUEUE);
 	shm_mq_set_receiver(mq, MyProc);
 	currentMQEntry->mq_handle = shm_mq_attach(mq, dsm_seg, NULL);
@@ -303,7 +305,7 @@ TupleDescOfRetrieve(void)
 		init_conn_for_receiver();
 
 		Assert(currentMQEntry->mq_handle);
-		shm_toc *toc = shm_toc_attach(GpToken(), dsm_segment_address(currentMQEntry->mq_seg));
+		shm_toc *toc = shm_toc_attach(create_magic_num_from_token(my_shared_endpoint->token), dsm_segment_address(currentMQEntry->mq_seg));
 		td = read_tuple_desc_info(toc);
 		currentMQEntry->tq_reader = CreateTupleQueueReader(currentMQEntry->mq_handle, td);
 
@@ -495,7 +497,7 @@ DetachEndpoint(bool reset_pid)
 {
 	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER ||
 		!my_shared_endpoint ||
-		EndpointCtl.Gp_token == InvalidToken)
+		!IsEndpointTokenValid(EndpointCtl.Gp_token))
 		return;
 
 	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
@@ -510,13 +512,13 @@ DetachEndpoint(bool reset_pid)
 	 * is not current retrieve token. Nothing should be done.
 	 */
 	if (!my_shared_endpoint->empty &&
-		EndpointCtl.Gp_token == my_shared_endpoint->token)
+		compare_token(EndpointCtl.Gp_token, my_shared_endpoint->token))
 	{
 		/*
 		 * If the receiver pid get retrieve_cancel_action, the pid is InvalidToken
 		 */
 		if (my_shared_endpoint->receiver_pid != MyProcPid &&
-			my_shared_endpoint->receiver_pid != InvalidToken)
+			!IsEndpointTokenValid(my_shared_endpoint->token))
 			elog(ERROR, "unmatched pid, expected %d but it's %d",
 				 MyProcPid, my_shared_endpoint->receiver_pid);
 
@@ -542,7 +544,7 @@ DetachEndpoint(bool reset_pid)
  * When retrieve role exit with error, let endpoint/sender know exception happened.
  */
 static void
-retrieve_cancel_action(int64 token, char *msg)
+retrieve_cancel_action(const int8 *token, char *msg)
 {
 	/*
 	 * If current role is not receiver, the retrieve must already finished success
@@ -555,7 +557,7 @@ retrieve_cancel_action(int64 token, char *msg)
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (SharedEndpoints[i].token == token && SharedEndpoints[i].receiver_pid == MyProcPid
+		if (compare_token(SharedEndpoints[i].token, token) && SharedEndpoints[i].receiver_pid == MyProcPid
 			&& SharedEndpoints[i].attach_status != Status_Finished)
 		{
 			SharedEndpoints[i].receiver_pid = InvalidPid;
@@ -650,7 +652,7 @@ static void retrieve_xact_abort_callback(XactEvent ev, void *vp)
 	{
 		if (EndpointCtl.Gp_pce_role == PCER_RECEIVER &&
 			my_shared_endpoint != NULL &&
-			EndpointCtl.Gp_token != InvalidToken)
+			IsEndpointTokenValid(EndpointCtl.Gp_token))
 		{
 			retrieve_cancel_action(EndpointCtl.Gp_token, "Endpoint retrieve statement aborted");
 			DetachEndpoint(true);

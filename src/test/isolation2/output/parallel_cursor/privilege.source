@@ -48,8 +48,8 @@ SET
  adminuser    
 (1 row)
 2: @out_sh 'get_cell TOKEN1 3 1 && match_sub token_id1 $TOKEN1': SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
- token                  | usename | status
-------------------------+---------+--------
+ token                              | usename | status
+------------------------------------+---------+--------
  token_id1 | u1      | INIT
  token_id1 | u1      | INIT
  token_id1 | u1      | INIT
@@ -60,8 +60,8 @@ SET
 
 --- adminuser should be able to see the cursor status change to READY
 2: SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
- token                  | usename | status 
-------------------------+---------+--------
+ token                              | usename | status 
+------------------------------------+---------+--------
  token_id1 | u1      | READY  
  token_id1 | u1      | READY  
  token_id1 | u1      | READY  
@@ -101,18 +101,18 @@ SET
 -------+--------
 (0 rows)
 
- token                  | userid 
-------------------------+--------
+ token                              | userid 
+------------------------------------+--------
  token_id1 | u1_id
 (1 row)
 
- token                  | userid 
-------------------------+--------
+ token                              | userid 
+------------------------------------+--------
  token_id1 | u1_id
 (1 row)
 
- token                  | userid 
-------------------------+--------
+ token                              | userid 
+------------------------------------+--------
  token_id1 | u1_id
 (1 row)
 --- Switch back to u1 and retrieve all to finish the test
@@ -189,8 +189,8 @@ DECLARE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
 2: @out_sh 'get_cell TOKEN3 3 1 && match_sub token_id3 $TOKEN3': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
- token                  | usename | status
-------------------------+---------+--------
+ token                              | usename | status
+------------------------------------+---------+--------
  token_id3 | u1      | READY
  token_id3 | u1      | READY
  token_id3 | u1      | READY
@@ -295,8 +295,8 @@ BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN5 3 1 && match_sub token_id5 $TOKEN5': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
- token                  | usename | status
-------------------------+---------+--------
+ token                              | usename | status
+------------------------------------+---------+--------
  token_id5 | u1      | INIT
  token_id5 | u1      | INIT
  token_id5 | u1      | INIT

@@ -1913,12 +1913,15 @@ DoPortalRunFetch(Portal portal,
         SetGpToken(portal->parallel_cursor_token);
 		PortalRunMulti(portal, false, dest, dest, NULL);
 
-		if (portal->parallel_cursor_token != InvalidToken)
+		if (IsEndpointTokenValid(portal->parallel_cursor_token))
 		{
-			char		cmd[255];
+			size_t		cmdLen = 255;
+			char		cmd[cmdLen];
+			char		*tokenStr = PrintToken(portal->parallel_cursor_token);
 
 			/* Unset sender pid for end-point */
-			sprintf(cmd, "select __gp_operate_endpoints_token('u', '" INT64_FORMAT "')", portal->parallel_cursor_token);
+			snprintf(cmd, cmdLen, "select __gp_operate_endpoints_token('u', '%s')", tokenStr);
+			pfree(tokenStr);
 
 			List* l = GetContentIDsByToken(portal->parallel_cursor_token);
 			if (l)

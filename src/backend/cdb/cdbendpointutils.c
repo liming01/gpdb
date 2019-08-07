@@ -33,7 +33,7 @@
  */
 typedef struct
 {
-	int64 token;
+	int8 token[ENDPOINT_TOKEN_LEN];
 	int dbid;
 	enum AttachStatus attach_status;
 	pid_t sender_pid;
@@ -77,13 +77,16 @@ static const uint8 rightmost_one_pos[256] = {
 	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0
 };
 
+extern bool compare_token(const int8 *token1, const int8 *token2);
+extern uint64 create_magic_num_from_token(const int8 *token);
+
 static EndpointStatus *
 find_endpoint_status(EndpointStatus *status_array, int number,
-					 int64 token, int dbid)
+					 const int8 *token, int dbid)
 {
 	for (int i = 0; i < number; i++)
 	{
-		if (status_array[i].token == token
+		if (compare_token(status_array[i].token, token)
 			&& status_array[i].dbid == dbid)
 		{
 			return &status_array[i];
@@ -245,7 +248,7 @@ int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit)
 	return -2;
 }
 
-volatile EndpointDesc * find_endpoint_by_token(int64 token)
+EndpointDesc * find_endpoint_by_token(const int8 *token)
 {
 	EndpointDesc *res = NULL;
 
@@ -253,7 +256,7 @@ volatile EndpointDesc * find_endpoint_by_token(int64 token)
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (!SharedEndpoints[i].empty &&
-			SharedEndpoints[i].token == token)
+				compare_token(SharedEndpoints[i].token, token))
 		{
 
 			res = &SharedEndpoints[i];
@@ -361,7 +364,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 				for (int j = 0; j < PQntuples(result); j++)
 				{
-					mystatus->status[idx].token = ParseToken(PQgetvalue(result, j, 0));
+					ParseToken(mystatus->status[idx].token, PQgetvalue(result, j, 0));
 					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 1));
 					mystatus->status[idx].attach_status = status_string_to_enum(PQgetvalue(result, j, 2));
 					mystatus->status[idx].sender_pid = atoi(PQgetvalue(result, j, 3));
@@ -401,7 +404,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 				if (!entry->empty)
 				{
-					mystatus->status[mystatus->status_num - cnt + idx].token = entry->token;
+					memcpy(mystatus->status[mystatus->status_num - cnt + idx].token,
+							entry->token, ENDPOINT_TOKEN_LEN);
 					mystatus->status[mystatus->status_num - cnt + idx].dbid = MASTER_DBID;
 					mystatus->status[mystatus->status_num - cnt + idx].attach_status = entry->attach_status;
 					mystatus->status[mystatus->status_num - cnt + idx].sender_pid = entry->sender_pid;
@@ -430,7 +434,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		ParaCursorToken entry = &SharedTokens[mystatus->curTokenIdx];
 
-		if (entry->token != InvalidToken
+		if (IsEndpointTokenValid(entry->token)
 			&& (superuser() || entry->user_id == GetUserId()))
 		{
 			if (endpoint_on_qd(entry))
@@ -617,6 +621,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	}
 
 	funcctx = SRF_PERCALL_SETUP();
+	// FIXME: WHY????
 	mystatus = funcctx->user_fctx;
 
 	LWLockAcquire(EndpointsLWLock, LW_SHARED);
@@ -662,3 +667,47 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	LWLockRelease(EndpointsLWLock);
 	SRF_RETURN_DONE(funcctx);
 }
+
+/*
+ * Create a magic number from a given token for DSM TOC usage.
+ * The same tokens will eventually generate the same magic number.
+ */
+uint64 create_magic_num_from_token(const int8 *token)
+{
+	uint64 magic = 0;
+	Assert(token);
+	for (int i = 0; i < 8; i++)
+	{
+		magic |= ((uint64)token[i]) << i * 8;
+	}
+	return magic;
+}
+
+/*
+ * Returns true if the two given endpoint tokens are equal.
+ */
+bool
+compare_token(const int8* token1, const int8* token2)
+{
+	Assert(token1);
+	Assert(token2);
+	/* memcmp should be good enough. Timing attack would not be a concern here. */
+	return memcmp(token1, token2, ENDPOINT_TOKEN_LEN) == 0;
+}
+
+void
+InvalidateEndpointToken(int8* token /*out*/)
+{
+	Assert(token);
+	memset(token, 0, ENDPOINT_TOKEN_LEN);
+}
+
+bool
+IsEndpointTokenValid(const int8* token) {
+	Assert(token);
+	for (int i = 0; i < ENDPOINT_TOKEN_LEN; ++i) {
+		if (token[i]) return true;
+	}
+	return false;
+}
+

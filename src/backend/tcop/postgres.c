@@ -1343,7 +1343,7 @@ exec_mpp_query(const char *query_string,
 						  list_make1(plan ? (Node*)plan : (Node*)utilityStmt),
 						  NULL);
 
-		if ((commandType == CMD_SELECT) && (currentSliceId == 0) && (GpToken() != InvalidToken))
+		if ((commandType == CMD_SELECT) && (currentSliceId == 0) && IsGpTokenValid())
             SetParallelCursorExecRole(PCER_SENDER);
 
 		/*
@@ -5293,7 +5293,7 @@ PostgresMain(int argc, char *argv[],
 					int serializedQueryDispatchDesclen = 0;
 					int resgroupInfoLen = 0;
 
-					int64 token = InvalidToken;
+					const char *tokenStr = NULL;
 
 					TimestampTz statementStart;
 					Oid suid;
@@ -5359,7 +5359,8 @@ PostgresMain(int argc, char *argv[],
 					if (resgroupInfoLen > 0)
 						resgroupInfoBuf = pq_getmsgbytes(&input_message, resgroupInfoLen);
 
-					token = pq_getmsgint64(&input_message);
+					// Will get an empty string if token doesn't exist.
+					tokenStr = pq_getmsgstring(&input_message);
 
 					pq_getmsgend(&input_message);
 
@@ -5414,8 +5415,11 @@ PostgresMain(int argc, char *argv[],
 					}
 					else
 					{
-						if (token != InvalidToken)
+						if (strlen(tokenStr)) {
+							int8 token[ENDPOINT_TOKEN_LEN] = {0};
+							ParseToken(token, tokenStr);
 							SetGpToken(token);
+						}
 
 						exec_mpp_query(query_string,
 									   serializedQuerytree, serializedQuerytreelen,
