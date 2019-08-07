@@ -559,7 +559,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				if (!entry->empty)
 				{
 					mystatus->status[mystatus->status_num - cnt + idx].token = entry->token;
-					mystatus->status[mystatus->status_num - cnt + idx].dbid = MASTER_DBID;
+					mystatus->status[mystatus->status_num - cnt + idx].dbid = contentid_get_dbid(MASTER_CONTENT_ID,
+					                                                                             GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
 					mystatus->status[mystatus->status_num - cnt + idx].attach_status = entry->attach_status;
 					mystatus->status[mystatus->status_num - cnt + idx].sender_pid = entry->sender_pid;
 					idx++;
