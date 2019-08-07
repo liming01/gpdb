@@ -246,7 +246,7 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	portal->atEnd = true;		/* disallow fetches until query is set */
 	portal->visible = true;
 	portal->creation_time = GetCurrentStatementStartTimestamp();
-	portal->parallel_cursor_token = InvalidToken;
+	InvalidateEndpointToken(portal->parallel_cursor_token);
 
 	/* set portal id and queue id if have enabled resource scheduling */
 	if (Gp_role == GP_ROLE_DISPATCH && IsResQueueEnabled())
@@ -611,10 +611,9 @@ PortalDrop(Portal portal, bool isTopCommit)
 	}
 
 	/* Clear token if it is a parallel cursor */
-	if (portal->parallel_cursor_token != InvalidToken)
+	if (IsEndpointTokenValid(portal->parallel_cursor_token))
 	{
 		DestroyParallelCursor(portal->parallel_cursor_token);
-		portal->parallel_cursor_token = InvalidToken;
 	}
 
 	/* delete tuplestore storage, if any */

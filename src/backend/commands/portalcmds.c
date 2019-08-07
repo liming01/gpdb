@@ -173,43 +173,31 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
 	{
-		portal->parallel_cursor_token = GetUniqueGpToken();
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 		char		cmd[255];
 		List *cids;
 		enum EndPointExecPosition endPointExecPosition;
 
-		sprintf(cmd, "select __gp_operate_endpoints_token('p', '" INT64_FORMAT "')", portal->parallel_cursor_token);
 
 		cids = ChooseEndpointContentIDForParallelCursor(
 			stmt->planTree, &endPointExecPosition);
-		switch(endPointExecPosition) {
-			case ENDPOINT_ON_QD:
-			case ENDPOINT_ON_SINGLE_QE:
-			case ENDPOINT_ON_SOME_QE: {
-				AddParallelCursorToken(portal->parallel_cursor_token,
-									   portal->name,
-									   gp_session_id,
-									   GetUserId(),
-									   endPointExecPosition,
-									   cids);
-				if (endPointExecPosition == ENDPOINT_ON_QD)
-					AllocEndpointOfToken(portal->parallel_cursor_token);
-				else
-					CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, cids, NULL);
-				break;
-			}
-			case ENDPOINT_ON_ALL_QE:
-			default: {
-				/* end-points are on all segments */
-				AddParallelCursorToken(portal->parallel_cursor_token,
-									   portal->name,
-									   gp_session_id,
-									   GetUserId(),
-									   endPointExecPosition,
-									   NULL);
+
+		/*Alloc token and add parallel cursor*/
+		AddParallelCursorToken(portal->parallel_cursor_token,
+				       portal->name, gp_session_id, GetUserId(),
+				       endPointExecPosition,
+					   cids);
+		if (endPointExecPosition == ENDPOINT_ON_QD) {
+			AllocEndpointOfToken(portal->parallel_cursor_token);
+		} else {
+			char *token_str = PrintToken(portal->parallel_cursor_token);
+			snprintf(cmd, 255, "select __gp_operate_endpoints_token('p', '%s')", token_str);
+			pfree(token_str);
+			if (endPointExecPosition == ENDPOINT_ON_ALL_QE) {
 				/* Push token to all segments */
 				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+			} else {
+				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, cids, NULL);
 			}
 		}
 	}

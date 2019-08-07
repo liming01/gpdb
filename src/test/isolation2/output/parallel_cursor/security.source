@@ -65,3 +65,16 @@ ERROR:  Only builtin functions can be called for retrieve role (aclchk.c:5068)
 -- Test: Create UDF can not allowed
 0R: CREATE OR REPLACE FUNCTION myappend1(anyarray, anyelement) RETURNS anyarray AS $$ SELECT $1 || $2 $$ LANGUAGE SQL;
 ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role
+
+-- Test: Different illegal tokens always lead to a same general message
+---- Illegal tokens
+1R: RETRIEVE ALL from abc;
+ERROR:  Invalid token "abc" (cdbendpointutils.c:145)
+1R: RETRIEVE ALL from 123;
+ERROR:  syntax error at or near "123"
+LINE 1: RETRIEVE ALL from 123;
+                          ^
+1R: RETRIEVE ALL from tk1122;
+ERROR:  Invalid token "tk1122" (cdbendpointutils.c:145)
+1R: RETRIEVE ALL from tktt223344556677889900112233445566;
+ERROR:  Invalid token "tktt223344556677889900112233445566" (cdbendpointutils.c:141)

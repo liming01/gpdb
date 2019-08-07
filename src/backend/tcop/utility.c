@@ -1939,13 +1939,12 @@ UtilityTupleDescriptor(Node *parsetree)
 			{
 				RetrieveStmt *n = (RetrieveStmt *) parsetree;
 
-				if (n->token <= 0)
-					elog(ERROR, "Invalid token " INT64_FORMAT, n->token);
-
 				if (Gp_role != GP_ROLE_RETRIEVE)
 					elog(ERROR, "RETRIEVE command can only run in retrieve mode");
 
-				SetGpToken(n->token);
+				int8 token[ENDPOINT_TOKEN_LEN] = {0};
+				ParseToken(token, n->token_str);
+				SetGpToken(token);
                 SetParallelCursorExecRole(PCER_RECEIVER);
 				AttachEndpoint();
 

@@ -41,3 +41,10 @@ $$ LANGUAGE SQL;
 0R: CREATE OR REPLACE FUNCTION myappend1(anyarray, anyelement) RETURNS anyarray AS $$
 SELECT $1 || $2
 $$ LANGUAGE SQL;
+
+-- Test: Different illegal tokens always lead to a same general message
+---- Illegal tokens
+1R: RETRIEVE ALL from abc;
+1R: RETRIEVE ALL from 123;
+1R: RETRIEVE ALL from tk1122;
+1R: RETRIEVE ALL from tktt223344556677889900112233445566;

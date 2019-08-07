@@ -13,8 +13,8 @@ BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                  | status
-------------------------+--------
+ token                              | status
+------------------------------------+--------
  token_id1 | INIT
  token_id1 | INIT
  token_id1 | INIT
@@ -194,8 +194,8 @@ BEGIN
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                  | status
-------------------------+--------
+ token                              | status
+------------------------------------+--------
  token_id2 | INIT
  token_id2 | INIT
  token_id2 | INIT
@@ -454,8 +454,8 @@ BEGIN
 1: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
- token                  | status
-------------------------+--------
+ token                              | status
+------------------------------------+--------
  token_id3 | INIT
  token_id3 | INIT
  token_id3 | INIT
@@ -595,8 +595,8 @@ BEGIN
 1: DECLARE c4 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c4';
- token                  | status
-------------------------+--------
+ token                              | status
+------------------------------------+--------
  token_id4 | INIT
  token_id4 | INIT
  token_id4 | INIT
@@ -733,8 +733,8 @@ BEGIN
 1: DECLARE c5 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN5 3 1 ; match_sub token_id5 $TOKEN5': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c5';
- token                  | status
-------------------------+--------
+ token                              | status
+------------------------------------+--------
  token_id5 | INIT
  token_id5 | INIT
  token_id5 | INIT
@@ -868,8 +868,8 @@ BEGIN
 1: DECLARE c6 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN6 3 1 ; match_sub token_id6 $TOKEN6': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c6';
- token                  | status
-------------------------+--------
+ token                              | status
+------------------------------------+--------
  token_id6 | INIT
  token_id6 | INIT
  token_id6 | INIT
@@ -1003,8 +1003,8 @@ BEGIN
 1: DECLARE c61 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN61 3 1 ; match_sub token_id61 $TOKEN61': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c61';
- token                  | status
-------------------------+--------
+ token                              | status
+------------------------------------+--------
  token_id61 | INIT
  token_id61 | INIT
  token_id61 | INIT
@@ -1135,8 +1135,8 @@ BEGIN
 1: DECLARE c7 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN7 3 1 ; match_sub token_id7 $TOKEN7': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c7';
- token                  | status
-------------------------+--------
+ token                              | status
+------------------------------------+--------
  token_id7 | INIT
  token_id7 | INIT
  token_id7 | INIT
@@ -1274,8 +1274,8 @@ BEGIN
 1: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell SESSION81 3 2 ; get_cell TOKEN81 3 1 ; match_sub_tt session81 $SESSION81 > /dev/null ; match_sub token81 $TOKEN81': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
- token                  | sessionid | status
-------------------------+-----------+--------
+ token                              | sessionid | status
+------------------------------------+-----------+--------
  token81 | session81| INIT
  token81 | session81| INIT
  token81 | session81| INIT
@@ -1286,16 +1286,16 @@ BEGIN
 2: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
 2: @out_sh 'get_cell SESSION82 3 2 ; get_cell TOKEN82 3 1 ; match_sub_tt session82 $SESSION82 > /dev/null ; match_sub token82 $TOKEN82': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
- token                  | sessionid | status
-------------------------+-----------+--------
+ token                              | sessionid | status
+------------------------------------+-----------+--------
  token82 | session82| INIT
  token82 | session82| INIT
  token82 | session82| INIT
 (3 rows)
 -- Session 2 can only see all cursors with gp_endpoints_info(true).
 2: SELECT token,sessionid,status FROM gp_endpoints_info(true) WHERE cursorname='c8';
- token                  | sessionid | status 
-------------------------+-----------+--------
+ token                              | sessionid | status 
+------------------------------------+-----------+--------
  token81 | session81| INIT   
  token81 | session81| INIT   
  token81 | session81| INIT   

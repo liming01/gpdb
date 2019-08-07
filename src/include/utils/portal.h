@@ -50,6 +50,7 @@
 #include "executor/execdesc.h"
 #include "utils/plancache.h"
 #include "utils/resowner.h"
+#include "cdb/cdbendpoint.h"
 
 /*
  * We have several execution strategies for Portals, depending on what
@@ -199,7 +200,7 @@ typedef struct PortalData
 	 * mode query portal.
 	 */
 	bool		is_parallel;
-	int64		parallel_cursor_token;
+	int8		parallel_cursor_token[ENDPOINT_TOKEN_LEN];
 
 	/*
 	 * This field belongs with createSubid, but in pre-9.5 branches, add it

@@ -8,8 +8,8 @@ m/^ERROR:.*\(pid: \d+\) \(cdbendpointretrieve.c:\d+\)/
 s/\(pid: \d+\) \(cdbendpointretrieve.c:\d+\)/\(pid: PID\) \(cdbendpointretrieve.c:LINENO\)/
 
 # skip token id in: ERROR:  can't add a new token tk0618798867 into shared memory (cdbendpoint.c:LINENO)
-m/^ERROR:.*a new token tk\d+.*\(cdbendpoint.c:\d+\)/
-s/a new token tk\d+ (.*)\(cdbendpoint.c:\d+\)/a new token token_id_no $1\(cdbendpoint.c:LINENO\)/
+m/^ERROR:.*a new token tk[0-9a-f]+.*\(cdbendpoint.c:\d+\)/
+s/a new token tk[0-9a-f]+ (.*)\(cdbendpoint.c:\d+\)/a new token token_id_no $1\(cdbendpoint.c:LINENO\)/
 
 m/^ERROR:.*\(cdbendpoint.c:\d+\)/
 s/\(cdbendpoint.c:\d+\)/\(cdbendpoint.c:LINENO\)/

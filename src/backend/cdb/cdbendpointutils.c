@@ -33,7 +33,7 @@
  */
 typedef struct
 {
-	int64 token;
+	int8 token[ENDPOINT_TOKEN_LEN];
 	int dbid;
 	enum AttachStatus attach_status;
 	pid_t sender_pid;
@@ -76,26 +76,29 @@ static const uint8 rightmost_one_pos[256] = {
 	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0
 };
 
+extern bool token_equals(const int8 *token1, const int8 *token2);
+extern uint64 create_magic_num_from_token(const int8 *token);
+
 struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
-	InvalidToken, PCER_NONE, NIL, NIL
+	{0}, PCER_NONE, NIL, NIL
 };
 
 /* utility */
 static char *get_token_name_format_str(void);
 
 /*
- * Return the value of static variable Gp_token
+ * Returns true is the static GP_token is valid.
  */
-int64
-GpToken(void)
+bool
+IsGpTokenValid(void)
 {
-	return EndpointCtl.Gp_token;
+	return IsEndpointTokenValid(EndpointCtl.Gp_token);
 }
 
 void
 CheckTokenValid(void)
 {
-	if (Gp_role == GP_ROLE_EXECUTE && EndpointCtl.Gp_token == InvalidToken)
+	if (Gp_role == GP_ROLE_EXECUTE && !IsEndpointTokenValid(EndpointCtl.Gp_token))
 		elog(ERROR, "invalid endpoint token");
 }
 
@@ -103,12 +106,12 @@ CheckTokenValid(void)
  * Set the variable Gp_token
  */
 void
-SetGpToken(int64 token)
+SetGpToken(const int8 *token)
 {
-	if (EndpointCtl.Gp_token != InvalidToken)
+	if (IsEndpointTokenValid(EndpointCtl.Gp_token))
 		elog(ERROR, "endpoint token %s is already set", PrintToken(EndpointCtl.Gp_token));
 
-	EndpointCtl.Gp_token = token;
+	memcpy(EndpointCtl.Gp_token, token, ENDPOINT_TOKEN_LEN);
 }
 
 /*
@@ -117,27 +120,32 @@ SetGpToken(int64 token)
 void
 ClearGpToken(void)
 {
-	EndpointCtl.Gp_token = InvalidToken;
+	InvalidateEndpointToken(EndpointCtl.Gp_token);
 }
 
 /*
- * Convert the string tk0123456789 to int 0123456789
+ * Convert the string tk0123456789 to int 0123456789 and save it into
+ * the given token pointer.
  */
-int64
-ParseToken(char *token)
+void
+ParseToken(int8 *token /*out*/, const char *token_str)
 {
-	int64 token_id = InvalidToken;
-	char *tokenFmtStr = get_token_name_format_str();
-
-	if (token[0] == tokenFmtStr[0] && token[1] == tokenFmtStr[1])
+	static const char *fmt = "Invalid token \"%s\"";
+	if (token_str[0] == 't' && token_str[1] == 'k' &&
+			strlen(token_str) == ENDPOINT_TOKEN_STR_LEN)
 	{
-		token_id = atoll(token + 2);
-	} else
-	{
-		elog(ERROR, "invalid token \"%s\"", token);
+		PG_TRY();
+		{
+			hex_decode(token_str + 2, ENDPOINT_TOKEN_LEN * 2, (char*)token);
+		}
+		PG_CATCH(); {
+			/* Create a general message on purpose for security concerns. */
+			elog(ERROR, fmt, token_str);
+		}
+		PG_END_TRY();
+	} else {
+		elog(ERROR, fmt, token_str);
 	}
-
-	return token_id;
 }
 
 /*
@@ -146,13 +154,16 @@ ParseToken(char *token)
  * Note: need to pfree() the result
  */
 char *
-PrintToken(int64 token_id)
+PrintToken(const int8 *token)
 {
-	Insist(token_id != InvalidToken);
+	Insist(IsEndpointTokenValid(token));
+	const size_t len = ENDPOINT_TOKEN_STR_LEN + 1; /* 2('tk') + HEX string length + 1('\0') */
+	char *res = palloc(len);
+	res[0] = 't';
+	res[1] = 'k';
+	hex_encode((const char*)token, ENDPOINT_TOKEN_LEN, res + 2);
+	res[len - 1] = 0;
 
-	char *res = palloc(23);        /* length 13 = 2('tk') + 20(length of max int64 value) + 1('\0') */
-
-	sprintf(res, get_token_name_format_str(), token_id);
 	return res;
 }
 
@@ -224,11 +235,11 @@ get_token_name_format_str(void)
 
 static EndpointStatus *
 find_endpoint_status(EndpointStatus *status_array, int number,
-					 int64 token, int dbid)
+					 const int8 *token, int dbid)
 {
 	for (int i = 0; i < number; i++)
 	{
-		if (status_array[i].token == token
+		if (token_equals(status_array[i].token, token)
 			&& status_array[i].dbid == dbid)
 		{
 			return &status_array[i];
@@ -403,7 +414,7 @@ int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit)
 	return -2;
 }
 
-volatile EndpointDesc * find_endpoint_by_token(int64 token)
+EndpointDesc * find_endpoint_by_token(const int8 *token)
 {
 	EndpointDesc *res = NULL;
 
@@ -411,7 +422,7 @@ volatile EndpointDesc * find_endpoint_by_token(int64 token)
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (!SharedEndpoints[i].empty &&
-			SharedEndpoints[i].token == token)
+				token_equals(SharedEndpoints[i].token, token))
 		{
 
 			res = &SharedEndpoints[i];
@@ -518,7 +529,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 				for (int j = 0; j < PQntuples(result); j++)
 				{
-					mystatus->status[idx].token = ParseToken(PQgetvalue(result, j, 0));
+					ParseToken(mystatus->status[idx].token, PQgetvalue(result, j, 0));
 					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 1));
 					mystatus->status[idx].attach_status = status_string_to_enum(PQgetvalue(result, j, 2));
 					mystatus->status[idx].sender_pid = atoi(PQgetvalue(result, j, 3));
@@ -558,7 +569,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 				if (!entry->empty)
 				{
-					mystatus->status[mystatus->status_num - cnt + idx].token = entry->token;
+					memcpy(mystatus->status[mystatus->status_num - cnt + idx].token,
+							entry->token, ENDPOINT_TOKEN_LEN);
 					mystatus->status[mystatus->status_num - cnt + idx].dbid = contentid_get_dbid(MASTER_CONTENT_ID,
 					                                                                             GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
 					mystatus->status[mystatus->status_num - cnt + idx].attach_status = entry->attach_status;
@@ -586,7 +598,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		ParaCursorToken entry = &SharedTokens[mystatus->curTokenIdx];
 
-		if (entry->token != InvalidToken
+		if (IsEndpointTokenValid(entry->token)
 			&& (superuser() || entry->user_id == GetUserId())
 			&& (entry->session_id == gp_session_id|| is_all))
 		{
@@ -759,11 +771,55 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			result = HeapTupleGetDatum(tuple);
 			mystatus->current_idx++;
 			LWLockRelease(EndpointsLWLock);
-			SRF_RETURN_NEXT(funcctx, result);
 			pfree(token);
+			SRF_RETURN_NEXT(funcctx, result);
 		}
 		mystatus->current_idx++;
 	}
 	LWLockRelease(EndpointsLWLock);
 	SRF_RETURN_DONE(funcctx);
 }
+
+/*
+ * Create a magic number from a given token for DSM TOC usage.
+ * The same tokens will eventually generate the same magic number.
+ */
+uint64 create_magic_num_from_token(const int8 *token)
+{
+	uint64 magic = 0;
+	Assert(token);
+	for (int i = 0; i < 8; i++)
+	{
+		magic |= ((uint64)token[i]) << i * 8;
+	}
+	return magic;
+}
+
+/*
+ * Returns true if the two given endpoint tokens are equal.
+ */
+bool
+token_equals(const int8* token1, const int8* token2)
+{
+	Assert(token1);
+	Assert(token2);
+	/* memcmp should be good enough. Timing attack would not be a concern here. */
+	return memcmp(token1, token2, ENDPOINT_TOKEN_LEN) == 0;
+}
+
+void
+InvalidateEndpointToken(int8* token /*out*/)
+{
+	Assert(token);
+	memset(token, 0, ENDPOINT_TOKEN_LEN);
+}
+
+bool
+IsEndpointTokenValid(const int8* token) {
+	Assert(token);
+	for (int i = 0; i < ENDPOINT_TOKEN_LEN; ++i) {
+		if (token[i]) return true;
+	}
+	return false;
+}
+
