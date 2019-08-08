@@ -17,4 +17,7 @@ s/\(cdbendpoint.c:\d+\)/\(cdbendpoint.c:LINENO\)/
 m/^ERROR:.*\(cdbendpointretrieve.c:\d+\)/
 s/\(cdbendpointretrieve.c:\d+\)/\(cdbendpointretrieve.c:LINENO\)/
 
+m/^ERROR:.*\(cdbendpointutils.c:\d+\)/
+s/\(cdbendpointutils.c:\d+\)/\(cdbendpointutils.c:LINENO\)/
+
 -- end_matchsubs
