@@ -83,9 +83,6 @@ struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
 	{0}, PCER_NONE, NIL, NIL
 };
 
-/* utility */
-static char *get_token_name_format_str(void);
-
 /*
  * Returns true is the static GP_token is valid.
  */
@@ -219,18 +216,6 @@ EndpointRoleToString(enum ParallelCursorExecRole role)
 			elog(ERROR, "unknown end point role %d", role);
 			return NULL;
 	}
-}
-
-char *
-get_token_name_format_str(void)
-{
-	static char tokenNameFmtStr[64] = "";
-	if (strlen(tokenNameFmtStr) == 0)
-	{
-		char *p = INT64_FORMAT;
-		snprintf(tokenNameFmtStr, sizeof(tokenNameFmtStr), "tk%%020%s", p + 1);
-	}
-	return tokenNameFmtStr;
 }
 
 static EndpointStatus *

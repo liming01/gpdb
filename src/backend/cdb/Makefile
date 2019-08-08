@@ -11,7 +11,7 @@ top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 override CPPFLAGS := -I$(libpq_srcdir) $(CPPFLAGS)
 
-SUBDIRS := motion dispatcher
+SUBDIRS := motion dispatcher endpoint
 
 
 OBJS = cdbappendonlystorageformat.o \
@@ -41,10 +41,7 @@ OBJS = cdbappendonlystorageformat.o \
 	   cdbtm.o cdbtmutils.o \
 	   cdbutil.o \
 	   cdbvars.o cdbvarblock.o \
-	   partitionselection.o cdbdtxrecovery.o \
-	   cdbendpoint.o \
-	   cdbendpointutils.o \
-	   cdbendpointretrieve.o
+	   partitionselection.o cdbdtxrecovery.o
 
 ifeq ($(PORTNAME),cygwin)
 .LIBPATTERNS := $(filter-out %.so,$(.LIBPATTERNS))

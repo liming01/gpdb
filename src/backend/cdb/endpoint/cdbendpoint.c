@@ -480,7 +480,7 @@ AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id, Oi
 			char* token_str = PrintToken(token);
 			elog(DEBUG3, "CDB_ENDPOINT: added a new token: '%s'"
 				", session id: %d, cursor name: %s, into shared memory",
-				 token, session_id, SharedTokens[i].cursor_name);
+				 token_str, session_id, SharedTokens[i].cursor_name);
 			pfree(token_str);
 			break;
 		}
