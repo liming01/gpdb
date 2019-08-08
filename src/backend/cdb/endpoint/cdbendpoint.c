@@ -48,6 +48,7 @@
 
 #define WAIT_RECEIVE_TIMEOUT            50
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
+#define InvalidSession					(-1)
 
 #define SHMEM_TOKENCTX                  "ShareTokenCTX"
 #define SHMEM_PARALLEL_CURSOR_ENTRIES   "SharedMemoryParallelCursorTokens"

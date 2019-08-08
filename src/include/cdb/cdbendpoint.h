@@ -37,8 +37,6 @@
 #include "tcop/dest.h"
 #include "storage/lwlock.h"
 
-#define InvalidSession      (-1)
-
 #define MAX_NWORDS                       128
 #define MAX_ENDPOINT_SIZE                1024
 #define ENDPOINT_TOKEN_LEN               16
