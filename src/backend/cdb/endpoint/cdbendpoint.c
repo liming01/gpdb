@@ -307,16 +307,39 @@ remove_parallel_cursor(const int8 *token, bool *on_qd, List **seg_list)
 void
 generate_token(int8* token)
 {
-	REGENERATE:
-	pg_strong_random(token, ENDPOINT_TOKEN_LEN);
-	if (!IsEndpointTokenValid(token))
-	{
+#ifdef HAVE_STRONG_RANDOM
+REGENERATE:
+	if (!pg_strong_random(token, ENDPOINT_TOKEN_LEN)) {
+		elog(ERROR, "Failed to generate a new random token.");
+	}
+#else
+	/* Use pseudo random generation if strong random is not available*/
+	long r;
+	size_t rpos;
+	/* the random won't generate a 8 bytes number. Only use the lower 4 bytes.*/
+	static const size_t rlen = 4;
+REGENERATE:
+	r = random();
+	rpos = 0;
+	int8 *pos = token;
+	while (pos != token + ENDPOINT_TOKEN_LEN) {
+		if (rpos == 4) {
+			/* generate a new random number */
+			r = random();
+			rpos = 0;
+		}
+		*pos = (int8)(r >> (8 * rpos));
+		pos++;
+		rpos++;
+	}
+#endif
+	if (!IsEndpointTokenValid(token)) {
 		goto REGENERATE;
 	}
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (token_equals(token, SharedTokens[i].token))
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i) {
+		if (token_equals(token, SharedTokens[i].token)) {
 			goto REGENERATE;
+		}
 	}
 }
 
