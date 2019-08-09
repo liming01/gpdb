@@ -541,7 +541,8 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 			{
 				mystatus->status = (EndpointStatus *) repalloc(mystatus->status,
 															   sizeof(EndpointStatus) * mystatus->status_num);
-			} else
+			}
+			else
 			{
 				mystatus->status = (EndpointStatus *) palloc(
 					sizeof(EndpointStatus) * mystatus->status_num);
@@ -554,12 +555,11 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 				if (!entry->empty)
 				{
-					memcpy(mystatus->status[mystatus->status_num - cnt + idx].token,
-							entry->token, ENDPOINT_TOKEN_LEN);
-					mystatus->status[mystatus->status_num - cnt + idx].dbid = contentid_get_dbid(MASTER_CONTENT_ID,
-					                                                                             GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
-					mystatus->status[mystatus->status_num - cnt + idx].attach_status = entry->attach_status;
-					mystatus->status[mystatus->status_num - cnt + idx].sender_pid = entry->sender_pid;
+					EndpointStatus* status = &mystatus->status[mystatus->status_num - cnt + idx];
+					memcpy(status->token, entry->token, ENDPOINT_TOKEN_LEN);
+					status->dbid = contentid_get_dbid(MASTER_CONTENT_ID, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
+					status->attach_status = entry->attach_status;
+					status->sender_pid = entry->sender_pid;
 					idx++;
 				}
 			}

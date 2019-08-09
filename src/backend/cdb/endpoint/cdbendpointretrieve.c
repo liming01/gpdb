@@ -70,7 +70,7 @@ FindEndpointTokenByUser(Oid user_id, const char *token_str)
 			SharedEndpoints[i].user_id == user_id)
 		{
 			/*
-			 * Here convert token from bytes array to string before comparation so
+			 * Here convert token from bytes array to string before comparison so
 			 * that even if the password can not be parsed to int32, there is
 			 * no crash.
 			 */
