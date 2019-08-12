@@ -192,6 +192,10 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
+0R: @out_sh 'attach_gdb' : SELECT pg_backend_pid();
+1R: @out_sh 'attach_gdb' : SELECT pg_backend_pid();
+2R: @out_sh 'attach_gdb' : SELECT pg_backend_pid();
+
 0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 0R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
 

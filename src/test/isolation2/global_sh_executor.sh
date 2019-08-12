@@ -112,3 +112,10 @@ sub() {
     done
     echo "${RAW_STR}"
 }
+
+attach_gdb() {
+    pid=$(echo "$RAW_STR" | awk 'NR == 3 {print $1}')
+    echo "Attach to PID: $pid"
+    tmux new -d -s "gdb_$pid" gdb -ex c -p $pid
+    sleep 2
+}
