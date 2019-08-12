@@ -92,7 +92,9 @@ static void set_attach_status(enum AttachStatus status);
 static void generate_token(int8* token);
 extern bool token_equals(const int8 *token1, const int8 *token2);
 extern uint64 create_magic_num_from_token(const int8 *token);
+#ifdef HAVE_STRONG_RANDOM
 extern bool pg_strong_random(void *buf, size_t len);
+#endif
 
 /*
  * Endpoint_ShmemSize - Calculate the shared memory size for parallel cursor execute.
