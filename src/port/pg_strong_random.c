@@ -39,8 +39,7 @@
 static HCRYPTPROV hProvider = 0;
 #endif
 
-// FIXME: Solve the makefiles before merge to master
-#if 1//defined(USE_DEV_URANDOM)
+#if defined(USE_DEV_URANDOM)
 /*
  * Read (random) bytes from a file.
  */
@@ -167,7 +166,7 @@ pg_strong_random(void *buf, size_t len)
 	/*
 	 * Read /dev/urandom ourselves.
 	 */
-#elif 1//defined(USE_DEV_URANDOM)
+#elif defined(USE_DEV_URANDOM)
 	if (random_from_file("/dev/urandom", buf, len))
 		return true;
 	return false;
