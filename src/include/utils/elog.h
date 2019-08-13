@@ -420,6 +420,9 @@ extern PGDLLIMPORT ErrorContextCallback *error_context_stack;
  * helpful in such cases.
  *----------
  */
+extern void pop_jmp();
+extern void push_jmp(sigjmp_buf *buf);
+
 #define PG_TRY()  \
 	do { \
 		sigjmp_buf *save_exception_stack = PG_exception_stack; \
@@ -427,17 +430,20 @@ extern PGDLLIMPORT ErrorContextCallback *error_context_stack;
 		sigjmp_buf local_sigjmp_buf; \
 		if (sigsetjmp(local_sigjmp_buf, 0) == 0) \
 		{ \
-			PG_exception_stack = &local_sigjmp_buf
+			PG_exception_stack = &local_sigjmp_buf;\
+            push_jmp(PG_exception_stack)
 
 #define PG_CATCH()	\
 		} \
 		else \
 		{ \
 			PG_exception_stack = save_exception_stack; \
-			error_context_stack = save_context_stack
+			error_context_stack = save_context_stack; \
+            pop_jmp()
 
 #define PG_END_TRY()  \
 		} \
+        if (PG_exception_stack != save_exception_stack) pop_jmp(); \
 		PG_exception_stack = save_exception_stack; \
 		error_context_stack = save_context_stack; \
 	} while (0)

@@ -805,6 +805,7 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 	MemoryContextSwitchTo(oldcontext);
 }
 
+extern size_t jmp_buf_array_idx;
 /* ----------------------------------------------------------------
  *		ExecutorRun
  *
@@ -846,6 +847,8 @@ ExecutorRun(QueryDesc *queryDesc,
 	else
 		standard_ExecutorRun(queryDesc, direction, count);
 }
+
+size_t fuck_start_idx = 0;
 
 void
 standard_ExecutorRun(QueryDesc *queryDesc,
@@ -924,6 +927,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	 */
 	PG_TRY();
 	{
+        fuck_start_idx  = jmp_buf_array_idx ;
 		/*
 		 * Run the plan locally.  There are three ways;
 		 *

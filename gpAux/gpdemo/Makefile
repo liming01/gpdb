@@ -16,14 +16,14 @@ top_builddir = ../..
 export enable_gpfdist
 export with_openssl
 
-MASTER_PORT ?= 15432
+MASTER_PORT ?= 5432
 STANDBY_PORT ?= 16432
 PORT_BASE ?= 25432
 NUM_PRIMARY_MIRROR_PAIRS ?= 3
 BLDWRAP_POSTGRES_CONF_ADDONS := fsync=off $(BLDWRAP_POSTGRES_CONF_ADDONS)
 
 ifeq ($(WITH_MIRRORS), )
-WITH_MIRRORS = true
+WITH_MIRRORS = false
 endif
 
 ifeq ($(WITH_MIRRORS), true)

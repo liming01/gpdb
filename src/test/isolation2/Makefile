@@ -91,7 +91,7 @@ installcheck-parallel-cursor: install installcheck-parallel-cursor-check-segment
 	gpconfig -c optimizer -v false && \
 	gpstop -u && \
 	gpconfig -s statement_timeout && \
-	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_cursor --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2parallelcursor --schedule=$(srcdir)/parallel_cursor_schedule ; \
+	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_cursor --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2parallelcursor --schedule=$(srcdir)/parallel_cursor_schedule --host=127.0.0.1; \
 	ret=$$? ; \
 	gpconfig -c optimizer -v $${default_optimizer} -m $${default_optimizer} && \
 	gpconfig -c statement_timeout -v $${default_segment_timeout} -m $${default_master_timeout} && \

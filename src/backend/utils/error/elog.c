@@ -2026,12 +2026,57 @@ ReThrowError(ErrorData *edata)
 	PG_RE_THROW();
 }
 
+#include <pthread.h>
+
+sigjmp_buf* jmp_buf_array[100] = {0};
+size_t jmp_buf_array_idx = 0;
+
+extern pthread_t main_tid;
+volatile bool main_tid_set = false;
+
+
+void push_jmp(sigjmp_buf *buf) {
+    if (!main_tid_set) {
+        main_tid = pthread_self();
+        main_tid_set = true;
+    }
+    if (!pthread_equal(main_tid, pthread_self())) {
+        int i = 0;
+        while(true) {
+            i++;
+        }
+    }
+
+    if (jmp_buf_array_idx && jmp_buf_array[jmp_buf_array_idx - 1] == buf) {
+        int i = 0;
+        while(true) {
+            i++;
+        }
+    }
+    jmp_buf_array[jmp_buf_array_idx] = buf;
+    jmp_buf_array_idx++;
+}
+
+void pop_jmp() {
+    if (!jmp_buf_array_idx) {
+        while(true) ;
+    }
+    jmp_buf_array_idx--;
+}
+
 /*
  * pg_re_throw --- out-of-line implementation of PG_RE_THROW() macro
  */
 void
 pg_re_throw(void)
 {
+    if (!pthread_equal(main_tid, pthread_self())) {
+        int i = 0;
+        while(true) {
+            i++;
+        }
+    }
+
 	/* If possible, throw the error to the next outer setjmp handler */
 	if (PG_exception_stack != NULL)
 		siglongjmp(*PG_exception_stack, 1);
