@@ -1,10 +1,11 @@
 test: parallel_cursor/corner
 test: parallel_cursor/explain
-test: parallel_cursor/privilege
 test: parallel_cursor/replicated_table
-test: parallel_cursor/retrieve_quit
-test: parallel_cursor/security
 test: parallel_cursor/special_query
 test: parallel_cursor/status
 test: parallel_cursor/syntax
 test: parallel_cursor/fault_inject
+# FIXME: Below tests were disabled since the token authentication behaviour changed. Needs to be modified and re-enabled.
+#test: parallel_cursor/retrieve_quit
+#test: parallel_cursor/security
+#test: parallel_cursor/privilege

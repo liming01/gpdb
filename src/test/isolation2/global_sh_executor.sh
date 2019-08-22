@@ -27,6 +27,16 @@ get_cell() {
     eval $var_name="$output"
 }
 
+# Behaves similar to the get_cell(), except $RETRIEVE_TOKEN will be set to the cell value.
+# Arg 1 (output): Variable name.
+# Arg 2 (input): Row number.
+# Arg 3 (input): Column number.
+get_token_cell() {
+    var_name=$1
+    get_cell $@
+    eval RETRIEVE_TOKEN="\$$var_name"
+}
+
 # Generate $MATCHSUBS and echo the $RAWSTR based on the given original string and replacement pairs.
 # Arg 1n (input): The original string to be replaced.
 # Arg 2n (input): The replacement string.

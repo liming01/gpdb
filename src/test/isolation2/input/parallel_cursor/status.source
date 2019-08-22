@@ -7,7 +7,7 @@ insert into t1 select generate_series(1,100);
 --------- Test1: Basic test for parallel retrieve interface & close cursor
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
 *R: @in_sh 'sub @TOKEN1 ${TOKEN1}': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
@@ -27,7 +27,7 @@ insert into t1 select generate_series(1,100);
 ---------- Test2: enhanced test for parallel retrieve interface status & cursor auto closed when transaction closed
 1: BEGIN;
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+1: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
 -- test RETRIEVE report error if parallel cursor not executed
 0R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE 10 FROM "@TOKEN2";
 1&: EXECUTE PARALLEL CURSOR c2;
@@ -62,7 +62,7 @@ insert into t1 select generate_series(1,100);
 ---------- Test3: 2 retrieving sessions connect to the same endpoint report error & cancel QE exec backend
 1: BEGIN;
 1: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
+1: @out_sh 'get_token_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
 1&: EXECUTE PARALLEL CURSOR c3;
 0R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE 10 FROM "@TOKEN3";
 -- a new retrieve session should report error
@@ -90,7 +90,7 @@ insert into t1 select generate_series(1,100);
 ---------- Test4: terminate (using signal QUIT) QE exec backend
 1: BEGIN;
 1: DECLARE c4 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c4';
+1: @out_sh 'get_token_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c4';
 1&: EXECUTE PARALLEL CURSOR c4;
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 0R: @in_sh 'sub @TOKEN4 $TOKEN4': RETRIEVE 10 FROM "@TOKEN4";
@@ -116,7 +116,7 @@ insert into t1 select generate_series(1,100);
 ---------- Test5: terminate (using signal TERM) QE exec backend
 1: BEGIN;
 1: DECLARE c5 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN5 3 1 ; match_sub token_id5 $TOKEN5': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c5';
+1: @out_sh 'get_token_cell TOKEN5 3 1 ; match_sub token_id5 $TOKEN5': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c5';
 1&: EXECUTE PARALLEL CURSOR c5;
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 0R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE 10 FROM "@TOKEN5";
@@ -140,7 +140,7 @@ insert into t1 select generate_series(1,100);
 ---------- Test6: Cancel (using signal INT) the process of 'EXECUTE PARALLEL CURSOR'
 1: BEGIN;
 1: DECLARE c6 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN6 3 1 ; match_sub token_id6 $TOKEN6': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c6';
+1: @out_sh 'get_token_cell TOKEN6 3 1 ; match_sub token_id6 $TOKEN6': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c6';
 -- get backend pid of this session which run 'EXECUTE PARALLEL CURSOR'
 1: @out_sh 'get_cell PID61 3 1 ; sub "${PID61}[ \t]*" QDPid61': select pg_backend_pid();
 1&: EXECUTE PARALLEL CURSOR c6;
@@ -164,7 +164,7 @@ insert into t1 select generate_series(1,100);
 ---------- Test6.1: Cancel (using signal INT) the process of 'EXECUTE PARALLEL CURSOR' without rollback
 1: BEGIN;
 1: DECLARE c61 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN61 3 1 ; match_sub token_id61 $TOKEN61': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c61';
+1: @out_sh 'get_token_cell TOKEN61 3 1 ; match_sub token_id61 $TOKEN61': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c61';
 -- get backend pid of this session which run 'EXECUTE PARALLEL CURSOR'
 1: @out_sh 'get_cell PID611 3 1 ; sub "${PID611}[ \t]*" QDPid611': select pg_backend_pid();
 1&: EXECUTE PARALLEL CURSOR c61;
@@ -187,7 +187,7 @@ insert into t1 select generate_series(1,100);
 ---------- Test7: terminate (using signal QUIT) the process of 'EXECUTE PARALLEL CURSOR'
 1: BEGIN;
 1: DECLARE c7 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN7 3 1 ; match_sub token_id7 $TOKEN7': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c7';
+1: @out_sh 'get_token_cell TOKEN7 3 1 ; match_sub token_id7 $TOKEN7': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c7';
 -- get backend pid of this session which run 'EXECUTE PARALLEL CURSOR'
 1: @out_sh 'get_cell PID71 3 1 ; sub "${PID71}[ \t]*" QDPid71': select pg_backend_pid();
 1&: EXECUTE PARALLEL CURSOR c7;
@@ -216,11 +216,11 @@ insert into t1 select generate_series(1,100);
 ---------- Test8: Status visibilities for different sessions
 1: BEGIN;
 1: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell SESSION81 3 2 ; get_cell TOKEN81 3 1 ; match_sub_tt session81 $SESSION81 > /dev/null ; match_sub token81 $TOKEN81': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
+1: @out_sh 'get_cell SESSION81 3 2 ; get_token_cell TOKEN81 3 1 ; match_sub_tt session81 $SESSION81 > /dev/null ; match_sub token81 $TOKEN81': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
 -- Session 2 can only see its own cursors by default.
 2: BEGIN;
 2: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
-2: @out_sh 'get_cell SESSION82 3 2 ; get_cell TOKEN82 3 1 ; match_sub_tt session82 $SESSION82 > /dev/null ; match_sub token82 $TOKEN82': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
+2: @out_sh 'get_cell SESSION82 3 2 ; get_token_cell TOKEN82 3 1 ; match_sub_tt session82 $SESSION82 > /dev/null ; match_sub token82 $TOKEN82': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
 -- Session 2 can only see all cursors with gp_endpoints_info(true).
 2: SELECT token,sessionid,status FROM gp_endpoints_info(true) WHERE cursorname='c8';
 

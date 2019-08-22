@@ -16,7 +16,7 @@ insert into rt1 select generate_series(1,100);
 -- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+4: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
 1&: EXECUTE PARALLEL CURSOR c1;
 2&: EXECUTE PARALLEL CURSOR c2;
 3&: EXECUTE PARALLEL CURSOR c3;
@@ -44,7 +44,7 @@ insert into rt1 select generate_series(1,100);
 -- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+4: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
 1&: EXECUTE PARALLEL CURSOR c1;
 2&: EXECUTE PARALLEL CURSOR c2;
 3&: EXECUTE PARALLEL CURSOR c3;
@@ -72,7 +72,7 @@ insert into rt1 select generate_series(1,100);
 -- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+4: @out_sh 'get_token_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
 1&: EXECUTE PARALLEL CURSOR c1;
 2&: EXECUTE PARALLEL CURSOR c2;
 3&: EXECUTE PARALLEL CURSOR c3;
@@ -100,7 +100,7 @@ insert into rt1 select generate_series(1,100);
 -- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+4: @out_sh 'get_token_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
 1&: EXECUTE PARALLEL CURSOR c1;
 2&: EXECUTE PARALLEL CURSOR c2;
 3&: EXECUTE PARALLEL CURSOR c3;

@@ -28,7 +28,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 --should work as normal
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
@@ -61,7 +61,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 --should work as normal
 1: BEGIN;
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+1: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
 1&: EXECUTE PARALLEL CURSOR c2;
 
 *R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
@@ -82,7 +82,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
-1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
 0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
@@ -107,7 +107,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
-1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
 1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
@@ -131,7 +131,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
-1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
 1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
@@ -159,7 +159,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
-1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
 0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
@@ -189,7 +189,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t2;
-1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1&: EXECUTE PARALLEL CURSOR c1;
 
 0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';

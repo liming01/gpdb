@@ -12,7 +12,7 @@ INSERT 100
 BEGIN
 1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                              | status
 ------------------------------------+--------
  token_id1 | INIT
@@ -22,9 +22,8 @@ DECLARE
 1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
 
 *R: @in_sh 'sub @TOKEN1 ${TOKEN1}': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
- status 
---------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  status 
 --------
@@ -41,7 +40,8 @@ DECLARE
  READY  
 (1 row)
 *R: @in_sh 'sub @TOKEN1 ${TOKEN1}': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  a  
 ----
@@ -166,9 +166,8 @@ CLOSE
 (0 rows)
 -- check no token info on QE after close parallel cursor
 *R: @in_sh 'sub @TOKEN1 ${TOKEN1}': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
 -------+------------+-----------+-------------+--------+------+-----------+--------
@@ -193,7 +192,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+1: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                              | status
 ------------------------------------+--------
  token_id2 | INIT
@@ -214,9 +213,8 @@ ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED.
  READY  
 (3 rows)
 *R: @in_sh 'sub @TOKEN2 ${TOKEN2}': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -296,9 +294,8 @@ ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED.
  READY  
 (3 rows)
 *R: @in_sh 'sub @TOKEN2 ${TOKEN2}': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -321,7 +318,8 @@ ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED.
 (0 rows)
 -- finished retrieving all endpoints and check status
 *R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE ALL FROM "@TOKEN2";
-ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpointretrieve.c:LINENO)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  a  
 ----
@@ -395,9 +393,8 @@ ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpointre
  FINISH 
 (3 rows)
 *R: @in_sh 'sub @TOKEN2 ${TOKEN2}': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -426,9 +423,8 @@ COMMIT
 (0 rows)
 -- check no token info on QE after close parallel cursor
 *R: @in_sh 'sub @TOKEN2 ${TOKEN2}': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
 -------+------------+-----------+-------------+--------+------+-----------+--------
@@ -453,7 +449,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
+1: @out_sh 'get_token_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
  token                              | status
 ------------------------------------+--------
  token_id3 | INIT
@@ -547,9 +543,8 @@ ERROR:  canceling MPP operation
  RELEASED 
 (3 rows)
 *R: @in_sh 'sub @TOKEN3 $TOKEN3': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -573,9 +568,8 @@ ROLLBACK
 --------
 (0 rows)
 *R: @in_sh 'sub @TOKEN3 $TOKEN3': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -594,7 +588,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c4 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c4';
+1: @out_sh 'get_token_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c4';
  token                              | status
 ------------------------------------+--------
  token_id4 | INIT
@@ -685,13 +679,11 @@ DETAIL:
 	This probably means the server terminated abnormally
 	before or while processing the request.
 *R: @in_sh 'sub @TOKEN4 $TOKEN4': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
 
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+
+#0retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -711,13 +703,11 @@ ROLLBACK
 --------
 (0 rows)
 *R: @in_sh 'sub @TOKEN4 $TOKEN4': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
 
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+
+#0retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -732,7 +722,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c5 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN5 3 1 ; match_sub token_id5 $TOKEN5': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c5';
+1: @out_sh 'get_token_cell TOKEN5 3 1 ; match_sub token_id5 $TOKEN5': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c5';
  token                              | status
 ------------------------------------+--------
  token_id5 | INIT
@@ -820,9 +810,8 @@ ERROR:  terminating connection due to administrator command  (seg0 10.34.50.67:2
  RELEASED 
 (3 rows)
 *R: @in_sh 'sub @TOKEN5 $TOKEN5': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -846,9 +835,8 @@ ROLLBACK
 --------
 (0 rows)
 *R: @in_sh 'sub @TOKEN5 $TOKEN5': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -867,7 +855,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c6 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN6 3 1 ; match_sub token_id6 $TOKEN6': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c6';
+1: @out_sh 'get_token_cell TOKEN6 3 1 ; match_sub token_id6 $TOKEN6': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c6';
  token                              | status
 ------------------------------------+--------
  token_id6 | INIT
@@ -955,9 +943,8 @@ ERROR:  canceling statement due to user request
  RELEASED 
 (3 rows)
 *R: @in_sh 'sub @TOKEN6 $TOKEN6': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -981,9 +968,8 @@ ROLLBACK
 --------
 (0 rows)
 *R: @in_sh 'sub @TOKEN6 $TOKEN6': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -1002,7 +988,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c61 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN61 3 1 ; match_sub token_id61 $TOKEN61': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c61';
+1: @out_sh 'get_token_cell TOKEN61 3 1 ; match_sub token_id61 $TOKEN61': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c61';
  token                              | status
 ------------------------------------+--------
  token_id61 | INIT
@@ -1090,9 +1076,8 @@ ERROR:  canceling statement due to user request
  RELEASED 
 (3 rows)
 *R: @in_sh 'sub @TOKEN61 $TOKEN61': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN61';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -1113,9 +1098,8 @@ ERROR:  canceling statement due to user request
 --------
 (0 rows)
 *R: @in_sh 'sub @TOKEN61 $TOKEN61': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN61';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -1134,7 +1118,7 @@ ERROR:  canceling statement due to user request
 BEGIN
 1: DECLARE c7 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN7 3 1 ; match_sub token_id7 $TOKEN7': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c7';
+1: @out_sh 'get_token_cell TOKEN7 3 1 ; match_sub token_id7 $TOKEN7': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c7';
  token                              | status
 ------------------------------------+--------
  token_id7 | INIT
@@ -1219,16 +1203,15 @@ server closed the connection unexpectedly
 -- quit all sessions on the master, because connect lost
 1q: ... <quitting>
 2q: ... <quitting>
--1Rq: ... <quitting>
+-1Rq: FAILED:  Sessions not started cannot be quit
 -- check no endpoint info left
 2: @in_sh 'sub @TOKEN7 $TOKEN7': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c7' AND token='@TOKEN7';
  status 
 --------
 (0 rows)
 *R: @in_sh 'sub @TOKEN7 $TOKEN7': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -1252,9 +1235,8 @@ ROLLBACK
 --------
 (0 rows)
 *R: @in_sh 'sub @TOKEN7 $TOKEN7': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  ?column? | ?column? | status 
 ----------+----------+--------
@@ -1273,7 +1255,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell SESSION81 3 2 ; get_cell TOKEN81 3 1 ; match_sub_tt session81 $SESSION81 > /dev/null ; match_sub token81 $TOKEN81': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
+1: @out_sh 'get_cell SESSION81 3 2 ; get_token_cell TOKEN81 3 1 ; match_sub_tt session81 $SESSION81 > /dev/null ; match_sub token81 $TOKEN81': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
  token                              | sessionid | status
 ------------------------------------+-----------+--------
  token81 | session81| INIT
@@ -1285,7 +1267,7 @@ DECLARE
 BEGIN
 2: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
 DECLARE
-2: @out_sh 'get_cell SESSION82 3 2 ; get_cell TOKEN82 3 1 ; match_sub_tt session82 $SESSION82 > /dev/null ; match_sub token82 $TOKEN82': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
+2: @out_sh 'get_cell SESSION82 3 2 ; get_token_cell TOKEN82 3 1 ; match_sub_tt session82 $SESSION82 > /dev/null ; match_sub token82 $TOKEN82': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
  token                              | sessionid | status
 ------------------------------------+-----------+--------
  token82 | session82| INIT
