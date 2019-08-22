@@ -1910,40 +1910,9 @@ DoPortalRunFetch(Portal portal,
 	 */
 	if (portal->strategy == PORTAL_MULTI_QUERY)
 	{
-        SetGpToken(portal->parallel_cursor_token);
+		SetGpToken(portal->parallel_cursor_token);
 		PortalRunMulti(portal, false, dest, dest, NULL);
-
-		if (IsEndpointTokenValid(portal->parallel_cursor_token))
-		{
-			size_t		cmdLen = 255;
-			char		cmd[cmdLen];
-			char		*tokenStr = PrintToken(portal->parallel_cursor_token);
-
-			/* Unset sender pid for end-point */
-			snprintf(cmd, cmdLen, "select __gp_operate_endpoints_token('u', '%s')", tokenStr);
-			pfree(tokenStr);
-
-			List* l = GetContentIDsByToken(portal->parallel_cursor_token);
-			if (l)
-			{
-				if (l->length == 1 && list_nth_int(l, 0) == MASTER_CONTENT_ID)
-				{
-					/* unset sender pid for end-point on master */
-					UnsetSenderPidOfToken(portal->parallel_cursor_token);
-				}
-				else
-				{
-					/* dispatch to some segments */
-					CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, l, NULL);
-				}
-			}
-			else
-			{
-				/* dispatch to all segments */
-				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
-			}
-		}
-        ClearGpToken();
+		ClearGpToken();
 		MarkPortalDone(portal);
 		return 0;
 	}

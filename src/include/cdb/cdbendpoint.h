@@ -133,31 +133,20 @@ typedef struct EndpointDesc
 } EndpointDesc;
 
 /*
- * Shared memory structure LWLocks for ParallelCursorTokenDesc entries
- * and EndpointDesc entries.
- */
-typedef struct EndpointSharedCTX
-{
-	int tranche_id;                    /* Tranche id for parallel cursor endpoint lwlocks.
-                                          Read only, don't need acquire lock*/
-	LWLockTranche tranche;
-	LWLockPadded *endpointLWLocks;     /* LWLocks to protect ParallelCursorTokenDesc entries
-                                          and EndpointDesc entries */
-} EndpointSharedCTX;
-
-/*
  * For receiver, we have a hash table to store connected endpoint's shared message queue.
  * So that we can retrieve from different endpoints in the same retriever and switch
  * between different endpoints.
+ *
+ * For endpoint(on QD/QE), only keep one entry to track current message queue.
  */
 typedef struct MsgQueueStatusEntry
 {
 	int8 retrieve_token[ENDPOINT_TOKEN_LEN];   /* The parallel cursor token, also as the hash table entry key */
 	dsm_segment *mq_seg;                       /* The dsm handle which contains shared memory message queue */
 	shm_mq_handle *mq_handle;                  /* Shared memory message queue */
-	TupleTableSlot *retrieve_ts;               /* tuple slot */
-	TupleQueueReader *tq_reader;
-	enum RetrieveStatus retrieve_status;
+	TupleTableSlot *retrieve_ts;               /* tuple slot used for retrieve data */
+	TupleQueueReader *tq_reader;               /* TupleQueueReader to read tuple from message queue */
+	enum RetrieveStatus retrieve_status;       /* Track retrieve status for retrieve token entry */
 } MsgQueueStatusEntry;
 
 /*
@@ -179,13 +168,9 @@ typedef EndpointDesc *Endpoint;
 #define ENDPOINT_KEY_TUPLE_DESC         2
 #define ENDPOINT_KEY_TUPLE_QUEUE        3
 
-extern EndpointSharedCTX *endpointSC;          /* Shared memory context with LWLocks */
 extern ParallelCursorTokenDesc *SharedTokens;  /* Point to ParallelCursorTokenDesc entries in shared memory */
 extern EndpointDesc *SharedEndpoints;          /* Point to EndpointDesc entries in shared memory */
 extern EndpointControl EndpointCtl;            /* Endpoint ctrl */
-
-#define EndpointsLWLock (LWLock*) endpointSC->endpointLWLocks    /* LWLocks to protect EndpointDesc entries */
-#define TokensLWLock (LWLock*)(endpointSC->endpointLWLocks + 1)  /* LWLocks to protect ParallelCursorTokenDesc entries */
 
 /* cbdendpoint.c */
 /* Endpoint shared memory context init */
@@ -214,8 +199,6 @@ extern void DestroyParallelCursor(const int8 *token);
 /* Functions used in execute parallel cursor stage, on Endpoints(QE/QD) */
 extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc);
 extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
-/* Function used in execute parallel cursor finish stage, on Endpoints(QE/QD) */
-extern void UnsetSenderPidOfToken(const int8 *token);
 /* Endpoint backend register/free, execute on Endpoints(QE/QD) */
 extern void AllocEndpointOfToken(const int8 *token);
 extern void FreeEndpointOfToken(const int8 *token);

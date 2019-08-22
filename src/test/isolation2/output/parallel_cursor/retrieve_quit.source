@@ -146,7 +146,7 @@ DETAIL:  An endpoint can be attached by only one retrieving session for each 'EX
  ?column? | ?column? | status 
 ----------+----------+--------
  t        | t        | READY  
- t        | t        | FINISH 
+ f        | t        | FINISH 
  t        | t        | READY  
 (3 rows)
 -- quit the first retrieve session
@@ -172,7 +172,7 @@ ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished
 3R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
  ?column? | ?column? | status 
 ----------+----------+--------
- t        | t        | FINISH 
+ f        | t        | FINISH 
  t        | t        | READY  
 (2 rows)
 -- quit the second retrieve session

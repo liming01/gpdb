@@ -202,7 +202,7 @@ DECLARE
 (3 rows)
 -- test RETRIEVE report error if parallel cursor not executed
 0R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE 10 FROM "@TOKEN2";
-ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED (cdbendpointretrieve.c:LINENO)
+ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED. (cdbendpointretrieve.c:LINENO)
 1&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
 
 -- check initial status after "EXECUTE PARALLEL CURSOR"
@@ -307,7 +307,7 @@ ERROR:  the PARALLEL CURSOR related to endpoint token token_id2 is not EXECUTED 
 
  ?column? | ?column? | status 
 ----------+----------+--------
- t        | t        | FINISH 
+ f        | t        | FINISH 
 (1 row)
 
  ?column? | ?column? | status 

@@ -62,7 +62,7 @@ FindEndpointTokenByUser(Oid user_id, const char *token_str)
 	before_shmem_exit(retrieve_exit_callback, (Datum) 0);
 	RegisterSubXactCallback(retrieve_subxact_callback, NULL);
 	RegisterXactCallback(retrieve_xact_abort_callback, NULL);
-	LWLockAcquire(EndpointsLWLock, LW_SHARED);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
@@ -85,7 +85,7 @@ FindEndpointTokenByUser(Oid user_id, const char *token_str)
 			pfree(tmpTokenStr);
 		}
 	}
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 	return isFound;
 }
 
@@ -116,7 +116,7 @@ AttachEndpoint(void)
 
 	CheckTokenValid();
 
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
@@ -129,7 +129,8 @@ AttachEndpoint(void)
 				has_privilege = false;
 				break;
 			}
-			if (SharedEndpoints[i].sender_pid == InvalidPid)
+			if (SharedEndpoints[i].sender_pid == InvalidPid &&
+				SharedEndpoints[i].attach_status != Status_Finished)
 			{
 				is_invalid_sendpid = true;
 				break;
@@ -167,7 +168,7 @@ AttachEndpoint(void)
 		}
 	}
 
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 
 	if (!has_privilege)
 	{
@@ -179,7 +180,7 @@ AttachEndpoint(void)
 
 	if (is_invalid_sendpid)
 	{
-		elog(ERROR, "the PARALLEL CURSOR related to endpoint token %s is not EXECUTED",
+		elog(ERROR, "the PARALLEL CURSOR related to endpoint token %s is not EXECUTED.",
 			 PrintToken(EndpointCtl.Gp_token));
 	}
 
@@ -239,10 +240,10 @@ init_conn_for_receiver(void)
 
 	elog(DEBUG3, "CDB_ENDPOINTS: init message queue conn for receiver");
 	dsm_segment *dsm_seg;
-	LWLockAcquire(EndpointsLWLock, LW_SHARED);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	if (currentMQEntry->mq_seg && dsm_segment_handle(currentMQEntry->mq_seg) == my_shared_endpoint->handle)
 	{
-		LWLockRelease(EndpointsLWLock);
+		LWLockRelease(ParallelCursorEndpointLock);
 		return;
 	}
 	if (currentMQEntry->mq_seg)
@@ -250,7 +251,7 @@ init_conn_for_receiver(void)
 		dsm_detach(currentMQEntry->mq_seg);
 	}
 	dsm_seg = dsm_attach(my_shared_endpoint->handle);
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 	if (dsm_seg == NULL)
 	{
 		receiver_mq_close();
@@ -502,7 +503,7 @@ DetachEndpoint(bool reset_pid)
 		!IsEndpointTokenValid(EndpointCtl.Gp_token))
 		return;
 
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	/*
 	 * If the empty is true, the endpoint has already cleaned the EndpointDesc entry.
@@ -536,7 +537,7 @@ DetachEndpoint(bool reset_pid)
 		}
 	}
 
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 
 	my_shared_endpoint = NULL;
 	currentMQEntry = NULL;
@@ -555,7 +556,7 @@ retrieve_cancel_action(const int8 *token, char *msg)
 	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
 		elog(DEBUG3, "CDB_ENDPOINT: retrieve_cancel_action current role is not receiver.");
 
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
@@ -570,7 +571,7 @@ retrieve_cancel_action(const int8 *token, char *msg)
 		}
 	}
 
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*

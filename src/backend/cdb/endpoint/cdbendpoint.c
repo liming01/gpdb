@@ -54,7 +54,6 @@
 #define SHMEM_PARALLEL_CURSOR_ENTRIES   "SharedMemoryParallelCursorTokens"
 #define SHMEM_ENDPOINTS_ENTRIES         "SharedMemoryEndpointDescEntries"
 
-EndpointSharedCTX *endpointSC = NULL;                    /* Shared memory context with LWLocks */
 ParallelCursorTokenDesc *SharedTokens = NULL;            /* Point to ParallelCursorTokenDesc entries in shared memory */
 EndpointDesc *SharedEndpoints = NULL;                    /* Point to EndpointDesc entries in shared memory */
 
@@ -105,8 +104,7 @@ Size
 EndpointShmemSize(void)
 {
 	Size size;
-	size = MAXALIGN(sizeof(EndpointSharedCTX));
-	size = add_size(size, mul_size(sizeof(LWLockPadded), 2));
+	size = mul_size(sizeof(LWLockPadded), 2);
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
 		size += MAXALIGN(mul_size(MAX_ENDPOINT_SIZE, sizeof(ParallelCursorTokenDesc)));
@@ -122,28 +120,7 @@ void
 EndpointCTXShmemInit(void)
 {
 	bool is_shmem_ready;
-	Size offset;
-	char *ptr;
 
-	endpointSC = (EndpointSharedCTX *) ShmemInitStruct(
-		SHMEM_TOKENCTX,
-		MAXALIGN(sizeof(EndpointSharedCTX)) + sizeof(LWLockPadded) * 2,
-		&is_shmem_ready);
-	Assert(is_shmem_ready || !IsUnderPostmaster);
-	if (!is_shmem_ready)
-	{
-		offset = MAXALIGN(sizeof(EndpointSharedCTX));
-		ptr = (char *) endpointSC;
-		endpointSC->tranche_id = LWLockNewTrancheId();
-		endpointSC->tranche.name = "EndpointLocks";
-		endpointSC->tranche.array_base = ptr + offset;
-		endpointSC->tranche.array_stride = sizeof(LWLockPadded);
-		endpointSC->endpointLWLocks = (LWLockPadded *) (ptr + offset);
-
-		LWLockRegisterTranche(endpointSC->tranche_id, &endpointSC->tranche);
-		LWLockInitialize(EndpointsLWLock, endpointSC->tranche_id);
-		LWLockInitialize(TokensLWLock, endpointSC->tranche_id);
-	}
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
 		SharedTokens = (ParallelCursorTokenDesc *) ShmemInitStruct(
@@ -260,7 +237,7 @@ remove_parallel_cursor(const int8 *token, bool *on_qd, List **seg_list)
 	Assert(IsEndpointTokenValid(token));
 	bool found = false;
 
-	LWLockAcquire(TokensLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorTokenLock, LW_EXCLUSIVE);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (token_equals(SharedTokens[i].token, token))
@@ -299,7 +276,7 @@ remove_parallel_cursor(const int8 *token, bool *on_qd, List **seg_list)
 			break;
 		}
 	}
-	LWLockRelease(TokensLWLock);
+	LWLockRelease(ParallelCursorTokenLock);
 	return found;
 }
 
@@ -442,7 +419,7 @@ AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id, Oi
 	Assert(name != NULL);
 	Assert(session_id != InvalidSession);
 
-	LWLockAcquire(TokensLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorTokenLock, LW_EXCLUSIVE);
 	generate_token(token);
 
 #ifdef FAULT_INJECTOR
@@ -512,7 +489,7 @@ AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id, Oi
 		}
 	}
 
-	LWLockRelease(TokensLWLock);
+	LWLockRelease(ParallelCursorTokenLock);
 
 	/* no empty entry to save this token */
 	if (i == MAX_ENDPOINT_SIZE)
@@ -540,7 +517,7 @@ CheckParallelCursorPrivilege(const int8 *token)
 	bool result = false;
 
 	Assert(IsUnderPostmaster);
-	LWLockAcquire(TokensLWLock, LW_SHARED);
+	LWLockAcquire(ParallelCursorTokenLock, LW_SHARED);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (token_equals(SharedTokens[i].token, token))
@@ -549,7 +526,7 @@ CheckParallelCursorPrivilege(const int8 *token)
 			break;
 		}
 	}
-	LWLockRelease(TokensLWLock);
+	LWLockRelease(ParallelCursorTokenLock);
 	return result;
 }
 
@@ -561,7 +538,7 @@ GetContentIDsByToken(const int8 *token)
 {
 	List *l = NIL;
 
-	LWLockAcquire(TokensLWLock, LW_SHARED);
+	LWLockAcquire(ParallelCursorTokenLock, LW_SHARED);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (token_equals(SharedTokens[i].token, token))
@@ -584,7 +561,7 @@ GetContentIDsByToken(const int8 *token)
 			}
 		}
 	}
-	LWLockRelease(TokensLWLock);
+	LWLockRelease(ParallelCursorTokenLock);
 	return l;
 }
 
@@ -715,6 +692,7 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	sender_close();
 
 	sender_finish();
+	unset_endpoint_sender_pid(my_shared_endpoint);
 	set_attach_status(Status_Finished);
 	ClearGpToken();
 	ClearParallelCursorExecRole();
@@ -744,7 +722,7 @@ set_sender_pid(void)
 
 	CheckTokenValid();
 
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	/*
      * Presume that for any token, only one parallel cursor is activated at
@@ -775,30 +753,10 @@ set_sender_pid(void)
 
 	my_shared_endpoint = &SharedEndpoints[i];
 
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 
 	if (!my_shared_endpoint)
 		elog(ERROR, "failed to allocate endpoint");
-}
-
-/*
- * UnsetSenderPidOfToken - unset sender pid for parallel cursor token
- *
- * When the endpoint send all data finish the cursor portal, unset the
- * sender pid and related info in EndpointDesc entry.
- */
-void
-UnsetSenderPidOfToken(const int8 *token)
-{
-	EndpointDesc *endPointDesc = find_endpoint_by_token(token);
-	if (!endPointDesc)
-	{
-		elog(ERROR, "no valid endpoint info for token %s", PrintToken(token));
-	}
-	char *tokenStr = PrintToken(token);
-	elog(DEBUG3, "CDB_ENDPOINTS: unset sender pid for token '%s'.", tokenStr);
-	pfree(tokenStr);
-	unset_endpoint_sender_pid(endPointDesc);
 }
 
 /*
@@ -815,7 +773,7 @@ AllocEndpointOfToken(const int8 *token)
 	if (!IsEndpointTokenValid(token))
 		elog(ERROR, "allocate endpoint of invalid token ID");
 	Assert(SharedEndpoints);
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 #ifdef FAULT_INJECTOR
 	/* inject fault "skip" to set end-point shared memory slot full */
@@ -898,7 +856,7 @@ AllocEndpointOfToken(const int8 *token)
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 
 	if (found_idx == -1)
 		elog(ERROR, "failed to allocate endpoint");
@@ -926,14 +884,14 @@ FreeEndpointOfToken(const int8 *token)
 
 	unset_endpoint_sender_pid(endPointDesc);
 
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 	endPointDesc->database_id = InvalidOid;
 	InvalidateEndpointToken(endPointDesc->token);
 	endPointDesc->handle = DSM_HANDLE_INVALID;
 	endPointDesc->session_id = InvalidSession;
 	endPointDesc->user_id = InvalidOid;
 	endPointDesc->empty = true;
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*
@@ -982,16 +940,16 @@ create_and_connect_mq(TupleDesc tupleDesc)
 	shm_toc_estimate_keys(&toc_est, 1);
 	toc_size = shm_toc_estimate(&toc_est);
 
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 	dsm_seg = dsm_create(toc_size);
 	if (dsm_seg == NULL)
 	{
-		LWLockRelease(EndpointsLWLock);
+		LWLockRelease(ParallelCursorEndpointLock);
 		sender_close();
 		elog(ERROR, "failed to create shared message queue for send tuples.");
 	}
 	my_shared_endpoint->handle = dsm_segment_handle(dsm_seg);
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 	dsm_pin_mapping(dsm_seg);
 
 	toc = shm_toc_create(create_magic_num_from_token(my_shared_endpoint->token), dsm_segment_address(dsm_seg), toc_size);
@@ -1124,7 +1082,7 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
 	signal_receiver_abort(endPointDesc);
 
 	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint sender pid.");
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	/*
 	 * Only the endpoint QE/QD execute this unset sender pid function.
@@ -1139,7 +1097,7 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
 		DisownLatch(&endPointDesc->ack_done);
 	}
 
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*
@@ -1156,7 +1114,7 @@ signal_receiver_abort(volatile EndpointDesc *endPointDesc)
 		return;
 
 	elog(DEBUG3, "CDB_ENDPOINT: signal the receiver to abort.");
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	receiver_pid = endPointDesc->receiver_pid;
 	is_attached = endPointDesc->attach_status == Status_Attached;
@@ -1165,7 +1123,7 @@ signal_receiver_abort(volatile EndpointDesc *endPointDesc)
 		pg_signal_backend(receiver_pid, SIGINT, "Signal the receiver to abort.");
 	}
 
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*
@@ -1251,13 +1209,13 @@ check_end_point_allocated(void)
 
 	CheckTokenValid();
 
-	LWLockAcquire(EndpointsLWLock, LW_SHARED);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	if (!token_equals(my_shared_endpoint->token, EndpointCtl.Gp_token))
 	{
-		LWLockRelease(EndpointsLWLock);
+		LWLockRelease(ParallelCursorEndpointLock);
 		elog(ERROR, "endpoint for token %s is not allocated", PrintToken(EndpointCtl.Gp_token));
 	}
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 static void
@@ -1269,11 +1227,11 @@ set_attach_status(enum AttachStatus status)
 	if (!my_shared_endpoint && !my_shared_endpoint->empty)
 		elog(ERROR, "endpoint doesn't exist");
 
-	LWLockAcquire(EndpointsLWLock, LW_EXCLUSIVE);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	my_shared_endpoint->attach_status = status;
 
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 
 	if (status == Status_Finished)
 		my_shared_endpoint = NULL;
@@ -1314,10 +1272,6 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 			case 'f':
 				/* Free endpoint */
 				FreeEndpointOfToken(token);
-				break;
-			case 'u':
-				/* Unset sender pid of endpoint */
-				UnsetSenderPidOfToken(token);
 				break;
 			default:
 				elog(ERROR, "Failed to execute gp_operate_endpoints_token('%c', '%s')", operation, token_str);

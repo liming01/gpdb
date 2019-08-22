@@ -403,7 +403,7 @@ EndpointDesc * find_endpoint_by_token(const int8 *token)
 {
 	EndpointDesc *res = NULL;
 
-	LWLockAcquire(EndpointsLWLock, LW_SHARED);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (!SharedEndpoints[i].empty &&
@@ -414,7 +414,7 @@ EndpointDesc * find_endpoint_by_token(const int8 *token)
 			break;
 		}
 	}
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 	return res;
 }
 
@@ -524,7 +524,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		}
 
 		/* get end-point status on master */
-		LWLockAcquire(EndpointsLWLock, LW_SHARED);
+		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 		int cnt = 0;
 
 		for (int i = 0; i < MAX_ENDPOINT_SIZE && SharedEndpoints != NULL; i++)
@@ -564,7 +564,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				}
 			}
 		}
-		LWLockRelease(EndpointsLWLock);
+		LWLockRelease(ParallelCursorEndpointLock);
 
 		/* return to original context when allocating transient memory */
 		MemoryContextSwitchTo(oldcontext);
@@ -575,7 +575,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	/*
 	 * build detailed token information
 	 */
-	LWLockAcquire(TokensLWLock, LW_SHARED);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	while (mystatus->curTokenIdx < MAX_ENDPOINT_SIZE && SharedTokens != NULL)
 	{
 
@@ -642,7 +642,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 					tuple  = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 					result = HeapTupleGetDatum(tuple);
-					LWLockRelease(TokensLWLock);
+					LWLockRelease(ParallelCursorEndpointLock);
 					pfree(token);
 					SRF_RETURN_NEXT(funcctx, result);
 				}
@@ -653,7 +653,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		/* go to the next token */
 		mystatus->curTokenIdx++;
 	}
-	LWLockRelease(TokensLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 	SRF_RETURN_DONE(funcctx);
 }
 
@@ -721,7 +721,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	funcctx = SRF_PERCALL_SETUP();
 	mystatus = funcctx->user_fctx;
 
-	LWLockAcquire(EndpointsLWLock, LW_SHARED);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	while (mystatus->current_idx < mystatus->endpoints_num && SharedEndpoints != NULL)
 	{
 		memset(values, 0, sizeof(values));
@@ -755,13 +755,13 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 			result = HeapTupleGetDatum(tuple);
 			mystatus->current_idx++;
-			LWLockRelease(EndpointsLWLock);
+			LWLockRelease(ParallelCursorEndpointLock);
 			pfree(token);
 			SRF_RETURN_NEXT(funcctx, result);
 		}
 		mystatus->current_idx++;
 	}
-	LWLockRelease(EndpointsLWLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 	SRF_RETURN_DONE(funcctx);
 }
 
