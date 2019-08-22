@@ -199,7 +199,6 @@ typedef struct PortalData
 	 * the cursor specific named portal, now gpdb QE doesn't support cursor
 	 * mode query portal.
 	 */
-	bool		is_parallel;
 	int8		parallel_cursor_token[ENDPOINT_TOKEN_LEN];
 
 	/*

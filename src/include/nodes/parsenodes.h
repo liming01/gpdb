@@ -2684,7 +2684,8 @@ typedef struct FetchStmt
 	char	   *portalname;		/* name of portal (cursor) */
 	bool		ismove;			/* TRUE if MOVE */
 	bool        isParallelCursor;  /* If it is a parallel cursor, FETCH statement
-									  is in fact EXECUTE PARALLEL CURSOR*/
+									  is in fact CHECK PARALLEL CURSOR*/
+	bool        isParallelCursorCheckWait; /* Whether wait on CHECK PARALLEL CURSOR status */
 } FetchStmt;
 
 /* ----------------------

@@ -35,6 +35,7 @@
 #include "access/xact.h"
 #include "access/tupdesc.h"
 #include "cdb/cdbutil.h"
+#include "cdb/cdbdisp.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbsrlz.h"
@@ -892,6 +893,32 @@ FreeEndpointOfToken(const int8 *token)
 	endPointDesc->user_id = InvalidOid;
 	endPointDesc->empty = true;
 	LWLockRelease(ParallelCursorEndpointLock);
+}
+
+void
+CheckParallelCursorStatus(QueryDesc *queryDesc, bool isWait) {
+	EState	   *estate;
+
+	/* caller must have switched into per-query memory context already */
+	estate = queryDesc->estate;
+	/*
+	 * If QD, wait for QEs to finish and check their results.
+	 */
+	if (estate->dispatcherState && estate->dispatcherState->primaryResults)
+	{
+		ErrorData *qeError = NULL;
+
+		CdbDispatcherState *ds = estate->dispatcherState;
+		DispatchWaitMode waitMode = isWait ? DISPATCH_WAIT_NONE : DISPATCH_WAIT_CHECK;
+		cdbdisp_checkDispatchResult(ds, waitMode);
+		cdbdisp_getDispatchResults(ds, &qeError);
+		if (qeError)
+		{
+			estate->dispatcherState = NULL;
+			cdbdisp_destroyDispatcherState(ds);
+			ReThrowError(qeError);
+		}
+	}
 }
 
 /*

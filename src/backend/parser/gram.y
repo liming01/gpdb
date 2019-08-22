@@ -8018,12 +8018,13 @@ FetchStmt:	FETCH fetch_args
 					n->isParallelCursor = FALSE;
 					$$ = (Node *)n;
 				}
-			| EXECUTE PARALLEL CURSOR cursor_name
+			| CHECK PARALLEL CURSOR cursor_name opt_nowait
 				{
 					/* Execute parallel cursor is same as FETCH ALL FROM cursor_name */
 					FetchStmt *n = makeNode(FetchStmt);
 					n->ismove = FALSE;
 					n->isParallelCursor = TRUE;
+					n->isParallelCursorCheckWait = !($5);
 					n->portalname = $4;
 					n->direction = FETCH_FORWARD;
 					n->howMany = FETCH_ALL;

@@ -727,7 +727,7 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			&& exec_identity == GP_ROOT_SLICE
 			&& LocallyExecutingSliceIndex(estate) == 0)
 		{
-            SetParallelCursorExecRole(PCER_SENDER);
+			SetParallelCursorExecRole(PCER_SENDER);
 		}
 
 		/* non-root on QE */

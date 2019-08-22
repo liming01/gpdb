@@ -423,8 +423,6 @@ ChoosePortalStrategy(List *stmts, bool parallelCursor)
 				{
 					if (pstmt->hasModifyingCTE)
 						return PORTAL_ONE_MOD_WITH;
-					else if (parallelCursor)
-						return PORTAL_MULTI_QUERY;
 					else
 						return PORTAL_ONE_SELECT;
 				}
@@ -987,9 +985,6 @@ PortalRun(Portal portal, int64 count, bool isTopLevel,
 			case PORTAL_ONE_RETURNING:
 			case PORTAL_ONE_MOD_WITH:
 			case PORTAL_UTIL_SELECT:
-
-				if (portal->is_parallel)
-					break;
 
 				/*
 				 * If we have not yet run the command, do so, storing its

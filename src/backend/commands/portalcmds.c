@@ -161,12 +161,6 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 			portal->cursorOptions |= CURSOR_OPT_NO_SCROLL;
 	}
 #endif
-
-	/*
-	 * Start execution, inserting parameters if any.
-	 */
-	PortalStart(portal, params, 0, GetActiveSnapshot(), NULL);
-
 	/*
 	 * Generate a token for parallel cursor, and add it into
 	 * shared memory
@@ -177,7 +171,6 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 		char		cmd[255];
 		List *cids;
 		enum EndPointExecPosition endPointExecPosition;
-
 
 		cids = ChooseEndpointContentIDForParallelCursor(
 			stmt->planTree, &endPointExecPosition);
@@ -202,8 +195,10 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 		}
 	}
 
-	Assert((!(portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_ONE_SELECT) ||
-		   ((portal->cursorOptions & CURSOR_OPT_PARALLEL) && portal->strategy == PORTAL_MULTI_QUERY));
+	/*
+	 * Start execution, inserting parameters if any.
+	 */
+	PortalStart(portal, params, 0, GetActiveSnapshot(), NULL);
 
 	/*
 	 * We're done; the query won't actually be run until PerformPortalFetch is
@@ -290,6 +285,9 @@ PerformPortalFetch(FetchStmt *stmt,
 								stmt->direction,
 								stmt->howMany,
 								dest);
+
+	if (stmt->isParallelCursor)
+		CheckParallelCursorStatus(portal->queryDesc, stmt->isParallelCursorCheckWait);
 
 	/* Return command status if wanted */
 	if (completionTag)

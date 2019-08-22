@@ -31,6 +31,7 @@
 #include <inttypes.h>
 
 #include "executor/tqueue.h"
+#include "executor/execdesc.h"
 #include "storage/dsm.h"
 #include "storage/shm_toc.h"
 #include "nodes/parsenodes.h"
@@ -202,6 +203,8 @@ extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 /* Endpoint backend register/free, execute on Endpoints(QE/QD) */
 extern void AllocEndpointOfToken(const int8 *token);
 extern void FreeEndpointOfToken(const int8 *token);
+
+extern void CheckParallelCursorStatus(QueryDesc *queryDesc, bool isWait);
 
 /* UDFs for endpoints operation */
 extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
