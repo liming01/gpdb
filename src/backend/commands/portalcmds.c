@@ -287,7 +287,7 @@ PerformPortalFetch(FetchStmt *stmt,
 								dest);
 
 	if (stmt->isParallelCursor)
-		CheckParallelCursorStatus(portal->queryDesc, stmt->isParallelCursorCheckWait);
+		CheckParallelCursorErrors(portal->queryDesc, stmt->isParallelCursorCheckWait);
 
 	/* Return command status if wanted */
 	if (completionTag)

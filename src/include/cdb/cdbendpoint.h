@@ -204,7 +204,8 @@ extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 extern void AllocEndpointOfToken(const int8 *token);
 extern void FreeEndpointOfToken(const int8 *token);
 
-extern void CheckParallelCursorStatus(QueryDesc *queryDesc, bool isWait);
+extern void CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait);
+extern void HandleEndpointFinish(void);
 
 /* UDFs for endpoints operation */
 extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);

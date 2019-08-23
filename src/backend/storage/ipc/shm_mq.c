@@ -158,7 +158,6 @@ const Size	shm_mq_minimum_size =
 MAXALIGN(offsetof(shm_mq, mq_ring)) + MAXIMUM_ALIGNOF;
 
 #define MQH_INITIAL_BUFSIZE				8192
-#define INTERNAL_WAIT                   500
 
 /*
  * Initialize a new shared message queue.
@@ -749,6 +748,9 @@ shm_mq_send_bytes(shm_mq_handle *mqh, Size nbytes, void *data, bool nowait,
 		{
 			shm_mq_result res;
 
+			if(QueryFinishPending)
+				return SHM_MQ_QUERY_FINISH;
+
 			/* Let the receiver know that we need them to read some data. */
 			res = shm_mq_notify_receiver(mq);
 			if (res != SHM_MQ_SUCCESS)
@@ -947,6 +949,9 @@ shm_mq_wait_internal(volatile shm_mq *mq, PGPROC *volatile * ptr,
 			pid_t		pid;
 			bool		detached;
 
+			if (QueryFinishPending)
+				break;
+
 			/* Acquire the lock just long enough to check the pointer. */
 			SpinLockAcquire(&mq->mq_mutex);
 			detached = mq->mq_detached;
@@ -974,17 +979,13 @@ shm_mq_wait_internal(volatile shm_mq *mq, PGPROC *volatile * ptr,
 			}
 
 			/* Wait to be signalled. */
-			WaitLatch(&MyProc->procLatch, (WL_LATCH_SET | WL_TIMEOUT), INTERNAL_WAIT);
+			WaitLatch(&MyProc->procLatch, WL_LATCH_SET, 0);
 
 			/* Reset the latch so we don't spin. */
 			ResetLatch(&MyProc->procLatch);
 
 			/* An interrupt may have occurred while we were waiting. */
 			CHECK_FOR_INTERRUPTS();
-
-			/* We should finish the execute when QD execute mppExecutorFinishup(..) */
-			if (QueryFinishPending)
-				break;
 		}
 	}
 	PG_CATCH();

@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "cdb/cdbvars.h"
+#include "cdb/cdbendpoint.h"
 #include "commands/async.h"
 #include "miscadmin.h"
 #include "replication/walsender.h"
@@ -283,6 +284,10 @@ QueryFinishHandler(void)
 	if (!proc_exit_inprogress && Gp_role == GP_ROLE_EXECUTE)
 	{
 		QueryFinishPending = true;
+
+		/* Should also consider finish parallel cursor endpoints otherwise
+		 * it'll continue send tuple to shem_mq */
+		HandleEndpointFinish();
 	}
 }
 

@@ -896,7 +896,8 @@ FreeEndpointOfToken(const int8 *token)
 }
 
 void
-CheckParallelCursorStatus(QueryDesc *queryDesc, bool isWait) {
+CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait)
+{
 	EState	   *estate;
 
 	/* caller must have switched into per-query memory context already */
@@ -918,6 +919,22 @@ CheckParallelCursorStatus(QueryDesc *queryDesc, bool isWait) {
 			cdbdisp_destroyDispatcherState(ds);
 			ReThrowError(qeError);
 		}
+	}
+}
+
+void
+HandleEndpointFinish(void)
+{
+
+	if (my_shared_endpoint && EndpointCtl.Gp_pce_role == PCER_SENDER)
+	{
+		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+		if (my_shared_endpoint->attach_status == Status_Prepared ||
+			my_shared_endpoint->attach_status == Status_Attached)
+		{
+			SetLatch(&MyProc->procLatch);
+		}
+		LWLockRelease(ParallelCursorEndpointLock);
 	}
 }
 
