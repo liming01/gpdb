@@ -181,10 +181,10 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 				       endPointExecPosition,
 					   cids);
 		if (endPointExecPosition == ENDPOINT_ON_QD) {
-			AllocEndpointOfToken(portal->parallel_cursor_token);
+			AllocEndpointOfToken(portal->parallel_cursor_token, portal->name);
 		} else {
 			char *token_str = PrintToken(portal->parallel_cursor_token);
-			snprintf(cmd, 255, "select __gp_operate_endpoints_token('p', '%s')", token_str);
+			snprintf(cmd, 255, "select __gp_operate_endpoints_token('p', '%s', '%s')", token_str, portal->name);
 			pfree(token_str);
 			if (endPointExecPosition == ENDPOINT_ON_ALL_QE) {
 				/* Push token to all segments */
@@ -203,7 +203,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
 	{
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
-		WaitEndpointReady(stmt->planTree, portal->parallel_cursor_token);
+		WaitEndpointReady(stmt->planTree, portal->name);
 	}
 	/*
 	 * We're done; the query won't actually be run until PerformPortalFetch is

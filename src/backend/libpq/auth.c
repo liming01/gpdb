@@ -330,13 +330,13 @@ retrieve_role_authentication(Port *port)
 {
 	char	   *passwd;
 	Oid        owner_uid;
-	const char *error_msg = "Retrieve auth token is invalid";
+	const char *msg = "Retrieve auth token is invalid";
 
 	sendAuthRequest(port, AUTH_REQ_PASSWORD);
 	passwd = recv_password_packet(port);
 	if (passwd == NULL)
 	{
-		ereport(FATAL, (errcode(ERRCODE_INVALID_PASSWORD), error_msg));
+		ereport(FATAL, (errcode(ERRCODE_INVALID_PASSWORD), errmsg(msg)));
 	}
 
 	/*
@@ -346,7 +346,7 @@ retrieve_role_authentication(Port *port)
 	owner_uid = get_role_oid(port->user_name, false);
 	if (!FindEndpointTokenByUser(owner_uid, passwd))
 	{
-		ereport(FATAL, (errcode(ERRCODE_INVALID_PASSWORD), error_msg));
+		ereport(FATAL, (errcode(ERRCODE_INVALID_PASSWORD), errmsg(msg)));
 	}
 
 	FakeClientAuthentication(port);

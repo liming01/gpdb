@@ -21,7 +21,7 @@
 #include "libpq-fe.h"
 #include "utils/builtins.h"
 
-#define GP_ENDPOINTS_INFO_ATTRNUM       8
+#define GP_ENDPOINTS_INFO_ATTRNUM       9
 #define BITS_PER_BITMAPWORD             32
 #define WORDNUM(x)                      ((x) / BITS_PER_BITMAPWORD)
 #define BITNUM(x)                       ((x) % BITS_PER_BITMAPWORD)
@@ -33,6 +33,7 @@
  */
 typedef struct
 {
+	char name[ENDPOINT_NAME_LEN];
 	int8 token[ENDPOINT_TOKEN_LEN];
 	int dbid;
 	enum AttachStatus attach_status;
@@ -80,7 +81,7 @@ extern bool token_equals(const int8 *token1, const int8 *token2);
 extern uint64 create_magic_num_from_token(const int8 *token);
 
 struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
-	{0}, PCER_NONE, NIL, NIL
+	{0}, PCER_NONE
 };
 
 /*
@@ -92,6 +93,9 @@ IsGpTokenValid(void)
 	return IsEndpointTokenValid(EndpointCtl.Gp_token);
 }
 
+/*
+ * FIXME: Check if we can switch to check_endpoint_name()
+ */
 void
 CheckTokenValid(void)
 {
@@ -399,25 +403,6 @@ int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit)
 	return -2;
 }
 
-EndpointDesc * find_endpoint_by_token(const int8 *token)
-{
-	EndpointDesc *res = NULL;
-
-	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (!SharedEndpoints[i].empty &&
-				token_equals(SharedEndpoints[i].token, token))
-		{
-
-			res = &SharedEndpoints[i];
-			break;
-		}
-	}
-	LWLockRelease(ParallelCursorEndpointLock);
-	return res;
-}
-
 /*
  * On QD, display all the endpoints information in shared memory
  */
@@ -473,6 +458,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 8, "status",
 						   TEXTOID, -1, 0);
 
+		TupleDescInitEntry(tupdesc, (AttrNumber) 9, "endpointname",
+						   TEXTOID, -1, 0);
+
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
 		mystatus = (EndpointsInfo *) palloc0(sizeof(EndpointsInfo));
@@ -485,7 +473,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		CdbPgResults cdb_pgresults = {NULL, 0};
 
-		CdbDispatchCommand("SELECT token,dbid,status,senderpid FROM pg_catalog.gp_endpoints_status_info()",
+		CdbDispatchCommand("SELECT token,dbid,status,senderpid,endpointname FROM pg_catalog.gp_endpoints_status_info()",
 						   DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
 
 		if (cdb_pgresults.numResults == 0)
@@ -518,6 +506,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 1));
 					mystatus->status[idx].attach_status = status_string_to_enum(PQgetvalue(result, j, 2));
 					mystatus->status[idx].sender_pid = atoi(PQgetvalue(result, j, 3));
+					memcpy(mystatus->status[idx].name, PQgetvalue(result, j, 4), ENDPOINT_NAME_LEN);
 					idx++;
 				}
 			}
@@ -560,6 +549,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					status->dbid = contentid_get_dbid(MASTER_CONTENT_ID, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
 					status->attach_status = entry->attach_status;
 					status->sender_pid = entry->sender_pid;
+					memcpy(mystatus->status[idx].name, entry->name, ENDPOINT_NAME_LEN);
 					idx++;
 				}
 			}
@@ -640,6 +630,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					values[7] = CStringGetTextDatum(endpoint_status_enum_to_string( qe_status));
 					nulls[7]  = false;
 
+					values[8] = CStringGetTextDatum(qe_status->name);
+					nulls[8]  = false;
+
 					tuple  = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 					result = HeapTupleGetDatum(tuple);
 					LWLockRelease(ParallelCursorEndpointLock);
@@ -667,8 +660,8 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	FuncCallContext *funcctx;
 	EndpointsStatusInfo *mystatus;
 	MemoryContext oldcontext;
-	Datum values[8];
-	bool nulls[8] = {true};
+	Datum values[9];
+	bool nulls[9] = {true};
 	HeapTuple tuple;
 
 	if (SRF_IS_FIRSTCALL())
@@ -680,7 +673,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tuple descriptor */
-		TupleDesc tupdesc = CreateTemplateTupleDesc(8, false);
+		TupleDesc tupdesc = CreateTemplateTupleDesc(9, false);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token",
 						   TEXTOID, -1, 0);
@@ -705,6 +698,9 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 8, "userid",
 						   OIDOID, -1, 0);
+
+		TupleDescInitEntry(tupdesc, (AttrNumber) 9, "endpointname",
+						   TEXTOID, -1, 0);
 
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
@@ -752,6 +748,8 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			nulls[6] = false;
 			values[7] = ObjectIdGetDatum(entry->user_id);
 			nulls[7] = false;
+			values[8] = CStringGetTextDatum(entry->name);
+			nulls[8] = false;
 			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 			result = HeapTupleGetDatum(tuple);
 			mystatus->current_idx++;

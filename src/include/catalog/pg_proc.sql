@@ -152,13 +152,13 @@
 
  CREATE FUNCTION gp_update_ao_master_stats(regclass) RETURNS int8 LANGUAGE internal VOLATILE MODIFIES SQL DATA AS 'gp_update_ao_master_stats' WITH (OID=7173, DESCRIPTION="append only tables utility function");
 
- CREATE FUNCTION gp_endpoints_info(IN isall bool, OUT token text, OUT cursorname text, OUT sessionid int4, OUT hostname text, OUT port int4, OUT dbid int4, OUT userid oid, OUT status text) RETURNS SETOF record LANGUAGE internal VOLATILE EXECUTE ON MASTER AS 'gp_endpoints_info' WITH (OID=7178, DESCRIPTION="mpp endpoints information");
+CREATE FUNCTION gp_endpoints_info(IN isall bool, OUT token text, OUT cursorname text, OUT sessionid int4, OUT hostname text, OUT port int4, OUT dbid int4, OUT userid oid, OUT status text, OUT endpointname text) RETURNS SETOF record LANGUAGE internal VOLATILE EXECUTE ON MASTER AS 'gp_endpoints_info' WITH (OID=7178, DESCRIPTION="mpp endpoints information");
 
- CREATE FUNCTION gp_endpoints_status_info(OUT token text, OUT databaseid int4, OUT senderpid int4, OUT receiverpid int4, OUT status text, OUT dbid int4, OUT sessionid int4, OUT userid oid) RETURNS SETOF record LANGUAGE internal VOLATILE EXECUTE ON ANY AS 'gp_endpoints_status_info' WITH (OID=7179, DESCRIPTION="endpoints status information");
+CREATE FUNCTION gp_endpoints_status_info(OUT token text, OUT databaseid int4, OUT senderpid int4, OUT receiverpid int4, OUT status text, OUT dbid int4, OUT sessionid int4, OUT userid oid, OUT endpointname text) RETURNS SETOF record LANGUAGE internal VOLATILE EXECUTE ON ANY AS 'gp_endpoints_status_info' WITH (OID=7179, DESCRIPTION="endpoints status information");
 
- CREATE FUNCTION __gp_endpoint_is_ready(tokenstr cstring) RETURNS bool LANGUAGE internal VOLATILE EXECUTE ON ANY AS 'gp_endpoint_is_ready' WITH (OID=7180, DESCRIPTION="check whether endpoint is ready");
+ CREATE FUNCTION __gp_endpoint_is_ready(cursorname cstring) RETURNS bool LANGUAGE internal VOLATILE EXECUTE ON ANY AS 'gp_endpoint_is_ready' WITH (OID=7180, DESCRIPTION="check whether endpoint is ready");
 
- CREATE FUNCTION __gp_operate_endpoints_token(IN operation char, IN tokenstr cstring, OUT success bool) RETURNS bool LANGUAGE internal VOLATILE EXECUTE ON ANY AS 'gp_operate_endpoints_token' WITH (OID=7181, DESCRIPTION="operation on endpoints entries");
+ CREATE FUNCTION __gp_operate_endpoints_token(IN operation char, IN tokenstr cstring, IN cursorname cstring, OUT success bool) RETURNS bool LANGUAGE internal VOLATILE EXECUTE ON ANY AS 'gp_operate_endpoints_token' WITH (OID=7181, DESCRIPTION="operation on endpoints entries");
 
 -- the bitmap index access method routines
  CREATE FUNCTION bmgettuple(internal, internal) RETURNS bool LANGUAGE internal VOLATILE STRICT AS 'bmgettuple' WITH (OID=7050, DESCRIPTION="bitmap(internal)");

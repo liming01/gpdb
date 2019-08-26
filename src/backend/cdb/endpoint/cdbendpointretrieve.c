@@ -33,7 +33,7 @@ static HTAB *MsgQueueHTB = NULL;
 static MsgQueueStatusEntry *currentMQEntry = NULL;
 
 /* Current EndpointDesc entry */
-static EndpointDesc *my_shared_endpoint = NULL;
+EndpointDesc *my_shared_endpoint = NULL;
 
 /* receiver which is a backend connected by retrieve mode */
 static void init_conn_for_receiver(void);
@@ -46,6 +46,7 @@ static void retrieve_exit_callback(int code, Datum arg);
 static void retrieve_xact_abort_callback(XactEvent ev, void *vp);
 static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 									  SubTransactionId parentSubid, void *arg);
+static void check_endpoint_name(const char *name);
 extern bool token_equals(const int8 *token1, const int8 *token2);
 extern uint64 create_magic_num_from_token(const int8 *token);
 
@@ -95,15 +96,15 @@ FindEndpointTokenByUser(Oid user_id, const char *token_str)
  * Find the endpoint to retrieve from EndpointDesc entries.
  */
 void
-AttachEndpoint(void)
+AttachEndpoint(const char *endpoint_name)
 {
 	int i;
 	bool isFound = false;
 	bool already_attached = false;        /* now is attached? */
 	bool is_self_pid = false;             /* indicate this process has been
-										   * attached to this token before */
+										   * attached to this endpoint before */
 	bool is_other_pid = false;            /* indicate other process has been
-										   * attached to this token before */
+										   * attached to this endpoint before */
 	bool is_invalid_sendpid = false;
 	bool has_privilege = true;
 	pid_t attached_pid = InvalidPid;
@@ -114,14 +115,15 @@ AttachEndpoint(void)
 	if (my_shared_endpoint)
 		elog(ERROR, "endpoint is already attached");
 
-	CheckTokenValid();
+	check_endpoint_name(endpoint_name);
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
+		// FIXME: Add session check here.
 		if (SharedEndpoints[i].database_id == MyDatabaseId &&
-			token_equals(SharedEndpoints[i].token, EndpointCtl.Gp_token) &&
+			strncmp(SharedEndpoints[i].name, endpoint_name, ENDPOINT_NAME_LEN) == 0 &&
 			!SharedEndpoints[i].empty)
 		{
 			if (SharedEndpoints[i].user_id != GetUserId())
@@ -180,24 +182,23 @@ AttachEndpoint(void)
 
 	if (is_invalid_sendpid)
 	{
-		elog(ERROR, "the PARALLEL CURSOR related to endpoint token %s is not EXECUTED.",
-			 PrintToken(EndpointCtl.Gp_token));
+		elog(ERROR, "the PARALLEL CURSOR related to endpoint %s is not EXECUTED.", endpoint_name);
 	}
 
 	if (already_attached)
 		elog(ERROR, "Endpoint %s is already being retrieved by receiver(pid: %d)",
-			 PrintToken(EndpointCtl.Gp_token), attached_pid);
+			 endpoint_name, attached_pid);
 
 	if (is_other_pid)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("Endpoint %s is already attached by receiver(pid: %d)",
-						   PrintToken(EndpointCtl.Gp_token), attached_pid),
+						   endpoint_name, attached_pid),
 					errdetail("An endpoint can be attached by only one retrieving session "
 							  "for each 'EXECUTE PARALLEL CURSOR'")));
 
 	if (!my_shared_endpoint)
-		elog(ERROR, "failed to attach non-existing endpoint of token %s", PrintToken(EndpointCtl.Gp_token));
+		elog(ERROR, "failed to attach non-existing endpoint %s", endpoint_name);
 
 	/*
 	 * Search all tokens that retrieved in this session, set
@@ -207,13 +208,13 @@ AttachEndpoint(void)
 	{
 		HASHCTL ctl;
 		MemSet(&ctl, 0, sizeof(ctl));
-		ctl.keysize = sizeof(EndpointCtl.Gp_token);
+		ctl.keysize = sizeof(ENDPOINT_NAME_LEN);
 		ctl.entrysize = sizeof(MsgQueueStatusEntry);
 		ctl.hash = tag_hash;
 		MsgQueueHTB = hash_create("endpoint hash", MAX_ENDPOINT_SIZE, &ctl,
 								  (HASH_ELEM | HASH_FUNCTION));
 	}
-	currentMQEntry = hash_search(MsgQueueHTB, &EndpointCtl.Gp_token, HASH_ENTER, &isFound);
+	currentMQEntry = hash_search(MsgQueueHTB, my_shared_endpoint->name, HASH_ENTER, &isFound);
 	if (!isFound)
 	{
 		currentMQEntry->mq_seg = NULL;
@@ -478,7 +479,7 @@ receiver_mq_close(void)
 			ExecDropSingleTupleTableSlot(currentMQEntry->retrieve_ts);
 		currentMQEntry->retrieve_ts = NULL;
 		currentMQEntry = (MsgQueueStatusEntry *) hash_search(
-			MsgQueueHTB, &currentMQEntry->retrieve_token, HASH_REMOVE, &found);
+			MsgQueueHTB, &currentMQEntry->endpoint_name, HASH_REMOVE, &found);
 		if (!currentMQEntry)
 			elog(ERROR, "CDB_ENDPOINT: Message queue status element destroy failed.");
 		currentMQEntry = NULL;
@@ -498,10 +499,10 @@ receiver_mq_close(void)
 void
 DetachEndpoint(bool reset_pid)
 {
-	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER ||
-		!my_shared_endpoint ||
-		!IsEndpointTokenValid(EndpointCtl.Gp_token))
+	if (!my_shared_endpoint) {
 		return;
+	}
+	Assert(EndpointCtl.Gp_pce_role == PCER_RECEIVER);
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
@@ -675,5 +676,13 @@ static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySub
 	if (event == SUBXACT_EVENT_ABORT_SUB)
 	{
 		retrieve_xact_abort_callback(XACT_EVENT_ABORT, NULL);
+	}
+}
+
+static void
+check_endpoint_name(const char *name)
+{
+	if (!name[0]) {
+		ereport(FATAL, (errcode(ERRCODE_INVALID_NAME), "Invalid endpoint name"));
 	}
 }

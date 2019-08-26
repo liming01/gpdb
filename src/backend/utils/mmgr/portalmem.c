@@ -613,7 +613,7 @@ PortalDrop(Portal portal, bool isTopCommit)
 	/* Clear token if it is a parallel cursor */
 	if (IsEndpointTokenValid(portal->parallel_cursor_token))
 	{
-		DestroyParallelCursor(portal->parallel_cursor_token);
+		DestroyParallelCursor(portal->name);
 	}
 
 	/* delete tuplestore storage, if any */

@@ -116,11 +116,19 @@ typedef struct ParallelCursorTokenDesc
 	int32 dbIds[MAX_NWORDS];           /* A bitmap stores the dbids of every endpoint, size is 4906 bits(32X128) */
 } ParallelCursorTokenDesc;
 
+
+/*
+ * Naming rules for endpoint:
+ * cursorname_sessionIdHex_segIndexHex
+ */
+#define ENDPOINT_NAME_LEN (NAMEDATALEN + 1 + 8 + 1 + 8)
+
 /*
  * Endpoint Description, entries are maintained in shared memory.
  */
 typedef struct EndpointDesc
 {
+	char name[ENDPOINT_NAME_LEN];      /* Endpoint name */
 	Oid database_id;                   /* Database OID */
 	pid_t sender_pid;                  /* The PID of EPR_SENDER(endpoint), set before endpoint sends data */
 	pid_t receiver_pid;                /* The retrieve role's PID that connect to current endpoint */
@@ -142,6 +150,7 @@ typedef struct EndpointDesc
  */
 typedef struct MsgQueueStatusEntry
 {
+	char endpoint_name[ENDPOINT_NAME_LEN];     /* The name of endpoint to be retrieved, also behave as hash key */
 	int8 retrieve_token[ENDPOINT_TOKEN_LEN];   /* The parallel cursor token, also as the hash table entry key */
 	dsm_segment *mq_seg;                       /* The dsm handle which contains shared memory message queue */
 	shm_mq_handle *mq_handle;                  /* Shared memory message queue */
@@ -157,9 +166,6 @@ typedef struct EndpointControl
 {
 	int8 Gp_token[ENDPOINT_TOKEN_LEN];         /* Current parallel cursor token */
 	enum ParallelCursorExecRole Gp_pce_role;   /* Current parallel cursor role */
-	List *Endpoint_tokens;                     /* Tokens in current xact of current endpoint,
-                                                  we can clean them in case of exception */
-	List *Cursor_tokens;                       /* Tokens in current xact of QD, same purpose with Endpoint_tokens */
 } EndpointControl;
 
 typedef ParallelCursorTokenDesc *ParaCursorToken;
@@ -187,13 +193,11 @@ extern List *ChooseEndpointContentIDForParallelCursor(
 	const struct Plan *planTree, enum EndPointExecPosition *position);
 extern void AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id,
 								   Oid user_id, enum EndPointExecPosition endPointExecPosition, List *seg_list);
-extern void WaitEndpointReady(const struct Plan *planTree, const int8 *token);
+extern void WaitEndpointReady(const struct Plan *planTree, const char *cursorName);
 /* Called during EXECUTE CURSOR stage on QD. */
 extern bool CheckParallelCursorPrivilege(const int8 *token);
-/* Get Content ID for Endpoints in execute parallel cursor finish stage on QD*/
-extern List *GetContentIDsByToken(const int8 *token);
 /* Remove parallel cursor during cursor portal drop/abort, on QD */
-extern void DestroyParallelCursor(const int8 *token);
+extern void DestroyParallelCursor(const char *cursorName);
 
 /*
  * Below functions should run on Endpoints(QE/QD).
@@ -202,8 +206,7 @@ extern void DestroyParallelCursor(const int8 *token);
 extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc);
 extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 /* Endpoint backend register/free, execute on Endpoints(QE/QD) */
-extern void AllocEndpointOfToken(const int8 *token);
-extern void FreeEndpointOfToken(const int8 *token);
+extern void AllocEndpointOfToken(const int8 *token, const char *cursorName);
 
 extern bool CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait);
 extern void HandleEndpointFinish(void);
@@ -218,7 +221,7 @@ extern Datum gp_endpoint_is_ready(PG_FUNCTION_ARGS);
  * Below functions should run on retrieve role backend.
  */
 extern bool FindEndpointTokenByUser(Oid user_id, const char *token_str);
-extern void AttachEndpoint(void);
+extern void AttachEndpoint(const char *endpoint_name);
 extern TupleDesc TupleDescOfRetrieve(void);
 extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
 extern void DetachEndpoint(bool reset_pid);
@@ -247,7 +250,6 @@ extern bool master_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid)
 extern bool dbid_in_bitmap(int32 *bitmap, int16 dbid);
 extern void add_dbid_into_bitmap(int32 *bitmap, int16 dbid);
 extern int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit);
-extern EndpointDesc *find_endpoint_by_token(const int8 *token);
 
 /* UDFs for endpoints info*/
 extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
