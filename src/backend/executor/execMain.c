@@ -5013,7 +5013,6 @@ FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 {
 	FillSliceTable_cxt cxt;
 	SliceTable *sliceTable = estate->es_sliceTable;
-	enum EndPointExecPosition endPointExecPosition;
 
 	if (!sliceTable)
 		return;
@@ -5043,13 +5042,15 @@ FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 		currentSlice->gangType = GANGTYPE_PRIMARY_WRITER;
 		FillSliceGangInfo(currentSlice, numsegments);
 	}
-	else if (parallel_cursor &&
-	         (endPointExecPosition = GetParallelCursorEndpointPosition(stmt->planTree)) != ENDPOINT_ON_QD)
+	else if (parallel_cursor)
 	{
 		Slice	   *currentSlice = (Slice *) linitial(sliceTable->slices);
 		int			numsegments = stmt->planTree->flow->numsegments;
+		enum EndPointExecPosition endPointExecPosition = GetParallelCursorEndpointPosition(stmt->planTree);
 
-		if (endPointExecPosition == ENDPOINT_ON_SINGLE_QE)
+		if (endPointExecPosition == ENDPOINT_ON_QD)
+			currentSlice->gangType = GANGTYPE_ENTRYDB_READER;
+		else if (endPointExecPosition == ENDPOINT_ON_SINGLE_QE)
 			currentSlice->gangType = GANGTYPE_SINGLETON_READER;
 		else
 			currentSlice->gangType = GANGTYPE_PRIMARY_READER;
