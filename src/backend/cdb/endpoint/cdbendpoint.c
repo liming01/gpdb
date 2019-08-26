@@ -168,6 +168,7 @@ init_shared_endpoints(void *address)
 		endpoints[i].attach_status = Status_NotAttached;
 		endpoints[i].empty = true;
 		InitSharedLatch(&endpoints[i].ack_done);
+		InitSharedLatch(&endpoints[i].status_latch);
 	}
 }
 
@@ -506,6 +507,31 @@ AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id, Oi
 	    EndpointCtl.Cursor_tokens = lappend(EndpointCtl.Cursor_tokens, tmp_token);
 	    MemoryContextSwitchTo(oldcontext);
 	}
+}
+
+void
+WaitEndpointReady(const struct Plan *planTree, const int8 *token) {
+	char						cmd[255];
+	List						*cids;
+	char						*token_str;
+	enum EndPointExecPosition	endPointExecPosition;
+
+	token_str = PrintToken(token);
+	cids = ChooseEndpointContentIDForParallelCursor(
+		planTree, &endPointExecPosition);
+
+	if (endPointExecPosition == ENDPOINT_ON_QD) {
+		DirectFunctionCall1(gp_endpoint_is_ready, CStringGetDatum(token_str));
+	} else {
+		snprintf(cmd, 255, "select __gp_endpoint_is_ready('%s')", token_str);
+		if (endPointExecPosition == ENDPOINT_ON_ALL_QE) {
+			/* Push token to all segments */
+			CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+		} else {
+			CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, cids, NULL);
+		}
+	}
+	pfree(token_str);
 }
 
 /*
@@ -928,7 +954,7 @@ HandleEndpointFinish(void)
 
 	if (my_shared_endpoint && EndpointCtl.Gp_pce_role == PCER_SENDER)
 	{
-		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+		LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 		if (my_shared_endpoint->attach_status == Status_Prepared ||
 			my_shared_endpoint->attach_status == Status_Attached)
 		{
@@ -1323,4 +1349,72 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 		}
 	}
 	PG_RETURN_BOOL(true);
+}
+
+Datum
+gp_endpoint_is_ready(PG_FUNCTION_ARGS)
+{
+	const char *token_str = NULL;
+	int8 token[ENDPOINT_TOKEN_LEN] = {0};
+	Latch *status_latch = NULL;
+
+	if (PG_ARGISNULL(0))
+		PG_RETURN_BOOL(false);
+
+	token_str = PG_GETARG_CSTRING(0);
+	ParseToken(token, token_str);
+
+	EndpointDesc* endpointDesc = find_endpoint_by_token(token);
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+
+	if (endpointDesc && !endpointDesc->empty)
+	{
+		if (endpointDesc->attach_status == Status_Prepared)
+		{
+			LWLockRelease(ParallelCursorEndpointLock);
+			PG_RETURN_BOOL(true);
+		} else {
+			status_latch = &endpointDesc->status_latch;
+		}
+
+	}
+	LWLockRelease(ParallelCursorEndpointLock);
+
+	OwnLatch(status_latch);
+	int wr;
+	while (true) {
+		CHECK_FOR_INTERRUPTS();
+
+		if (QueryFinishPending)
+			break;
+
+		wr = WaitLatch(status_latch,
+					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
+					   WAIT_RECEIVE_TIMEOUT);
+		if (wr & WL_TIMEOUT)
+		{
+			LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+
+			if (endpointDesc && !endpointDesc->empty)
+			{
+				if (endpointDesc->attach_status == Status_Prepared)
+				{
+					elog(INFO, "CDB_ENDPOINT: get latch that endpoint status ready.");
+					DisownLatch(status_latch);
+					LWLockRelease(ParallelCursorEndpointLock);
+					PG_RETURN_BOOL(true);
+				}
+
+			}
+			LWLockRelease(ParallelCursorEndpointLock);
+			continue;
+		}
+
+		if (wr & WL_POSTMASTER_DEATH)
+		{
+			elog(DEBUG3, "CDB_ENDPOINT: postmaster exit while check gp_endpoint_is_ready.");
+			break;
+		}
+
+	}
 }

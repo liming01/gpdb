@@ -200,6 +200,11 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	PortalStart(portal, params, 0, GetActiveSnapshot(), NULL);
 
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
+	{
+		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
+		WaitEndpointReady(stmt->planTree, portal->parallel_cursor_token);
+	}
 	/*
 	 * We're done; the query won't actually be run until PerformPortalFetch is
 	 * called.

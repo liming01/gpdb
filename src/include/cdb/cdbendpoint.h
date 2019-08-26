@@ -127,6 +127,7 @@ typedef struct EndpointDesc
 	int8 token[ENDPOINT_TOKEN_LEN];    /* The token of the endpoint's running parallel cursor */
 	dsm_handle handle;                 /* DSM handle, which contains shared message queue */
 	Latch ack_done;                    /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
+	Latch status_latch;                /* Latch to sync endpoint status, whether is ready for retrieve */
 	enum AttachStatus attach_status;   /* The attach status of the endpoint */
 	int session_id;                    /* Connection session id */
 	Oid user_id;                       /* User ID of the current executed parallel cursor */
@@ -187,6 +188,7 @@ extern List *ChooseEndpointContentIDForParallelCursor(
 	const struct Plan *planTree, enum EndPointExecPosition *position);
 extern void AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id,
 								   Oid user_id, enum EndPointExecPosition endPointExecPosition, List *seg_list);
+extern void WaitEndpointReady(const struct Plan *planTree, const int8 *token);
 /* Called during EXECUTE CURSOR stage on QD. */
 extern bool CheckParallelCursorPrivilege(const int8 *token);
 /* Get Content ID for Endpoints in execute parallel cursor finish stage on QD*/
@@ -209,6 +211,7 @@ extern void HandleEndpointFinish(void);
 
 /* UDFs for endpoints operation */
 extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
+extern Datum gp_endpoint_is_ready(PG_FUNCTION_ARGS);
 
 
 /* cdbendpointretrieve.c */

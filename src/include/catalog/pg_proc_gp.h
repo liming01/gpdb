@@ -329,6 +329,10 @@ DESCR("endpoints status information");
 DATA(insert OID = 7180 ( __gp_operate_endpoints_token  PGNSP PGUID 12 1 0 0 0 f f f f f f v 2 0 16 "18 2275" "{18,2275,16}" "{i,i,o}" "{operation,tokenstr,success}" _null_ gp_operate_endpoints_token _null_ _null_ _null_ n s ));
 DESCR("operation on endpoints entries");
 
+/* gp_operate_endpoints_token(IN operation char, IN tokenstr cstring, OUT success bool) => bool*/
+DATA(insert OID = 7181 ( __gp_endpoint_is_ready  PGNSP PGUID 12 1 0 0 0 f f f f f f v 1 0 16 "2275" "{2275,16}" "{i,o}" "{tokenstr,ready}" _null_ gp_endpoint_is_ready _null_ _null_ _null_ n a ));
+DESCR("operation on endpoints entries");
+
 
 /* the bitmap index access method routines */
 /* bmgettuple(internal, internal) => bool */
