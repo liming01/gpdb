@@ -1399,7 +1399,6 @@ gp_endpoint_is_ready(PG_FUNCTION_ARGS)
 			{
 				if (endpointDesc->attach_status == Status_Prepared)
 				{
-					elog(INFO, "CDB_ENDPOINT: get latch that endpoint status ready.");
 					DisownLatch(status_latch);
 					LWLockRelease(ParallelCursorEndpointLock);
 					PG_RETURN_BOOL(true);
@@ -1413,8 +1412,9 @@ gp_endpoint_is_ready(PG_FUNCTION_ARGS)
 		if (wr & WL_POSTMASTER_DEATH)
 		{
 			elog(DEBUG3, "CDB_ENDPOINT: postmaster exit while check gp_endpoint_is_ready.");
+			DisownLatch(status_latch);
 			break;
 		}
-
 	}
+	PG_RETURN_BOOL(false);
 }
