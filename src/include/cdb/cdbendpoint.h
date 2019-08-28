@@ -127,7 +127,6 @@ typedef struct EndpointDesc
 	int8 token[ENDPOINT_TOKEN_LEN];    /* The token of the endpoint's running parallel cursor */
 	dsm_handle handle;                 /* DSM handle, which contains shared message queue */
 	Latch ack_done;                    /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
-	Latch status_latch;                /* Latch to sync endpoint status, whether is ready for retrieve */
 	enum AttachStatus attach_status;   /* The attach status of the endpoint */
 	int session_id;                    /* Connection session id */
 	Oid user_id;                       /* User ID of the current executed parallel cursor */

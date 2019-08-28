@@ -49,9 +49,8 @@
 
 #define WAIT_RECEIVE_TIMEOUT            50
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
-#define InvalidSession					(-1)
+#define InvalidSession                  (-1)
 
-#define SHMEM_TOKENCTX                  "ShareTokenCTX"
 #define SHMEM_PARALLEL_CURSOR_ENTRIES   "SharedMemoryParallelCursorTokens"
 #define SHMEM_ENDPOINTS_ENTRIES         "SharedMemoryEndpointDescEntries"
 
@@ -63,7 +62,7 @@ static int8 dummyToken[ENDPOINT_TOKEN_LEN] = {0xef};
 #endif
 
 static MsgQueueStatusEntry *currentMQEntry = NULL;       /* Current message queue entry */
-static EndpointDesc *my_shared_endpoint = NULL; /* Current EndpointDesc entry */
+static EndpointDesc *my_shared_endpoint = NULL;          /* Current EndpointDesc entry */
 
 /* Endpoint and parallel cursor token helper function */
 static void init_shared_endpoints(void *address);
@@ -89,7 +88,7 @@ static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid
 static int16 dbid_to_contentid(CdbComponentDatabases *dbs, int16 dbid);
 static void check_end_point_allocated(void);
 static void set_attach_status(enum AttachStatus status);
-static void generate_token(int8* token);
+static void generate_token(int8 *token);
 extern bool token_equals(const int8 *token1, const int8 *token2);
 extern uint64 create_magic_num_from_token(const int8 *token);
 #ifdef HAVE_STRONG_RANDOM
@@ -168,7 +167,6 @@ init_shared_endpoints(void *address)
 		endpoints[i].attach_status = Status_NotAttached;
 		endpoints[i].empty = true;
 		InitSharedLatch(&endpoints[i].ack_done);
-		InitSharedLatch(&endpoints[i].status_latch);
 	}
 }
 
@@ -248,7 +246,8 @@ remove_parallel_cursor(const int8 *token, bool *on_qd, List **seg_list)
 			if (on_qd != NULL && endpoint_on_qd(&SharedTokens[i]))
 			{
 				*on_qd = true;
-			} else
+			}
+			else
 			{
 				if (seg_list != NULL && SharedTokens[i].endPointExecPosition != ENDPOINT_ON_ALL_QE)
 				{
@@ -264,7 +263,7 @@ remove_parallel_cursor(const int8 *token, bool *on_qd, List **seg_list)
 
 			char *token_str = PrintToken(token);
 			elog(DEBUG3, "CDB_ENDPOINT: <RemoveParallelCursorToken> removed token: %s"
-				", session id: %d, cursor name: %s from shared memory",
+						 ", session id: %d, cursor name: %s from shared memory",
 				 token_str, SharedTokens[i].session_id, SharedTokens[i].cursor_name);
 			pfree(token_str);
 
@@ -286,11 +285,12 @@ remove_parallel_cursor(const int8 *token, bool *on_qd, List **seg_list)
  * generate_token - Generate an unique int64 token into the given address.
  */
 void
-generate_token(int8* token)
+generate_token(int8 *token)
 {
 #ifdef HAVE_STRONG_RANDOM
-REGENERATE:
-	if (!pg_strong_random(token, ENDPOINT_TOKEN_LEN)) {
+	REGENERATE:
+	if (!pg_strong_random(token, ENDPOINT_TOKEN_LEN))
+	{
 		elog(ERROR, "Failed to generate a new random token.");
 	}
 #else
@@ -303,8 +303,10 @@ REGENERATE:
 	r = random();
 	rpos = 0;
 	int8 *pos = token;
-	while (pos != token + ENDPOINT_TOKEN_LEN) {
-		if (rpos == 4) {
+	while (pos != token + ENDPOINT_TOKEN_LEN)
+	{
+		if (rpos == 4)
+		{
 			/* generate a new random number */
 			r = random();
 			rpos = 0;
@@ -314,11 +316,14 @@ REGENERATE:
 		rpos++;
 	}
 #endif
-	if (!IsEndpointTokenValid(token)) {
+	if (!IsEndpointTokenValid(token))
+	{
 		goto REGENERATE;
 	}
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i) {
-		if (token_equals(token, SharedTokens[i].token)) {
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (token_equals(token, SharedTokens[i].token))
+		{
 			goto REGENERATE;
 		}
 	}
@@ -337,7 +342,8 @@ GetParallelCursorEndpointPosition(const struct Plan *planTree)
 		planTree->flow->locustype != CdbLocusType_SegmentGeneral)
 	{
 		return ENDPOINT_ON_QD;
-	} else
+	}
+	else
 	{
 		if (planTree->flow->flotype == FLOW_SINGLETON)
 		{
@@ -347,15 +353,17 @@ GetParallelCursorEndpointPosition(const struct Plan *planTree)
 			 */
 			Assert(planTree->flow->locustype == CdbLocusType_SegmentGeneral);
 			return ENDPOINT_ON_SINGLE_QE;
-		} else if (planTree->directDispatch.isDirectDispatch &&
-				   planTree->directDispatch.contentIds != NULL)
+		}
+		else if (planTree->directDispatch.isDirectDispatch &&
+				 planTree->directDispatch.contentIds != NULL)
 		{
 			/*
 			 * Direct dispatch to some segments, so end-points only exist
 			 * on these segments
 			 */
 			return ENDPOINT_ON_SOME_QE;
-		} else
+		}
+		else
 		{
 			return ENDPOINT_ON_ALL_QE;
 		}
@@ -413,7 +421,7 @@ ChooseEndpointContentIDForParallelCursor(const struct Plan *planTree,
  */
 void
 AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id, Oid user_id,
-                       enum EndPointExecPosition endPointExecPosition, List *seg_list)
+					   enum EndPointExecPosition endPointExecPosition, List *seg_list)
 {
 	int i;
 
@@ -444,11 +452,12 @@ AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id, Oi
 				SharedTokens[i].endPointExecPosition = endPointExecPosition;
 			}
 		}
-	} else if (typeE == FaultInjectorTypeRevertMemorySlot)
+	}
+	else if (typeE == FaultInjectorTypeRevertMemorySlot)
 	{
 		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 		{
-			if (token_equals(SharedTokens[i].token,  dummyToken))
+			if (token_equals(SharedTokens[i].token, dummyToken))
 			{
 				memset(SharedTokens[i].cursor_name, '\0', NAMEDATALEN);
 				InvalidateEndpointToken(SharedTokens[i].token);
@@ -482,9 +491,9 @@ AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id, Oi
 				}
 			}
 
-			char* token_str = PrintToken(token);
+			char *token_str = PrintToken(token);
 			elog(DEBUG3, "CDB_ENDPOINT: added a new token: '%s'"
-				", session id: %d, cursor name: %s, into shared memory",
+						 ", session id: %d, cursor name: %s, into shared memory",
 				 token_str, session_id, SharedTokens[i].cursor_name);
 			pfree(token_str);
 			break;
@@ -497,37 +506,45 @@ AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id, Oi
 	if (i == MAX_ENDPOINT_SIZE)
 	{
 		elog(ERROR, "can't add a new token %s into shared memory", PrintToken(token));
-	} else
+	}
+	else
 	{
-	    MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-	    int8 *tmp_token = palloc0(ENDPOINT_TOKEN_LEN);
-	    memcpy(tmp_token, token, ENDPOINT_TOKEN_LEN);
-	    /* During declare parallel cursor, record the token in case proc
-	     * exit with error, so we can clean it */
-	    EndpointCtl.Cursor_tokens = lappend(EndpointCtl.Cursor_tokens, tmp_token);
-	    MemoryContextSwitchTo(oldcontext);
+		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		int8 *tmp_token = palloc0(ENDPOINT_TOKEN_LEN);
+		memcpy(tmp_token, token, ENDPOINT_TOKEN_LEN);
+		/* During declare parallel cursor, record the token in case proc
+		 * exit with error, so we can clean it */
+		EndpointCtl.Cursor_tokens = lappend(EndpointCtl.Cursor_tokens, tmp_token);
+		MemoryContextSwitchTo(oldcontext);
 	}
 }
 
 void
-WaitEndpointReady(const struct Plan *planTree, const int8 *token) {
-	char						cmd[255];
-	List						*cids;
-	char						*token_str;
-	enum EndPointExecPosition	endPointExecPosition;
+WaitEndpointReady(const struct Plan *planTree, const int8 *token)
+{
+	char cmd[255];
+	List *cids;
+	char *token_str;
+	enum EndPointExecPosition endPointExecPosition;
 
 	token_str = PrintToken(token);
 	cids = ChooseEndpointContentIDForParallelCursor(
 		planTree, &endPointExecPosition);
 
-	if (endPointExecPosition == ENDPOINT_ON_QD) {
+	if (endPointExecPosition == ENDPOINT_ON_QD)
+	{
 		DirectFunctionCall1(gp_endpoint_is_ready, CStringGetDatum(token_str));
-	} else {
+	}
+	else
+	{
 		snprintf(cmd, 255, "select __gp_endpoint_is_ready('%s')", token_str);
-		if (endPointExecPosition == ENDPOINT_ON_ALL_QE) {
+		if (endPointExecPosition == ENDPOINT_ON_ALL_QE)
+		{
 			/* Push token to all segments */
 			CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
-		} else {
+		}
+		else
+		{
 			CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, cids, NULL);
 		}
 	}
@@ -574,7 +591,8 @@ GetContentIDsByToken(const int8 *token)
 			{
 				l = NIL;
 				break;
-			} else
+			}
+			else
 			{
 				int16 x = -1;
 				CdbComponentDatabases *cdbs = cdbcomponent_getCdbComponents();
@@ -621,7 +639,8 @@ DestroyParallelCursor(const int8 *token)
 		if (on_qd)
 		{
 			FreeEndpointOfToken(token);
-		} else
+		}
+		else
 		{
 			size_t cmd_len = 255;
 			char cmd[cmd_len];
@@ -632,7 +651,8 @@ DestroyParallelCursor(const int8 *token)
 			{
 				/* dispatch to some segments. */
 				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, seg_list, NULL);
-			} else
+			}
+			else
 			{
 				/* dispatch to all segments. */
 				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
@@ -826,7 +846,8 @@ AllocEndpointOfToken(const int8 *token)
 				SharedEndpoints[i].empty = false;
 			}
 		}
-	} else if (typeE == FaultInjectorTypeRevertMemorySlot)
+	}
+	else if (typeE == FaultInjectorTypeRevertMemorySlot)
 	{
 		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 		{
@@ -924,7 +945,7 @@ FreeEndpointOfToken(const int8 *token)
 void
 CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait)
 {
-	EState	   *estate;
+	EState *estate;
 
 	/* caller must have switched into per-query memory context already */
 	estate = queryDesc->estate;
@@ -1022,7 +1043,8 @@ create_and_connect_mq(TupleDesc tupleDesc)
 	LWLockRelease(ParallelCursorEndpointLock);
 	dsm_pin_mapping(dsm_seg);
 
-	toc = shm_toc_create(create_magic_num_from_token(my_shared_endpoint->token), dsm_segment_address(dsm_seg), toc_size);
+	toc = shm_toc_create(create_magic_num_from_token(my_shared_endpoint->token), dsm_segment_address(dsm_seg),
+						 toc_size);
 
 	tdlen_space = shm_toc_allocate(toc, sizeof(tupdesc_len));
 	memcpy(tdlen_space, &tupdesc_len, sizeof(tupdesc_len));
@@ -1070,10 +1092,12 @@ wait_receiver(void)
 		if (r < 0)
 		{
 			elog(ERROR, "unexpected EOF on query dispatcher connection");
-		} else if (r > 0)
+		}
+		else if (r > 0)
 		{
 			elog(ERROR, "query dispatcher should get nothing until QE backend finished processing");
-		} else
+		}
+		else
 		{
 			/* no data available without blocking */
 			pq_endmsgread();
@@ -1208,7 +1232,7 @@ static void endpoint_cleanup(void)
 	{
 		foreach(l, EndpointCtl.Endpoint_tokens)
 		{
-			int8* token = lfirst(l);
+			int8 *token = lfirst(l);
 			FreeEndpointOfToken(token);
 			pfree(lfirst(l));
 		}
@@ -1238,7 +1262,8 @@ static void sender_xact_abort_callback(XactEvent ev, void *vp)
 {
 	if (ev == XACT_EVENT_ABORT)
 	{
-		if (Gp_role == GP_ROLE_RETRIEVE || Gp_role == GP_ROLE_UTILITY) {
+		if (Gp_role == GP_ROLE_RETRIEVE || Gp_role == GP_ROLE_UTILITY)
+		{
 			return;
 		}
 		elog(DEBUG3, "CDB_ENDPOINT: sender xact abort callback");
@@ -1356,65 +1381,55 @@ gp_endpoint_is_ready(PG_FUNCTION_ARGS)
 {
 	const char *token_str = NULL;
 	int8 token[ENDPOINT_TOKEN_LEN] = {0};
-	Latch *status_latch = NULL;
+	Latch status_latch;
+	bool res = false;
 
 	if (PG_ARGISNULL(0))
 		PG_RETURN_BOOL(false);
 
 	token_str = PG_GETARG_CSTRING(0);
 	ParseToken(token, token_str);
-
-	EndpointDesc* endpointDesc = find_endpoint_by_token(token);
-	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-
-	if (endpointDesc && !endpointDesc->empty)
+	EndpointDesc *endpointDesc = find_endpoint_by_token(token);
+	InitLatch(&status_latch);
+	while (true)
 	{
-		if (endpointDesc->attach_status == Status_Prepared)
-		{
-			LWLockRelease(ParallelCursorEndpointLock);
-			PG_RETURN_BOOL(true);
-		} else {
-			status_latch = &endpointDesc->status_latch;
-		}
+		int wr;
 
-	}
-	LWLockRelease(ParallelCursorEndpointLock);
-
-	OwnLatch(status_latch);
-	int wr;
-	while (true) {
 		CHECK_FOR_INTERRUPTS();
-
 		if (QueryFinishPending)
 			break;
 
-		wr = WaitLatch(status_latch,
-					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
+		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+		if (endpointDesc && !endpointDesc->empty)
+		{
+			if (endpointDesc->attach_status != Status_NotAttached)
+			{
+				res = true;
+				elog(DEBUG3, "CDB_ENDPOINT: The endpoint is ready.");
+				LWLockRelease(ParallelCursorEndpointLock);
+				break;
+			}
+		}
+		else
+		{
+			LWLockRelease(ParallelCursorEndpointLock);
+			elog(ERROR, "CDB_ENDPOINT: endpoint for token not exists.");
+		}
+		LWLockRelease(ParallelCursorEndpointLock);
+
+		wr = WaitLatch(&status_latch,
+					   WL_POSTMASTER_DEATH | WL_TIMEOUT,
 					   WAIT_RECEIVE_TIMEOUT);
 		if (wr & WL_TIMEOUT)
 		{
-			LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-
-			if (endpointDesc && !endpointDesc->empty)
-			{
-				if (endpointDesc->attach_status == Status_Prepared)
-				{
-					DisownLatch(status_latch);
-					LWLockRelease(ParallelCursorEndpointLock);
-					PG_RETURN_BOOL(true);
-				}
-
-			}
-			LWLockRelease(ParallelCursorEndpointLock);
 			continue;
 		}
 
 		if (wr & WL_POSTMASTER_DEATH)
 		{
 			elog(DEBUG3, "CDB_ENDPOINT: postmaster exit while check gp_endpoint_is_ready.");
-			DisownLatch(status_latch);
 			break;
 		}
 	}
-	PG_RETURN_BOOL(false);
+	PG_RETURN_BOOL(res);
 }
