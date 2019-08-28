@@ -910,8 +910,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 
 	sendTuples = (queryDesc->tupDesc != NULL &&
 				  (operation == CMD_SELECT ||
-				   queryDesc->plannedstmt->hasReturning)) &&
-					!(queryDesc->parallel_cursor && dest->mydest == DestRemote); /* Don't return result set for EXECUTE PARALLEL CURSOR */
+				   queryDesc->plannedstmt->hasReturning));
 
 	if (sendTuples)
 		(*dest->rStartup) (dest, operation, queryDesc->tupDesc);
@@ -2156,7 +2155,11 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	if (query_info_collect_hook)
 		(*query_info_collect_hook)(METRICS_PLAN_NODE_INITIALIZE, queryDesc);
 
-	if (RootSliceIndex(estate) != LocallyExecutingSliceIndex(estate))
+    /*
+     * Query with Parallel Retrieved don't have valid query on QD,
+     * set tupDesc to NULL so that CHECK PARALLEL CURSOR not return result set.
+     */
+	if ((RootSliceIndex(estate) != LocallyExecutingSliceIndex(estate)) || (Gp_role == GP_ROLE_DISPATCH && queryDesc->parallel_cursor))
 		return;
 
 	/*

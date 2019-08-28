@@ -112,6 +112,15 @@ cdbdisp_waitDispatchFinish(struct CdbDispatcherState *ds);
 void
 cdbdisp_checkDispatchResult(struct CdbDispatcherState *ds, DispatchWaitMode waitMode);
 
+/**
+ * Check whether or not the Parallel Cursor Execution Finished
+ * This func should be called after calling cdbdisp_checkDispatchResult().
+ *
+ * @return true if the Parallel Cursor Execution Finished
+ */
+bool
+cdbdisp_isDispatchFinished(struct CdbDispatcherState *ds);
+
 /*
  * cdbdisp_getDispatchResults:
  *

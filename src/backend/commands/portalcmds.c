@@ -229,6 +229,7 @@ PerformPortalFetch(FetchStmt *stmt,
 {
 	Portal		portal;
 	uint64		nprocessed;
+	bool		isParallelCursorFinished = false;
 
 	/*
 	 * Disallow empty-string cursor name (conflicts with protocol-level
@@ -292,14 +293,20 @@ PerformPortalFetch(FetchStmt *stmt,
 								dest);
 
 	if (stmt->isParallelCursor)
-		CheckParallelCursorErrors(portal->queryDesc, stmt->isParallelCursorCheckWait);
+		isParallelCursorFinished = CheckParallelCursorErrors(portal->queryDesc, stmt->isParallelCursorCheckWait);
 
 	/* Return command status if wanted */
 	if (completionTag)
 	{
-		if (stmt->isParallelCursor)
-			snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
-					 "EXECUTE PARALLEL CURSOR");
+        if (stmt->isParallelCursor){
+            if (isParallelCursorFinished)
+                snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
+                         "PARALLEL CURSOR Finished");
+            else
+                snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
+                         "PARALLEL CURSOR Running");
+        }
+
 		else
 			snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
 					 stmt->ismove ? "MOVE" : "FETCH",

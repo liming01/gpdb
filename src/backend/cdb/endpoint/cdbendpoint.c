@@ -942,10 +942,17 @@ FreeEndpointOfToken(const int8 *token)
 	LWLockRelease(ParallelCursorEndpointLock);
 }
 
-void
+/**
+ * Check the parallel cursor execution status, if get error, then rethrow the error
+ *
+ * @param isWait:  support 2 modes: WAIT/NOWAIT
+ * @return true if the Parallel Cursor Execution Finished
+ */
+bool
 CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait)
 {
-	EState *estate;
+	EState	   *estate;
+	bool       isParallelCursorFinished = false;
 
 	/* caller must have switched into per-query memory context already */
 	estate = queryDesc->estate;
@@ -966,7 +973,9 @@ CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait)
 			cdbdisp_destroyDispatcherState(ds);
 			ReThrowError(qeError);
 		}
+		isParallelCursorFinished = cdbdisp_isDispatchFinished(ds);
 	}
+	return isParallelCursorFinished;
 }
 
 void

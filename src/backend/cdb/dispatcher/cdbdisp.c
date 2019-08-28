@@ -134,6 +134,30 @@ cdbdisp_checkDispatchResult(struct CdbDispatcherState *ds,
 	}
 }
 
+/**
+ * Check whether or not the Parallel Cursor Execution Finished
+ * This func should be called after calling cdbdisp_checkDispatchResult().
+ *
+ * @return true if the Parallel Cursor Execution Finished
+ */
+bool
+cdbdisp_isDispatchFinished(struct CdbDispatcherState *ds)
+{
+    CdbDispatchResults *results = ds->primaryResults;
+    if (results != NULL && results->resultArray != NULL)
+    {
+		int			i;
+
+		for (i = 0; i < results->resultCount; i++)
+		{
+			if(results->resultArray[i].stillRunning)
+				return false;
+		}
+    }
+
+    return true;
+}
+
 /*
  * cdbdisp_getDispatchResults:
  *

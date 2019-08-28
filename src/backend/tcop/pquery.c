@@ -1620,7 +1620,6 @@ PortalRunFetch(Portal portal,
 		switch (portal->strategy)
 		{
 			case PORTAL_ONE_SELECT:
-			case PORTAL_MULTI_QUERY:
 				result = DoPortalRunFetch(portal, fdirection, count, dest);
 				break;
 
@@ -1697,8 +1696,7 @@ DoPortalRunFetch(Portal portal,
 	Assert(portal->strategy == PORTAL_ONE_SELECT ||
 		   portal->strategy == PORTAL_ONE_RETURNING ||
 		   portal->strategy == PORTAL_ONE_MOD_WITH ||
-		   portal->strategy == PORTAL_UTIL_SELECT ||
-		   portal->strategy == PORTAL_MULTI_QUERY);
+		   portal->strategy == PORTAL_UTIL_SELECT);
 
 	switch (fdirection)
 	{
@@ -1899,20 +1897,7 @@ DoPortalRunFetch(Portal portal,
 		return result;
 	}
 
-	/*
-	 * Fetch/Retrieve from parallel cursor uses PORTAL_MULTI_QUERY strategy,
-	 * because results are retrieved from QEs instead of QD.
-	 */
-	if (portal->strategy == PORTAL_MULTI_QUERY)
-	{
-		SetGpToken(portal->parallel_cursor_token);
-		PortalRunMulti(portal, false, dest, dest, NULL);
-		ClearGpToken();
-		MarkPortalDone(portal);
-		return 0;
-	}
-	else
-		return PortalRunSelect(portal, forward, count, dest);
+	return PortalRunSelect(portal, forward, count, dest);
 }
 
 /*
