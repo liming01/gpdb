@@ -1377,6 +1377,5 @@ extern Datum gp_instrument_shmem_summary(PG_FUNCTION_ARGS);
 extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
 extern Datum gp_endpoints_status_info(PG_FUNCTION_ARGS);
 extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
-extern Datum gp_endpoint_is_ready(PG_FUNCTION_ARGS);
 
 #endif   /* BUILTINS_H */

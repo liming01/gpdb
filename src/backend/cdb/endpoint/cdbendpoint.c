@@ -48,6 +48,7 @@
 #include "utils/faultinjector.h"
 
 #define WAIT_RECEIVE_TIMEOUT            50
+#define WAIT_ENDPOINT_INIT_TIMEOUT      5000
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
 #define InvalidSession                  (-1)
 
@@ -69,6 +70,7 @@ static void init_shared_endpoints(void *address);
 static void free_endpoint(EndpointDesc *endpointDesc);
 static void free_endpoint_by_cursor_name(const char *cursor_name);
 static void free_all_endpoints_in_session(int sessionId);
+static void wait_for_init_by_cursor_name(const char *cursor_name);
 static void init_shared_tokens(void *address);
 static void clear_shared_token(ParallelCursorTokenDesc *desc);
 static void parallel_cursor_exit_callback(int code, Datum arg);
@@ -96,7 +98,7 @@ static void generate_token(int8 *token);
 extern bool token_equals(const int8 *token1, const int8 *token2);
 extern uint64 create_magic_num_from_token(const int8 *token);
 extern void generate_endpoint_name(char *name, const char *cursor_name, int32 session_id, int32 segindex);
-extern EndpointDesc * find_endpoint_by_name(const char *name);
+extern EndpointDesc * find_endpoint_by_cursor_name(const char *name);
 
 /*
  * Endpoint_ShmemSize - Calculate the shared memory size for parallel cursor execute.
@@ -170,6 +172,7 @@ init_shared_endpoints(void *address)
 		endpoints[i].attach_status = Status_NotAttached;
 		endpoints[i].empty = true;
 		InitSharedLatch(&endpoints[i].ack_done);
+		InitSharedLatch(&endpoints[i].init_done);
 	}
 }
 
@@ -507,11 +510,12 @@ WaitEndpointReady(const struct Plan *planTree, const char *cursorName)
 
 	if (endPointExecPosition == ENDPOINT_ON_QD)
 	{
-		DirectFunctionCall1(gp_endpoint_is_ready, CStringGetDatum(cursorName));
+		DirectFunctionCall3(gp_operate_endpoints_token, CharGetDatum('w'),
+							CStringGetDatum(""), CStringGetDatum(cursorName));
 	}
 	else
 	{
-		snprintf(cmd, 255, "select __gp_endpoint_is_ready('%s')", cursorName);
+		snprintf(cmd, 255, "select __gp_operate_endpoints_token('w', '', '%s')", cursorName);
 		if (endPointExecPosition == ENDPOINT_ON_ALL_QE)
 		{
 			/* Push token to all segments */
@@ -648,6 +652,7 @@ CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc)
 	currentMQEntry->retrieve_ts = NULL;
 	currentMQEntry->tq_reader = NULL;
 	create_and_connect_mq(tupleDesc);
+	SetLatch(&my_shared_endpoint->init_done);
 	return CreateTupleQueueDestReceiver(currentMQEntry->mq_handle);
 }
 
@@ -830,6 +835,7 @@ AllocEndpointOfToken(const int8 *token, const char *cursorName)
 		SharedEndpoints[i].receiver_pid = InvalidPid;
 		SharedEndpoints[i].attach_status = Status_NotAttached;
 		SharedEndpoints[i].empty = false;
+		OwnLatch(&SharedEndpoints[i].init_done);
 	}
 
 	LWLockRelease(ParallelCursorEndpointLock);
@@ -839,17 +845,42 @@ AllocEndpointOfToken(const int8 *token, const char *cursorName)
 }
 
 /*
+ * Waits until the QE is ready -- the dest receiver will be ready after this
+ * function returns successfully.
+ */
+void
+wait_for_init_by_cursor_name(const char *cursor_name)
+{
+	int wr = 0;
+	EndpointDesc *endpointDesc = find_endpoint_by_cursor_name(cursor_name);
+	if (!endpointDesc) {
+		elog(ERROR, "Endpoint doesn't exist");
+	}
+
+	wr = WaitLatch(&endpointDesc->init_done,
+				   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
+				   WAIT_ENDPOINT_INIT_TIMEOUT);
+
+	if (wr & WL_TIMEOUT)
+	{
+		elog(ERROR, "Endpoint initialization timeout");
+	}
+
+	if (wr & WL_POSTMASTER_DEATH)
+	{
+		elog(ERROR, "Postmaster died");
+	}
+}
+
+/*
  *  Find and free the EndpointDesc entry by the cursor name.
  */
 void
 free_endpoint_by_cursor_name(const char *cursor_name)
 {
-	EndpointDesc *endpointDesc = NULL;
-	char *name = palloc(ENDPOINT_NAME_LEN);
-	generate_endpoint_name(name, cursor_name, gp_session_id, GpIdentity.segindex);
-	endpointDesc = find_endpoint_by_name(name);
-	pfree(name);
+	EndpointDesc *endpointDesc = find_endpoint_by_cursor_name(cursor_name);
 
+	// FIXME: Log error instead?
 	if (endpointDesc) {
 		free_endpoint(endpointDesc);
 	}
@@ -902,6 +933,7 @@ free_endpoint(EndpointDesc *endpointDesc)
 	endpointDesc->session_id = InvalidSession;
 	endpointDesc->user_id = InvalidOid;
 	endpointDesc->empty = true;
+	DisownLatch(&endpointDesc->init_done);
 	LWLockRelease(ParallelCursorEndpointLock);
 }
 
@@ -1328,6 +1360,9 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 				ParseToken(token, token_str);
 				AllocEndpointOfToken(token, cursor_name);
 				break;
+			case 'w':
+				wait_for_init_by_cursor_name(cursor_name);
+				break;
 			case 'f':
 				/* Free endpoint */
 				free_endpoint_by_cursor_name(cursor_name);
@@ -1353,17 +1388,19 @@ void generate_endpoint_name(char *name,
 }
 
 /*
- * Find the EndpointDesc entry by the given endpoint name.
+ * Find the EndpointDesc entry by the given cursor name in current session.
  */
-EndpointDesc * find_endpoint_by_name(const char *name)
+EndpointDesc * find_endpoint_by_cursor_name(const char *cursor_name)
 {
 	EndpointDesc *res = NULL;
+	char *endpoint_name = palloc(ENDPOINT_NAME_LEN);
+	generate_endpoint_name(endpoint_name, cursor_name, gp_session_id, GpIdentity.segindex);
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (!SharedEndpoints[i].empty &&
-				strncmp(SharedEndpoints[i].name, name, ENDPOINT_NAME_LEN) == 0)
+		if (!SharedEndpoints[i].empty && SharedEndpoints[i].session_id == gp_session_id &&
+			strncmp(SharedEndpoints[i].name, endpoint_name, ENDPOINT_NAME_LEN) == 0)
 		{
 
 			res = &SharedEndpoints[i];
@@ -1371,65 +1408,7 @@ EndpointDesc * find_endpoint_by_name(const char *name)
 		}
 	}
 	LWLockRelease(ParallelCursorEndpointLock);
+	pfree(endpoint_name);
 	return res;
 }
 
-Datum
-gp_endpoint_is_ready(PG_FUNCTION_ARGS)
-{
-	const char *cursor_name = NULL;
-	char *endpoint_name = NULL;
-	Latch status_latch;
-	bool res = false;
-	EndpointDesc* endpointDesc = NULL;
-
-	if (PG_ARGISNULL(0))
-		PG_RETURN_BOOL(false);
-
-	cursor_name = PG_GETARG_CSTRING(0);
-	endpoint_name = palloc(ENDPOINT_NAME_LEN);
-	generate_endpoint_name(endpoint_name, cursor_name, gp_session_id, GpIdentity.segindex);
-	endpointDesc = find_endpoint_by_name(endpoint_name);
-	InitLatch(&status_latch);
-	while (true)
-	{
-		int wr;
-
-		CHECK_FOR_INTERRUPTS();
-		if (QueryFinishPending)
-			break;
-
-		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-		if (endpointDesc && !endpointDesc->empty)
-		{
-			if (endpointDesc->attach_status != Status_NotAttached)
-			{
-				res = true;
-				elog(DEBUG3, "CDB_ENDPOINT: The endpoint is ready.");
-				LWLockRelease(ParallelCursorEndpointLock);
-				break;
-			}
-		}
-		else
-		{
-			LWLockRelease(ParallelCursorEndpointLock);
-			elog(ERROR, "CDB_ENDPOINT: endpoint for token not exists.");
-		}
-		LWLockRelease(ParallelCursorEndpointLock);
-
-		wr = WaitLatch(&status_latch,
-					   WL_POSTMASTER_DEATH | WL_TIMEOUT,
-					   WAIT_RECEIVE_TIMEOUT);
-		if (wr & WL_TIMEOUT)
-		{
-			continue;
-		}
-
-		if (wr & WL_POSTMASTER_DEATH)
-		{
-			elog(DEBUG3, "CDB_ENDPOINT: postmaster exit while check gp_endpoint_is_ready.");
-			break;
-		}
-	}
-	PG_RETURN_BOOL(res);
-}

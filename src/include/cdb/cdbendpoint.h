@@ -139,6 +139,7 @@ typedef struct EndpointDesc
 	int session_id;                    /* Connection session id */
 	Oid user_id;                       /* User ID of the current executed parallel cursor */
 	bool empty;                        /* Whether current EndpointDesc slot in DSM is free */
+	Latch init_done;                   /* Latch to wait until the query starts successfully */
 } EndpointDesc;
 
 /*
@@ -213,7 +214,6 @@ extern void HandleEndpointFinish(void);
 
 /* UDFs for endpoints operation */
 extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
-extern Datum gp_endpoint_is_ready(PG_FUNCTION_ARGS);
 
 
 /* cdbendpointretrieve.c */
