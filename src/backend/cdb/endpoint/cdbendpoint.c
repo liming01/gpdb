@@ -72,7 +72,7 @@ static void free_endpoint_by_cursor_name(const char *cursor_name);
 static void free_all_endpoints_in_session(int sessionId);
 static void wait_for_init_by_cursor_name(const char *cursor_name);
 static void init_shared_tokens(void *address);
-static void clear_shared_token(ParallelCursorTokenDesc *desc);
+static void reset_shared_token(ParallelCursorTokenDesc *desc);
 static void parallel_cursor_exit_callback(int code, Datum arg);
 static bool remove_parallel_cursor(const char  *cursor_name, bool *on_qd, List **seg_list);
 
@@ -185,7 +185,7 @@ init_shared_tokens(void *address)
 	ParaCursorToken tokens = (ParaCursorToken) address;
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		clear_shared_token(&tokens[i]);
+		reset_shared_token(&tokens[i]);
 	}
 }
 
@@ -222,7 +222,7 @@ parallel_cursor_exit_callback(int code, Datum arg)
 	{
 		if (SharedTokens[i].session_id == gp_session_id)
 		{
-			clear_shared_token(&SharedTokens[i]);
+			reset_shared_token(&SharedTokens[i]);
 		}
 	}
 	LWLockRelease(ParallelCursorTokenLock);
@@ -266,7 +266,7 @@ remove_parallel_cursor(const char *cursor_name, bool *on_qd, List **seg_list)
 				", session id: %d from shared memory",
 				 cursor_name, SharedTokens[i].session_id);
 
-			clear_shared_token(&SharedTokens[i]);
+			reset_shared_token(&SharedTokens[i]);
 			break;
 		}
 	}
@@ -279,7 +279,7 @@ remove_parallel_cursor(const char *cursor_name, bool *on_qd, List **seg_list)
  * Needs to be called with exclusive lock on ParallelCursorTokenLock.
  */
 void
-clear_shared_token(ParallelCursorTokenDesc *desc)
+reset_shared_token(ParallelCursorTokenDesc *desc)
 {
 	InvalidateEndpointToken(desc->token);
 	memset(desc->cursor_name, 0, NAMEDATALEN);
