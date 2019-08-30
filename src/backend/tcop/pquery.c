@@ -111,7 +111,7 @@ CreateQueryDesc(PlannedStmt *plannedstmt,
 	qd->totaltime = NULL;
 
 	qd->extended_query = false; /* default value */
-	qd->parallel_cursor = false;
+	qd->parallel_retrieve_cursor = false;
 	qd->portal_name = NULL;
 
 	qd->ddesc = NULL;
@@ -159,7 +159,7 @@ CreateUtilityQueryDesc(Node *utilitystmt,
 	qd->totaltime = NULL;
 
 	qd->extended_query = false; /* default value */
-	qd->parallel_cursor = false;
+	qd->parallel_retrieve_cursor = false;
 	qd->portal_name = NULL;
 
 	return qd;
@@ -235,8 +235,8 @@ ProcessQuery(Portal portal,
 									GP_INSTRUMENT_OPTS);
 	queryDesc->ddesc = portal->ddesc;
 
-	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
-		queryDesc->parallel_cursor = true;
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
+		queryDesc->parallel_retrieve_cursor = true;
 
 	if (gp_enable_gpperfmon && Gp_role == GP_ROLE_DISPATCH)
 	{
@@ -635,7 +635,7 @@ PortalStart(Portal portal, ParamListInfo params,
 		/*
 		 * Determine the portal execution strategy
 		 */
-		portal->strategy = ChoosePortalStrategy(portal->stmts, (portal->cursorOptions & CURSOR_OPT_PARALLEL) > 0);
+		portal->strategy = ChoosePortalStrategy(portal->stmts, (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE) > 0);
 
 		/* Initialize the backoff entry for this backend */
 		PortalBackoffEntryInit(portal);
@@ -692,8 +692,8 @@ PortalStart(Portal portal, ParamListInfo params,
 					queryDesc->portal_name = (portal->name ? pstrdup(portal->name) : (char *) NULL);
 				}
 
-				if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
-					queryDesc->parallel_cursor = true;
+				if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
+					queryDesc->parallel_retrieve_cursor = true;
 
 				queryDesc->plannedstmt->query_mem = ResourceManagerGetQueryMemoryLimit(queryDesc->plannedstmt);
 

@@ -10,7 +10,7 @@ INSERT 100
 --------- Test1: test for quit retrieve will cancel all unfinished QE backend
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
  token                              | status
@@ -19,11 +19,11 @@ DECLARE
  token_id1 | INIT
  token_id1 | INIT
 (3 rows)
-1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
 
 2: BEGIN;
 BEGIN
-2: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+2: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 2: @out_sh 'get_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
  token                              | status
@@ -32,11 +32,11 @@ DECLARE
  token_id2 | INIT
  token_id2 | INIT
 (3 rows)
-2&: EXECUTE PARALLEL CURSOR c2;  <waiting ...>
+2&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
 
 3: BEGIN;
 BEGIN
-3: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
+3: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 3: @out_sh 'get_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
  token                              | status
@@ -45,7 +45,7 @@ DECLARE
  token_id3 | INIT
  token_id3 | INIT
 (3 rows)
-3&: EXECUTE PARALLEL CURSOR c3;  <waiting ...>
+3&: CHECK PARALLEL RETRIEVE CURSOR c3;  <waiting ...>
 
 -- in one retrieve session, retrieve mutiple tokens (begin retrieving, finished retrieving, not yet retrieve)
 0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE 10 FROM "@TOKEN1";
@@ -109,10 +109,10 @@ DECLARE
 -- a new retrieve session
 3R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE 10 FROM "@TOKEN1";
 ERROR:  Endpoint token_id1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
-DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
+DETAIL:  An endpoint can be attached by only one retrieving session for each 'CHECK PARALLEL RETRIEVE CURSOR'
 3R: @in_sh 'sub @TOKEN2 $TOKEN2' : RETRIEVE all FROM "@TOKEN2";
 ERROR:  Endpoint token_id2 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
-DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
+DETAIL:  An endpoint can be attached by only one retrieving session for each 'CHECK PARALLEL RETRIEVE CURSOR'
 3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
  a  
 ----
@@ -151,7 +151,7 @@ DETAIL:  An endpoint can be attached by only one retrieving session for each 'EX
 (3 rows)
 -- quit the first retrieve session
 0Rq: ... <quitting>
--- check it can cancel the "EXECUTE PARALLEL CURSOR"
+-- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
 1<:  <... completed>
 ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished endpoint backends will be cancelled"  (seg0 10.34.58.39:25432 pid=50053)
 4: SELECT cursorname, status FROM gp_endpoints_info(true);
@@ -177,7 +177,7 @@ ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished
 (2 rows)
 -- quit the second retrieve session
 3Rq: ... <quitting>
--- check it can cancel the "EXECUTE PARALLEL CURSOR"
+-- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
 3<:  <... completed>
 ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished endpoint backends will be cancelled"  (seg0 10.34.58.39:25432 pid=50073)
 4: SELECT cursorname, status FROM gp_endpoints_info(true);
@@ -198,7 +198,7 @@ ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished
 ERROR:  failed to attach non-existing endpoint of token token_id2 (cdbendpointretrieve.c:214)
 
 ERROR:  Endpoint token_id2 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
-DETAIL:  An endpoint can be attached by only one retrieving session for each 'EXECUTE PARALLEL CURSOR'
+DETAIL:  An endpoint can be attached by only one retrieving session for each 'CHECK PARALLEL RETRIEVE CURSOR'
 
  a  
 ----

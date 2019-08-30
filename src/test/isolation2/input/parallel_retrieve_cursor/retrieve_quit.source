@@ -6,19 +6,19 @@ insert into t1 select generate_series(1,100);
 
 --------- Test1: test for quit retrieve will cancel all unfinished QE backend
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 2: BEGIN;
-2: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+2: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 2: @out_sh 'get_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
-2&: EXECUTE PARALLEL CURSOR c2;
+2&: CHECK PARALLEL RETRIEVE CURSOR c2;
 
 3: BEGIN;
-3: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
+3: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 3: @out_sh 'get_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
-3&: EXECUTE PARALLEL CURSOR c3;
+3&: CHECK PARALLEL RETRIEVE CURSOR c3;
 
 -- in one retrieve session, retrieve mutiple tokens (begin retrieving, finished retrieving, not yet retrieve)
 0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE 10 FROM "@TOKEN1";
@@ -35,7 +35,7 @@ insert into t1 select generate_series(1,100);
 0R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
 -- quit the first retrieve session
 0Rq:
--- check it can cancel the "EXECUTE PARALLEL CURSOR"
+-- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
 1<:
 4: SELECT cursorname, status FROM gp_endpoints_info(true);
 
@@ -43,7 +43,7 @@ insert into t1 select generate_series(1,100);
 3R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
 -- quit the second retrieve session
 3Rq:
--- check it can cancel the "EXECUTE PARALLEL CURSOR"
+-- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
 3<:
 4: SELECT cursorname, status FROM gp_endpoints_info(true);
 

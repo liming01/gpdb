@@ -1,25 +1,25 @@
--- @Description Tests the parallel cursor for select replcated table
+-- @Description Tests the PARALLEL RETRIEVE CURSOR for select replcated table
 --
 DROP TABLE IF EXISTS rt1;
 CREATE TABLE rt1 (a INT) DISTRIBUTED REPLICATED;
 insert into rt1 select generate_series(1,100);
 
---------- Test1: Basic test for parallel cursor on replicated table
+--------- Test1: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1;
 2: BEGIN;
-2: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM rt1;
+2: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1;
 3: BEGIN;
-3: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM rt1;
+3: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1;
 
 -- Here because replicated table will execute on seg id: session_id % segment_number
--- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions, 
+-- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
 4: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
-1&: EXECUTE PARALLEL CURSOR c1;
-2&: EXECUTE PARALLEL CURSOR c2;
-3&: EXECUTE PARALLEL CURSOR c3;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+2&: CHECK PARALLEL RETRIEVE CURSOR c2;
+3&: CHECK PARALLEL RETRIEVE CURSOR c3;
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE 10 FROM "@TOKEN1";
 -- cancel all 3 sessions
@@ -32,22 +32,22 @@ insert into rt1 select generate_series(1,100);
 2: ROLLBACK;
 3: ROLLBACK;
 
---------- Test2: Basic test for parallel cursor on replicated table
+--------- Test2: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 ORDER BY a;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 ORDER BY a;
 2: BEGIN;
-2: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM rt1 ORDER BY a;
+2: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 ORDER BY a;
 3: BEGIN;
-3: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM rt1 ORDER BY a;
+3: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 ORDER BY a;
 
 -- Here because replicated table will execute on seg id: session_id % segment_number
--- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions, 
+-- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
 4: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
-1&: EXECUTE PARALLEL CURSOR c1;
-2&: EXECUTE PARALLEL CURSOR c2;
-3&: EXECUTE PARALLEL CURSOR c3;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+2&: CHECK PARALLEL RETRIEVE CURSOR c2;
+3&: CHECK PARALLEL RETRIEVE CURSOR c3;
 *R: @in_sh 'sub @TOKEN2 $TOKEN2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
 *R: @in_sh 'sub @TOKEN2 $TOKEN2': RETRIEVE 10 FROM "@TOKEN2";
 -- cancel all 3 sessions
@@ -60,22 +60,22 @@ insert into rt1 select generate_series(1,100);
 2: ROLLBACK;
 3: ROLLBACK;
 
---------- Test3: Basic test for parallel cursor on replicated table
+--------- Test3: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1;
 2: BEGIN;
-2: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1;
+2: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1;
 3: BEGIN;
-3: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1;
+3: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1;
 
 -- Here because replicated table will execute on seg id: session_id % segment_number
--- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions, 
+-- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
 4: @out_sh 'get_token_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
-1&: EXECUTE PARALLEL CURSOR c1;
-2&: EXECUTE PARALLEL CURSOR c2;
-3&: EXECUTE PARALLEL CURSOR c3;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+2&: CHECK PARALLEL RETRIEVE CURSOR c2;
+3&: CHECK PARALLEL RETRIEVE CURSOR c3;
 *R: @in_sh 'sub @TOKEN3 $TOKEN3': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
 *R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE 10 FROM "@TOKEN3";
 -- cancel all 3 sessions
@@ -88,22 +88,22 @@ insert into rt1 select generate_series(1,100);
 2: ROLLBACK;
 3: ROLLBACK;
 
---------- Test4: Basic test for parallel cursor on replicated table
+--------- Test4: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1 OR MOD(a,3)=2;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1 OR MOD(a,3)=2;
 2: BEGIN;
-2: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1 OR MOD(a,3)=2;
+2: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1 OR MOD(a,3)=2;
 3: BEGIN;
-3: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1 OR MOD(a,3)=2;
+3: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 WHERE MOD(a,3)=1 OR MOD(a,3)=2;
 
 -- Here because replicated table will execute on seg id: session_id % segment_number
--- Just declare & execute parallel cursors in all segment_number (i.e. 3) sessions, 
+-- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
 4: @out_sh 'get_token_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
-1&: EXECUTE PARALLEL CURSOR c1;
-2&: EXECUTE PARALLEL CURSOR c2;
-3&: EXECUTE PARALLEL CURSOR c3;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+2&: CHECK PARALLEL RETRIEVE CURSOR c2;
+3&: CHECK PARALLEL RETRIEVE CURSOR c3;
 *R: @in_sh 'sub @TOKEN4 $TOKEN4': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
 *R: @in_sh 'sub @TOKEN4 $TOKEN4': RETRIEVE 10 FROM "@TOKEN4";
 -- cancel all 3 sessions

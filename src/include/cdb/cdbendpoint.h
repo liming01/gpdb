@@ -1,16 +1,16 @@
 /*-------------------------------------------------------------------------
  * cdbendpoint.h
- *    Functions supporting the Greenplum Endpoint Parallel Cursor.
+ *    Functions supporting the Greenplum Endpoint PARALLEL RETRIEVE CURSOR.
  *
- * The PARALLEL CURSOR is introduced to reduce the heavy burdens of
+ * The PARALLEL RETRIEVE CURSOR is introduced to reduce the heavy burdens of
  * master node. If possible it will not gather the result to master, and
  * redirect the result to segments. However some query may still need to
  * gather to the master. So the ENDPOINT is introduced to present these
- * node entities that when the parallel cursor executed, the query result
+ * node entities that when the PARALLEL RETRIEVE CURSOR executed, the query result
  * will be redirected to, not matter they are one master or some segments
  * or all segments.
  *
- * When the parallel cursor executed, user can setup retrieve mode connection
+ * When the PARALLEL RETRIEVE CURSOR executed, user can setup retrieve mode connection
  * (in retrieve mode connection, the libpq authentication will not depends on
  * pg_hba) to all endpoints for retrieving result data parallelly. The RETRIEVE
  * statement behavior is similar to the "FETCH count" statement, while it only
@@ -50,20 +50,20 @@
 #define GP_ENDPOINT_STATUS_RELEASED      "RELEASED"
 
 /*
- * Roles that used in parallel cursor execution.
+ * Roles that used in PARALLEL RETRIEVE CURSOR execution.
  *
  * EPR_SENDER(endpoint) behaviors like a store, the client could retrieve
  * results from it. The EPR_SENDER could be on master or some/all segments,
- * depending on the query of the parallel cursor.
+ * depending on the query of the PARALLEL RETRIEVE CURSOR.
  *
  * EPR_RECEIVER(retrieve role), connect to each EPR_SENDER(endpoint) via "retrieve"
  * mode to retrieve results.
  */
-enum ParallelCursorExecRole
+enum ParallelRetrCursorExecRole
 {
-	PCER_SENDER = 1,
-	PCER_RECEIVER,
-	PCER_NONE
+	PRCER_SENDER = 1,
+	PRCER_RECEIVER,
+	PRCER_NONE
 };
 
 /*
@@ -102,16 +102,16 @@ enum RetrieveStatus
 };
 
 /*
- * ParallelCursorTokenDesc is a entry to store the information of a parallel cursor token.
+ * ParallelCursorTokenDesc is a entry to store the information of a PARALLEL RETRIEVE CURSOR token.
  * These entries are maintained in shared memory on QD.
  */
 typedef struct ParallelCursorTokenDesc
 {
 	int8 token[ENDPOINT_TOKEN_LEN];    /* Token */
-	char cursor_name[NAMEDATALEN];     /* The parallel cursor's name */
-	int session_id;                    /* Which session created this parallel cursor */
+	char cursor_name[NAMEDATALEN];     /* The PARALLEL RETRIEVE CURSOR's name */
+	int session_id;                    /* Which session created this PARALLEL RETRIEVE CURSOR */
 	int endpoint_cnt;                  /* How many endpoints are created */
-	Oid user_id;                       /* User ID of the current executed parallel cursor */
+	Oid user_id;                       /* User ID of the current executed PARALLEL RETRIEVE CURSOR */
 	enum EndPointExecPosition endPointExecPosition;  /* Position: on QD, On all QE, On Some QEs */
 	int32 dbIds[MAX_NWORDS];           /* A bitmap stores the dbids of every endpoint, size is 4906 bits(32X128) */
 } ParallelCursorTokenDesc;
@@ -132,12 +132,12 @@ typedef struct EndpointDesc
 	Oid database_id;                   /* Database OID */
 	pid_t sender_pid;                  /* The PID of EPR_SENDER(endpoint), set before endpoint sends data */
 	pid_t receiver_pid;                /* The retrieve role's PID that connect to current endpoint */
-	int8 token[ENDPOINT_TOKEN_LEN];    /* The token of the endpoint's running parallel cursor */
+	int8 token[ENDPOINT_TOKEN_LEN];    /* The token of the endpoint's running PARALLEL RETRIEVE CURSOR */
 	dsm_handle handle;                 /* DSM handle, which contains shared message queue */
 	Latch ack_done;                    /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
 	enum AttachStatus attach_status;   /* The attach status of the endpoint */
 	int session_id;                    /* Connection session id */
-	Oid user_id;                       /* User ID of the current executed parallel cursor */
+	Oid user_id;                       /* User ID of the current executed PARALLEL RETRIEVE CURSOR */
 	bool empty;                        /* Whether current EndpointDesc slot in DSM is free */
 	Latch init_done;                   /* Latch to wait until the query starts successfully */
 } EndpointDesc;
@@ -152,7 +152,7 @@ typedef struct EndpointDesc
 typedef struct MsgQueueStatusEntry
 {
 	char endpoint_name[ENDPOINT_NAME_LEN];     /* The name of endpoint to be retrieved, also behave as hash key */
-	int8 retrieve_token[ENDPOINT_TOKEN_LEN];   /* The parallel cursor token, also as the hash table entry key */
+	int8 retrieve_token[ENDPOINT_TOKEN_LEN];   /* The PARALLEL RETRIEVE CURSOR token, also as the hash table entry key */
 	dsm_segment *mq_seg;                       /* The dsm handle which contains shared memory message queue */
 	shm_mq_handle *mq_handle;                  /* Shared memory message queue */
 	TupleTableSlot *retrieve_ts;               /* tuple slot used for retrieve data */
@@ -161,12 +161,12 @@ typedef struct MsgQueueStatusEntry
 } MsgQueueStatusEntry;
 
 /*
- * Local structure to record current parallel cursor token and other info.
+ * Local structure to record current PARALLEL RETRIEVE CURSOR token and other info.
  */
 typedef struct EndpointControl
 {
-	int8 Gp_token[ENDPOINT_TOKEN_LEN];         /* Current parallel cursor token */
-	enum ParallelCursorExecRole Gp_pce_role;   /* Current parallel cursor role */
+	int8 Gp_token[ENDPOINT_TOKEN_LEN];         /* Current PARALLEL RETRIEVE CURSOR token */
+	enum ParallelRetrCursorExecRole Gp_prce_role;   /* Current PARALLEL RETRIEVE CURSOR role */
 } EndpointControl;
 
 typedef ParallelCursorTokenDesc *ParaCursorToken;
@@ -197,13 +197,13 @@ extern void AddParallelCursorToken(int8 *token /*out*/, const char *name, int se
 extern void WaitEndpointReady(const struct Plan *planTree, const char *cursorName);
 /* Called during EXECUTE CURSOR stage on QD. */
 extern bool CheckParallelCursorPrivilege(const int8 *token);
-/* Remove parallel cursor during cursor portal drop/abort, on QD */
+/* Remove PARALLEL RETRIEVE CURSOR during cursor portal drop/abort, on QD */
 extern void DestroyParallelCursor(const char *cursorName);
 
 /*
  * Below functions should run on Endpoints(QE/QD).
  */
-/* Functions used in execute parallel cursor stage, on Endpoints(QE/QD) */
+/* Functions used in CHECK PARALLEL RETRIEVE CURSOR stage, on Endpoints(QE/QD) */
 extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc);
 extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 /* Endpoint backend register/free, execute on Endpoints(QE/QD) */
@@ -236,10 +236,10 @@ extern void SetGpToken(const int8 *token);
 extern void ClearGpToken(void);
 extern void ParseToken(int8 *token /*out*/, const char *token_str);
 extern char *PrintToken(const int8 *token); /* Need to pfree() the result */
-extern void SetParallelCursorExecRole(enum ParallelCursorExecRole role);
+extern void SetParallelCursorExecRole(enum ParallelRetrCursorExecRole role);
 extern void ClearParallelCursorExecRole(void);
-extern enum ParallelCursorExecRole GetParallelCursorExecRole(void);
-extern const char *EndpointRoleToString(enum ParallelCursorExecRole role);
+extern enum ParallelRetrCursorExecRole GetParallelCursorExecRole(void);
+extern const char *EndpointRoleToString(enum ParallelRetrCursorExecRole role);
 extern bool IsEndpointTokenValid(const int8 *token);
 extern void InvalidateEndpointToken(int8 *token /*out*/);
 

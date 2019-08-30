@@ -1942,7 +1942,7 @@ UtilityTupleDescriptor(Node *parsetree)
 				if (Gp_role != GP_ROLE_RETRIEVE)
 					elog(ERROR, "RETRIEVE command can only run in retrieve mode");
 
-                SetParallelCursorExecRole(PCER_RECEIVER);
+                SetParallelCursorExecRole(PRCER_RECEIVER);
 				AttachEndpoint(n->token_str);
 
 				return CreateTupleDescCopy(TupleDescOfRetrieve());
@@ -2253,9 +2253,9 @@ CreateCommandTag(Node *parsetree)
 			{
 				DeclareCursorStmt *stmt = (DeclareCursorStmt *) parsetree;
 
-				if ((stmt->options & CURSOR_OPT_PARALLEL) != 0)
+				if ((stmt->options & CURSOR_OPT_PARALLEL_RETRIEVE) != 0)
 				{
-					tag = "DECLARE PARALLEL CURSOR";
+					tag = "DECLARE PARALLEL RETRIEVE CURSOR";
 				}
 				else
 				{
@@ -2279,8 +2279,8 @@ CreateCommandTag(Node *parsetree)
 			{
 				FetchStmt  *stmt = (FetchStmt *) parsetree;
 
-				if (stmt->isParallelCursor)
-					tag = "CHECK PARALLEL CURSOR";
+				if (stmt->isParallelRetrCursor)
+					tag = "CHECK PARALLEL RETRIEVE CURSOR";
 				else
 					tag = (stmt->ismove) ? "MOVE" : "FETCH";
 			}

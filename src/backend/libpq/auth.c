@@ -323,7 +323,7 @@ auth_failed(Port *port, int status, char *logdetail)
 }
 
 /*
- * Retrieve role directly uses the token of parallel cursor as password to authenticate.
+ * Retrieve role directly uses the token of PARALLEL RETRIEVE CURSOR as password to authenticate.
  */
 static void
 retrieve_role_authentication(Port *port)
@@ -340,7 +340,7 @@ retrieve_role_authentication(Port *port)
 	}
 
 	/*
-	 * verify that the username is same as the owner of parallel cursor and the
+	 * verify that the username is same as the owner of PARALLEL RETRIEVE CURSOR and the
 	 * password is the token
 	 */
 	owner_uid = get_role_oid(port->user_name, false);

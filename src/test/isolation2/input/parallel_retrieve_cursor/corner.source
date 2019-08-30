@@ -12,60 +12,60 @@ DROP TABLE IF EXISTS t5;
 CREATE TABLE t5 (b INT) DISTRIBUTED by (b);
 INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
--- Test1: close not executed parallel cursor
+-- Test1: close not executed PARALLEL RETRIEVE CURSOR
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: CLOSE c1;
 -- check no endpoint info
 1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
--- check no token info on QE after close parallel cursor
+-- check no token info on QE after close PARALLEL RETRIEVE CURSOR
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 
 -- error out for closed cursor
-1: EXECUTE PARALLEL CURSOR c1;
+1: CHECK PARALLEL RETRIEVE CURSOR c1;
 1: ROLLBACK;
 
--- Test2: open many parallel cursors
+-- Test2: open many PARALLEL RETRIEVE CURSORs
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c4 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c5 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c6 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c7 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c9 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c10 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c11 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: ROLLBACK;
--- check no endpoint info
-1: SELECT token,status FROM gp_endpoints_info(true);
-
--- Test3: execute non-existing parallel cursor
-1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: EXECUTE PARALLEL CURSOR c2;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c4 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c5 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c6 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c7 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c8 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c9 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c10 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c11 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 1: ROLLBACK;
 -- check no endpoint info
 1: SELECT token,status FROM gp_endpoints_info(true);
 
--- Test4: execute one of parallel cursors
+-- Test3: execute non-existing PARALLEL RETRIEVE CURSOR
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c3 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c4 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c5 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c6 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c7 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c8 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c9 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c10 PARALLEL CURSOR FOR SELECT * FROM t1;
-1: DECLARE c11 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: CHECK PARALLEL RETRIEVE CURSOR c2;
+1: ROLLBACK;
+-- check no endpoint info
+1: SELECT token,status FROM gp_endpoints_info(true);
+
+-- Test4: execute one of PARALLEL RETRIEVE CURSORs
+1: BEGIN;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c4 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c5 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c6 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c7 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c8 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c9 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c10 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c11 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
-1&: EXECUTE PARALLEL CURSOR c2;
+1&: CHECK PARALLEL RETRIEVE CURSOR c2;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -78,16 +78,16 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 -- Test5: if conflict with normal cursors
 1: BEGIN;
 1: DECLARE c1 CURSOR FOR SELECT * FROM t1;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 -- check no endpoint info
 1: SELECT token,status FROM gp_endpoints_info(true);
 1: ROLLBACK;
 
 1: BEGIN;
 1: DECLARE c1 CURSOR FOR SELECT * FROM t1;
-1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
-1&: EXECUTE PARALLEL CURSOR c2;
+1&: CHECK PARALLEL RETRIEVE CURSOR c2;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -99,9 +99,9 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
 -- Test6: select order by limit
 1: BEGIN;
-1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 10;
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 10;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
-1&: EXECUTE PARALLEL CURSOR c2;
+1&: CHECK PARALLEL RETRIEVE CURSOR c2;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -113,9 +113,9 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
 -- Test7: select order by limit 0
 1: BEGIN;
-1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 0;
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 0;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
-1&: EXECUTE PARALLEL CURSOR c2;
+1&: CHECK PARALLEL RETRIEVE CURSOR c2;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -127,9 +127,9 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
 -- Test8: select empty table
 1: BEGIN;
-1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t2;
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t2;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
-1&: EXECUTE PARALLEL CURSOR c2;
+1&: CHECK PARALLEL RETRIEVE CURSOR c2;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -141,9 +141,9 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
 -- Test9: select table with text column
 1: BEGIN;
-1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t3;
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t3;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
-1&: EXECUTE PARALLEL CURSOR c2;
+1&: CHECK PARALLEL RETRIEVE CURSOR c2;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -155,9 +155,9 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
 -- Test10: select empty table with text column
 1: BEGIN;
-1: DECLARE c2 PARALLEL CURSOR FOR SELECT * FROM t4;
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t4;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
-1&: EXECUTE PARALLEL CURSOR c2;
+1&: CHECK PARALLEL RETRIEVE CURSOR c2;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -169,9 +169,9 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
 -- Test11: endpoints on one segment.
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 WHERE a = 50;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 WHERE a = 50;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -181,11 +181,11 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: ROLLBACK;
 
--- Test12: parallel cursor for aggregate function: sum
+-- Test12: PARALLEL RETRIEVE CURSOR for aggregate function: sum
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT SUM(a) FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT SUM(a) FROM t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 -1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 -1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -194,11 +194,11 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: ROLLBACK;
 
--- Test13: parallel cursor for aggregate function: avg
+-- Test13: PARALLEL RETRIEVE CURSOR for aggregate function: avg
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT AVG(a) FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT AVG(a) FROM t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 -1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 -1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -207,11 +207,11 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: ROLLBACK;
 
--- Test14: parallel cursor for count(*)
+-- Test14: PARALLEL RETRIEVE CURSOR for count(*)
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT COUNT(*) FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT COUNT(*) FROM t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 -1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 -1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -220,11 +220,11 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: ROLLBACK;
 
--- Test15: parallel cursor for two tables' join;
+-- Test15: PARALLEL RETRIEVE CURSOR for two tables' join;
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1, t5 where t1.a = t5.b;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1, t5 where t1.a = t5.b;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 
@@ -232,11 +232,11 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: ROLLBACK;
 
--- Test16: parallel cursor for the count of two tables' join;
+-- Test16: PARALLEL RETRIEVE CURSOR for the count of two tables' join;
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT COUNT(*) FROM t1, t5 where t1.a = t5.b;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT COUNT(*) FROM t1, t5 where t1.a = t5.b;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 -1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 
@@ -244,17 +244,17 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: ROLLBACK;
 
--- Test17: re-execute a parallel cursor and retrieve in same sessions.
+-- Test17: re-execute a PARALLEL RETRIEVE CURSOR and retrieve in same sessions.
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
 
 1<:
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -263,11 +263,11 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: ROLLBACK;
 
--- Test18: re-execute a parallel cursor and retrieve in different sessions.
+-- Test18: re-execute a PARALLEL RETRIEVE CURSOR and retrieve in different sessions.
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -277,7 +277,7 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 2Rq:
 
 1<:
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
@@ -286,19 +286,19 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: ROLLBACK;
 
--- Test19: parallel cursor and savepoint
+-- Test19: PARALLEL RETRIEVE CURSOR and savepoint
 1: BEGIN;
 1: SAVEPOINT s1;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: ROLLBACK TO s1;
 1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 
 1: ROLLBACK;
 
--- Test20: parallel cursor and savepoint
+-- Test20: PARALLEL RETRIEVE CURSOR and savepoint
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * from t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 1: SAVEPOINT s1;
 1: CLOSE c1;
 1: ROLLBACK TO s1;

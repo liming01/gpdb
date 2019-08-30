@@ -1,4 +1,4 @@
--- @Description Tests "EXPLAIN" statement for the parallel cursor
+-- @Description Tests "EXPLAIN" statement for the PARALLEL RETRIEVE CURSOR
 --
 DROP TABLE IF EXISTS t1;
 DROP
@@ -13,27 +13,27 @@ CREATE
 insert into rt1 select generate_series(1,100);
 INSERT 100
 
--- Parallel cursor with other options (WITH HOLD/SCROLL) is not supported
-EXPLAIN (COSTS false) DECLARE c1 PARALLEL CURSOR WITHOUT HOLD FOR SELECT * FROM t1;
+-- PARALLEL RETRIEVE CURSOR with other options (WITH HOLD/SCROLL) is not supported
+EXPLAIN (COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR WITHOUT HOLD FOR SELECT * FROM t1;
  QUERY PLAN                          
 -------------------------------------
  Seq Scan on t1                      
  Endpoint: on all 3 segments         
  Optimizer: Postgres query optimizer 
 (3 rows)
-EXPLAIN (COSTS false) DECLARE c1 PARALLEL CURSOR WITH HOLD FOR SELECT * FROM t1;
-ERROR:  DECLARE PARALLEL CURSOR WITH HOLD ... is not supported
+EXPLAIN (COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR WITH HOLD FOR SELECT * FROM t1;
+ERROR:  DECLARE PARALLEL RETRIEVE CURSOR WITH HOLD ... is not supported
 DETAIL:  Holdable cursors can not be parallel
 
-EXPLAIN (COSTS false) DECLARE c1 NO SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
+EXPLAIN (COSTS false) DECLARE c1 NO SCROLL PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
  QUERY PLAN                          
 -------------------------------------
  Seq Scan on t1                      
  Endpoint: on all 3 segments         
  Optimizer: Postgres query optimizer 
 (3 rows)
-EXPLAIN (COSTS false) DECLARE c1 SCROLL PARALLEL CURSOR FOR SELECT * FROM t1;
-ERROR:  SCROLL is not allowed for the PARALLEL cursors
+EXPLAIN (COSTS false) DECLARE c1 SCROLL PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+ERROR:  SCROLL is not allowed for the PARALLEL RETRIEVE CURSORs
 DETAIL:  Scrollable cursors can not be parallel
 
 -- Test for default distributed table
@@ -47,7 +47,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM t1;
  Optimizer: Postgres query optimizer      
 (5 rows)
 -- Test: explain output: Endpoint info (on master/on some segments/on all segments)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
  QUERY PLAN                          
 -------------------------------------
  Seq Scan on public.t1               
@@ -55,7 +55,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
  Endpoint: on all 3 segments         
  Optimizer: Postgres query optimizer 
 (4 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 ORDER BY a;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 ORDER BY a;
  QUERY PLAN                               
 ------------------------------------------
  Gather Motion 3:1  (slice1; segments: 3) 
@@ -69,7 +69,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 O
  Endpoint: on master                      
  Optimizer: Postgres query optimizer      
 (10 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 WHERE a=1;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 WHERE a=1;
  QUERY PLAN                           
 --------------------------------------
  Seq Scan on public.t1                
@@ -78,7 +78,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 W
  Endpoint: on segments: contentid [1] 
  Optimizer: Postgres query optimizer  
 (5 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1 WHERE a=1 OR a=2;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 WHERE a=1 OR a=2;
  QUERY PLAN                              
 -----------------------------------------
  Seq Scan on public.t1                   
@@ -97,7 +97,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM pg_class;
  Optimizer: Postgres query optimizer                                                                                                                                                                                                                                                                                                                                                                           
 (3 rows)
 -- Test: explain output: Endpoint info (on master/on some segments/on all segments)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM pg_class;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM pg_class;
  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Seq Scan on pg_catalog.pg_class                                                                                                                                                                                                                                                                                                                                                                               
@@ -105,7 +105,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM pg_c
  Endpoint: on master                                                                                                                                                                                                                                                                                                                                                                                           
  Optimizer: Postgres query optimizer                                                                                                                                                                                                                                                                                                                                                                           
 (4 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM pg_class ORDER BY relname;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM pg_class ORDER BY relname;
  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort                                                                                                                                                                                                                                                                                                                                                                                           
@@ -116,7 +116,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM pg_c
  Endpoint: on master                                                                                                                                                                                                                                                                                                                                                                            
  Optimizer: Postgres query optimizer                                                                                                                                                                                                                                                                                                                                                            
 (7 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM pg_class WHERE gp_segment_id=1;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM pg_class WHERE gp_segment_id=1;
  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Seq Scan on pg_catalog.pg_class                                                                                                                                                                                                                                                                                                                                                                               
@@ -125,7 +125,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM pg_c
  Endpoint: on master                                                                                                                                                                                                                                                                                                                                                                                           
  Optimizer: Postgres query optimizer                                                                                                                                                                                                                                                                                                                                                                           
 (5 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM pg_class WHERE gp_segment_id=1 OR gp_segment_id=2;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM pg_class WHERE gp_segment_id=1 OR gp_segment_id=2;
  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Seq Scan on pg_catalog.pg_class                                                                                                                                                                                                                                                                                                                                                                               
@@ -144,7 +144,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM generate_seri
    Function Call: generate_series(1, 10)       
  Optimizer: Postgres query optimizer           
 (4 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM generate_series(1,10) as F;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM generate_series(1,10) as F;
  QUERY PLAN                                    
 -----------------------------------------------
  Function Scan on pg_catalog.generate_series f 
@@ -153,7 +153,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM gene
  Endpoint: on master                           
  Optimizer: Postgres query optimizer           
 (5 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM generate_series(1,10) as F ORDER BY F;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM generate_series(1,10) as F ORDER BY F;
  QUERY PLAN                                          
 -----------------------------------------------------
  Sort                                                
@@ -165,7 +165,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM gene
  Endpoint: on master                                 
  Optimizer: Postgres query optimizer                 
 (8 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM generate_series(1,10) as F WHERE F=1;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM generate_series(1,10) as F WHERE F=1;
  QUERY PLAN                                    
 -----------------------------------------------
  Function Scan on pg_catalog.generate_series f 
@@ -175,7 +175,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM gene
  Endpoint: on master                           
  Optimizer: Postgres query optimizer           
 (6 rows)
-EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM generate_series(1,10) as F WHERE F=1 OR F=2;
+EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM generate_series(1,10) as F WHERE F=1 OR F=2;
  QUERY PLAN                                    
 -----------------------------------------------
  Function Scan on pg_catalog.generate_series f 
@@ -199,7 +199,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM rt1;
 -- Test: explain output: Endpoint info (on master/on some segments/on all segments)
 -- Here because replicated table will execute on seg id: session_id % segment_number
 -- Just replace the random specific seg id to SEGIDX for the output
-1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1;
+1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1;
  QUERY PLAN
 --------------------------------------
  Seq Scan on public.rt1
@@ -207,7 +207,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM rt1;
   Endpoint: on segments: contentid [SEGIDX]
  Optimizer: Postgres query optimizer
 (4 rows)
-1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 ORDER BY a;
+1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 ORDER BY a;
  QUERY PLAN
 --------------------------------------
  Sort
@@ -218,7 +218,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM rt1;
   Endpoint: on segments: contentid [SEGIDX]
  Optimizer: Postgres query optimizer
 (7 rows)
-1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE a=1;
+1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 WHERE a=1;
  QUERY PLAN
 --------------------------------------
  Seq Scan on public.rt1
@@ -227,7 +227,7 @@ EXPLAIN (VERBOSE, COSTS false) DECLARE c1 CURSOR FOR SELECT * FROM rt1;
   Endpoint: on segments: contentid [SEGIDX]
  Optimizer: Postgres query optimizer
 (5 rows)
-1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM rt1 WHERE a=1 OR a=2;
+1: @out_sh 'sub  "Endpoint: on segments: contentid \[[0-9]+\]" " Endpoint: on segments: contentid [SEGIDX]" ':EXPLAIN (VERBOSE, COSTS false) DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM rt1 WHERE a=1 OR a=2;
  QUERY PLAN
 ----------------------------------------
  Seq Scan on public.rt1

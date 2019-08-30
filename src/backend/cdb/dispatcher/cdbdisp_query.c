@@ -94,7 +94,7 @@ typedef struct DispatchCommandQueryParms
 	char	   *serializedDtxContextInfo;
 	int			serializedDtxContextInfolen;
 
-	/* the token for parallel cursor */
+	/* the token for PARALLEL RETRIEVE CURSOR */
 	const int8		*token;
 } DispatchCommandQueryParms;
 

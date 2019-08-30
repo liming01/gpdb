@@ -61,9 +61,9 @@ installcheck: install
 installcheck-resgroup: install
 	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_resgroup --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2resgrouptest --load-extension=gp_inject_fault --schedule=$(srcdir)/isolation2_resgroup_schedule
 
-# Parallel cursor related tests require 3 running segment. Some issues have been seen on CI that
+# PARALLEL RETRIEVE CURSOR related tests require 3 running segment. Some issues have been seen on CI that
 # one segment is not running during the test. Add check here to make it fails earlier.
-installcheck-parallel-cursor-check-segments:
+installcheck-parallel-retrieve-cursor-check-segments:
 	gp_state=$$(gpstate) && \
 	seg_count=$$(echo "$${gp_state}" | grep "Total primary segment valid (at master)" | awk '{print $$NF}') ; \
 	if [ -z "$${seg_count}" ] || [ "$${seg_count}" != 3 ] ; then \
@@ -73,11 +73,11 @@ installcheck-parallel-cursor-check-segments:
 		exit -1 ; \
 	fi
 
-installcheck-parallel-cursor: install installcheck-parallel-cursor-check-segments
-	# TODO: Orca is not support by parallel cursor for now. Remove the optimizer
+installcheck-parallel-retrieve-cursor: install installcheck-parallel-cursor-check-segments
+	# TODO: Orca is not support by PARALLEL RETRIEVE CURSOR for now. Remove the optimizer
 	# setting when it is supported.
 	# before running test, set statement_timeout to 1 minute so that even if some
-	# error make 'EXECUTE PARALLEL CURSOR' hang, it will be canceled when timeout.
+	# error make 'CHECK PARALLEL RETRIEVE CURSOR' hang, it will be canceled when timeout.
 	default_optimizer=$$(gpconfig -s optimizer | grep "Master" | cut -d':' -f2) && \
 	default_master_timeout=$$(gpconfig -s statement_timeout | grep "Master" | cut -d':' -f2) && \
 	default_segment_timeout=$$(gpconfig -s statement_timeout | grep "Segment" | cut -d':' -f2) && \
@@ -91,7 +91,7 @@ installcheck-parallel-cursor: install installcheck-parallel-cursor-check-segment
 	gpconfig -c optimizer -v false && \
 	gpstop -u && \
 	gpconfig -s statement_timeout && \
-	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_cursor --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2parallelcursor --schedule=$(srcdir)/parallel_cursor_schedule ; \
+	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_retrieve_cursor --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2parallelretrcursor --schedule=$(srcdir)/parallel_retrieve_cursor_schedule ; \
 	ret=$$? ; \
 	gpconfig -c optimizer -v $${default_optimizer} -m $${default_optimizer} && \
 	gpconfig -c statement_timeout -v $${default_segment_timeout} -m $${default_master_timeout} && \

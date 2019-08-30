@@ -285,7 +285,7 @@ QueryFinishHandler(void)
 	{
 		QueryFinishPending = true;
 
-		/* Should also consider finish parallel cursor endpoints otherwise
+		/* Should also consider finish PARALLEL RETRIEVE CURSOR endpoints otherwise
 		 * it'll continue send tuple to shem_mq */
 		HandleEndpointFinish();
 	}

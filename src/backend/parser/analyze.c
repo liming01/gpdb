@@ -3203,17 +3203,17 @@ transformDeclareCursorStmt(ParseState *pstate, DeclareCursorStmt *stmt)
 		result->utilityStmt != NULL)
 		elog(ERROR, "unexpected non-SELECT command in DECLARE CURSOR");
 
-	/* Can not support holdable or scrollable parallel cursor at present */
-	if ((stmt->options & CURSOR_OPT_HOLD) && (stmt->options & CURSOR_OPT_PARALLEL))
+	/* Can not support holdable or scrollable PARALLEL RETRIEVE CURSOR at present */
+	if ((stmt->options & CURSOR_OPT_HOLD) && (stmt->options & CURSOR_OPT_PARALLEL_RETRIEVE))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("DECLARE PARALLEL CURSOR WITH HOLD ... is not supported"),
+				 errmsg("DECLARE PARALLEL RETRIEVE CURSOR WITH HOLD ... is not supported"),
 				 errdetail("Holdable cursors can not be parallel")));
 
-	if ((stmt->options & CURSOR_OPT_SCROLL) && (stmt->options & CURSOR_OPT_PARALLEL))
+	if ((stmt->options & CURSOR_OPT_SCROLL) && (stmt->options & CURSOR_OPT_PARALLEL_RETRIEVE))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("SCROLL is not allowed for the PARALLEL cursors"),
+				 errmsg("SCROLL is not allowed for the PARALLEL RETRIEVE CURSORs"),
 				 errdetail("Scrollable cursors can not be parallel")));
 	/*
 	 * We also disallow data-modifying WITH in a cursor.  (This could be

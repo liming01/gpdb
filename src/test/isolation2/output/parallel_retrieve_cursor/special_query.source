@@ -1,7 +1,7 @@
 -- @Description Tests create parallel for some special query
 --
 
---------- Test1: test for parallel cursor on select transient record types
+--------- Test1: test for PARALLEL RETRIEVE CURSOR on select transient record types
 DROP TABLE IF EXISTS t1;
 DROP
 CREATE TABLE t1 AS SELECT generate_series(1, 10) AS x DISTRIBUTED by (x);
@@ -27,7 +27,7 @@ SELECT make_record(x) FROM t1;
 
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT make_record(x) FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT make_record(x) FROM t1;
 DECLARE
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
  token                              | status
@@ -36,7 +36,7 @@ DECLARE
  token_id1 | INIT
  token_id1 | INIT
 (3 rows)
-1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 #-1retrieve> FATAL:  Retrieve auth token is invalid

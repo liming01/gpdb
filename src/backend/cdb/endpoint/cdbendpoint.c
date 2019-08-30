@@ -1,16 +1,16 @@
 /*
  * cdbendpoint.c
  *
- * When define and execute a parallel cursor, the results are written to endpoints.
+ * When define and execute a PARALLEL RETRIEVE CURSOR, the results are written to endpoints.
  *
- * Endpoint may exist on master or segments, depends on the query of the parallel cursor:
+ * Endpoint may exist on master or segments, depends on the query of the PARALLEL RETRIEVE CURSOR:
  * (1) An endpoint is on QD only if the query of the parallel
  *     cursor needs to be finally gathered by the master. e.g.
- *     > CREATE c1 PARALLEL CURSOR FOR SELECT * FROM T1 ORDER BY C1;
+ *     > CREATE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM T1 ORDER BY C1;
  * (2) The endpoints are on specific segments node if the direct dispatch happens. e.g.
- *     > CREATE c1 PARALLEL CURSOR FOR SELECT * FROM T1 WHERE C1=1 OR C1=2;
+ *     > CREATE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM T1 WHERE C1=1 OR C1=2;
  * (3) The endpoints are on all segments node. e.g.
- *     > CREATE c1 PARALLEL CURSOR FOR SELECT * FROM T1;
+ *     > CREATE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM T1;
  *
  * When QE or QD write results to endpoint, it will replace normal dest receiver with
  * TQueueDestReceiver, so that the query results will be write into a shared
@@ -65,7 +65,7 @@ static int8 dummyToken[ENDPOINT_TOKEN_LEN] = {0xef};
 static MsgQueueStatusEntry *currentMQEntry = NULL;       /* Current message queue entry */
 static EndpointDesc *my_shared_endpoint = NULL;          /* Current EndpointDesc entry */
 
-/* Endpoint and parallel cursor token helper function */
+/* Endpoint and PARALLEL RETRIEVE CURSOR token helper function */
 static void init_shared_endpoints(void *address);
 static void free_endpoint(EndpointDesc *endpointDesc);
 static void free_endpoint_by_cursor_name(const char *cursor_name);
@@ -101,7 +101,7 @@ extern void generate_endpoint_name(char *name, const char *cursor_name, int32 se
 extern EndpointDesc * find_endpoint_by_cursor_name(const char *name);
 
 /*
- * Endpoint_ShmemSize - Calculate the shared memory size for parallel cursor execute.
+ * Endpoint_ShmemSize - Calculate the shared memory size for PARALLEL RETRIEVE CURSOR execute.
  *
  * The size contains LWLocks and EndpointSharedCTX.
  */
@@ -119,7 +119,7 @@ EndpointShmemSize(void)
 }
 
 /*
- * Endpoint_CTX_ShmemInit - Init shared memory structure for parallel cursor execute.
+ * Endpoint_CTX_ShmemInit - Init shared memory structure for PARALLEL RETRIEVE CURSOR execute.
  */
 void
 EndpointCTXShmemInit(void)
@@ -215,7 +215,7 @@ init_shared_tokens(void *address)
 static void
 parallel_cursor_exit_callback(int code, Datum arg)
 {
-	elog(DEBUG3, "CDB_ENDPOINT: parallel cursor exit callback.");
+	elog(DEBUG3, "CDB_ENDPOINT: PARALLEL RETRIEVE CURSOR exit callback.");
 
 	LWLockAcquire(ParallelCursorTokenLock, LW_EXCLUSIVE);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
@@ -229,7 +229,7 @@ parallel_cursor_exit_callback(int code, Datum arg)
 }
 
 /*
- * remove_parallel_cursor - remove parallel cursor from shared memory
+ * remove_parallel_cursor - remove PARALLEL RETRIEVE CURSOR from shared memory
  */
 bool
 remove_parallel_cursor(const char *cursor_name, bool *on_qd, List **seg_list)
@@ -319,7 +319,7 @@ generate_token(int8 *token)
 }
 
 /*
- * GetParallelCursorEndpointPosition - get parallel cursor endpoint allocate position
+ * GetParallelCursorEndpointPosition - get PARALLEL RETRIEVE CURSOR endpoint allocate position
  *
  * If already focused and flow is CdbLocusType_SingleQE, CdbLocusType_Entry,
  * we assume the endpoint should be existed on QD. Else, on QEs.
@@ -401,9 +401,9 @@ ChooseEndpointContentIDForParallelCursor(const struct Plan *planTree,
 }
 
 /*
- * AddParallelCursorToken - allocate parallel cursor token into shared memory.
- * Memory the information of parallel cursor tokens on all or which segments,
- * while DECLARE PARALLEL CURSOR
+ * AddParallelCursorToken - allocate PARALLEL RETRIEVE CURSOR token into shared memory.
+ * Memory the information of PARALLEL RETRIEVE CURSOR tokens on all or which segments,
+ * while DECLARE PARALLEL RETRIEVE CURSOR
  * The newly alloced token will be returned by argument 'token' pointer.
  *
  * The UDF gp_endpoints_info() queries the information.
@@ -632,7 +632,7 @@ dbid_to_contentid(CdbComponentDatabases *cdbs, int16 dbid)
 }
 
 /*
- * CreateTQDestReceiverForEndpoint - Create the dest receiver of parallel cursor
+ * CreateTQDestReceiverForEndpoint - Create the dest receiver of PARALLEL RETRIEVE CURSOR
  *
  * Also create shared memory message queue here. Alloc local currentMQEntry to track
  * endpoint info.
@@ -699,9 +699,9 @@ set_sender_pid(void)
 	Assert(SharedEndpoints);
 
 	elog(DEBUG3, "CDB_ENDPOINT: set sender pid");
-	if (EndpointCtl.Gp_pce_role != PCER_SENDER)
+	if (EndpointCtl.Gp_prce_role != PRCER_SENDER)
 		elog(ERROR, "%s could not allocate endpoint slot",
-			 EndpointRoleToString(EndpointCtl.Gp_pce_role));
+			 EndpointRoleToString(EndpointCtl.Gp_prce_role));
 
 	if (my_shared_endpoint && IsEndpointTokenValid(my_shared_endpoint->token))
 		elog(ERROR, "endpoint is already allocated");
@@ -711,7 +711,7 @@ set_sender_pid(void)
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	/*
-     * Presume that for any token, only one parallel cursor is activated at
+     * Presume that for any token, only one PARALLEL RETRIEVE CURSOR is activated at
      * that time.
      */
 	/* find the slot with the same token */
@@ -801,7 +801,7 @@ AllocEndpointOfToken(const int8 *token, const char *cursorName)
 #endif
 
 	/*
-	 * Presume that for any token, only one parallel cursor is activated at
+	 * Presume that for any token, only one PARALLEL RETRIEVE CURSOR is activated at
 	 * that time.
 	 */
 	/* find the slot with the same token */
@@ -938,16 +938,16 @@ free_endpoint(EndpointDesc *endpointDesc)
 }
 
 /**
- * Check the parallel cursor execution status, if get error, then rethrow the error
+ * Check the PARALLEL RETRIEVE CURSOR execution status, if get error, then rethrow the error
  *
  * @param isWait:  support 2 modes: WAIT/NOWAIT
- * @return true if the Parallel Cursor Execution Finished
+ * @return true if the PARALLEL RETRIEVE CURSOR Execution Finished
  */
 bool
 CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait)
 {
 	EState	   *estate;
-	bool       isParallelCursorFinished = false;
+	bool       isParallelRetrCursorFinished = false;
 
 	/* caller must have switched into per-query memory context already */
 	estate = queryDesc->estate;
@@ -968,16 +968,16 @@ CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait)
 			cdbdisp_destroyDispatcherState(ds);
 			ReThrowError(qeError);
 		}
-		isParallelCursorFinished = cdbdisp_isDispatchFinished(ds);
+		isParallelRetrCursorFinished = cdbdisp_isDispatchFinished(ds);
 	}
-	return isParallelCursorFinished;
+	return isParallelRetrCursorFinished;
 }
 
 void
 HandleEndpointFinish(void)
 {
 
-	if (my_shared_endpoint && EndpointCtl.Gp_pce_role == PCER_SENDER)
+	if (my_shared_endpoint && EndpointCtl.Gp_prce_role == PRCER_SENDER)
 	{
 		LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 		if (my_shared_endpoint->attach_status == Status_Prepared ||
@@ -1289,9 +1289,9 @@ static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid
 static void
 check_end_point_allocated(void)
 {
-	if (EndpointCtl.Gp_pce_role != PCER_SENDER)
+	if (EndpointCtl.Gp_prce_role != PRCER_SENDER)
 		elog(ERROR, "%s could not check endpoint allocated status",
-			 EndpointRoleToString(EndpointCtl.Gp_pce_role));
+			 EndpointRoleToString(EndpointCtl.Gp_prce_role));
 
 	if (!my_shared_endpoint)
 		elog(ERROR, "endpoint for token %s is not allocated", PrintToken(EndpointCtl.Gp_token));
@@ -1310,8 +1310,8 @@ check_end_point_allocated(void)
 static void
 set_attach_status(enum AttachStatus status)
 {
-	if (EndpointCtl.Gp_pce_role != PCER_SENDER)
-		elog(ERROR, "%s could not set endpoint", EndpointRoleToString(EndpointCtl.Gp_pce_role));
+	if (EndpointCtl.Gp_prce_role != PRCER_SENDER)
+		elog(ERROR, "%s could not set endpoint", EndpointRoleToString(EndpointCtl.Gp_prce_role));
 
 	if (!my_shared_endpoint && !my_shared_endpoint->empty)
 		elog(ERROR, "endpoint doesn't exist");
@@ -1376,7 +1376,7 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 }
 
 /*
- * Generate the endpoint name based on the parallel cursor name,
+ * Generate the endpoint name based on the PARALLEL RETRIEVE CURSOR name,
  * session ID and the segment index.
  * The endpoint name should be unique across sessions.
  */

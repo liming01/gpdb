@@ -631,7 +631,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 	DEFERRABLE DEFERRED DEFINER DELETE_P DELIMITER DELIMITERS DESC
 	DICTIONARY DISABLE_P DISCARD DISTINCT DO DOCUMENT_P DOMAIN_P DOUBLE_P DROP
 
-	EACH ELSE ENABLE_P ENCODING ENCRYPTED END_P ENUM_P ESCAPE EVENT EXCEPT
+	EACH ELSE ENABLE_P ENCODING ENCRYPTED END_P ENDPOINT ENUM_P ESCAPE EVENT EXCEPT
 	EXCLUDE EXCLUDING EXCLUSIVE EXECUTE EXISTS EXPLAIN
 	EXTENSION EXTERNAL EXTRACT
 
@@ -866,6 +866,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 			%nonassoc ENCODING
 			%nonassoc ENCRYPTED
 			%nonassoc END_P
+			%nonassoc ENDPOINT
 			%nonassoc ENUM_P
 			%nonassoc ERRORS
 			%nonassoc EVERY
@@ -8008,24 +8009,24 @@ FetchStmt:	FETCH fetch_args
 				{
 					FetchStmt *n = (FetchStmt *) $2;
 					n->ismove = FALSE;
-					n->isParallelCursor = FALSE;
+					n->isParallelRetrCursor = FALSE;
 					$$ = (Node *)n;
 				}
 			| MOVE fetch_args
 				{
 					FetchStmt *n = (FetchStmt *) $2;
 					n->ismove = TRUE;
-					n->isParallelCursor = FALSE;
+					n->isParallelRetrCursor = FALSE;
 					$$ = (Node *)n;
 				}
-			| CHECK PARALLEL CURSOR cursor_name opt_nowait
+			| CHECK PARALLEL RETRIEVE CURSOR cursor_name opt_nowait
 				{
-					/* Execute parallel cursor is same as FETCH ALL FROM cursor_name */
+					/* CHECK PARALLEL RETRIEVE CURSOR is same as FETCH ALL FROM cursor_name */
 					FetchStmt *n = makeNode(FetchStmt);
 					n->ismove = FALSE;
-					n->isParallelCursor = TRUE;
-					n->isParallelCursorCheckWait = !($5);
-					n->portalname = $4;
+					n->isParallelRetrCursor = TRUE;
+					n->isParallelRetrCursorCheckWait = !($6);
+					n->portalname = $5;
 					n->direction = FETCH_FORWARD;
 					n->howMany = FETCH_ALL;
 					$$ = (Node *)n;
@@ -11838,12 +11839,12 @@ DeclareCursorStmt: DECLARE cursor_name cursor_options CURSOR opt_hold FOR Select
 cursor_name:	name						{ $$ = $1; }
 		;
 
-cursor_options: /*EMPTY*/					{ $$ = 0; }
-			| cursor_options NO SCROLL		{ $$ = $1 | CURSOR_OPT_NO_SCROLL; }
-			| cursor_options SCROLL			{ $$ = $1 | CURSOR_OPT_SCROLL; }
-			| cursor_options BINARY			{ $$ = $1 | CURSOR_OPT_BINARY; }
-			| cursor_options INSENSITIVE	{ $$ = $1 | CURSOR_OPT_INSENSITIVE; }
-			| cursor_options PARALLEL		{ $$ = $1 | CURSOR_OPT_PARALLEL; }
+cursor_options: /*EMPTY*/							{ $$ = 0; }
+			| cursor_options NO SCROLL				{ $$ = $1 | CURSOR_OPT_NO_SCROLL; }
+			| cursor_options SCROLL					{ $$ = $1 | CURSOR_OPT_SCROLL; }
+			| cursor_options BINARY					{ $$ = $1 | CURSOR_OPT_BINARY; }
+			| cursor_options INSENSITIVE			{ $$ = $1 | CURSOR_OPT_INSENSITIVE; }
+			| cursor_options PARALLEL RETRIEVE		{ $$ = $1 | CURSOR_OPT_PARALLEL_RETRIEVE; }
 		;
 
 opt_hold: /* EMPTY */						{ $$ = 0; }
@@ -11901,17 +11902,17 @@ SelectStmt: select_no_parens			%prec UMINUS
 		;
 
 RetrieveStmt:
-			RETRIEVE SignedIconst FROM name
+			RETRIEVE SignedIconst FROM ENDPOINT name
 				{
 					RetrieveStmt *n = makeNode(RetrieveStmt);
-					n->token_str = $4;
+					n->token_str = $5;
 					n->count = $2;
 					$$ = (Node *)n;
 				}
-			| RETRIEVE ALL FROM name
+			| RETRIEVE ALL FROM ENDPOINT name
 				{
 					RetrieveStmt *n = makeNode(RetrieveStmt);
-					n->token_str = $4;
+					n->token_str = $5;
 					n->count = -1;
 					n->is_all = true;
 					$$ = (Node *)n;
@@ -15660,6 +15661,7 @@ unreserved_keyword:
 			| ENABLE_P
 			| ENCODING
 			| ENCRYPTED
+			| ENDPOINT
 			| ENUM_P
 			| ERRORS
 			| ESCAPE
@@ -15980,6 +15982,7 @@ PartitionIdentKeyword: ABORT_P
 			| ENABLE_P
 			| ENCODING
 			| ENCRYPTED
+			| ENDPOINT
 			| ERRORS
 			| ENUM_P
 			| ESCAPE

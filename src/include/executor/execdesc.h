@@ -250,7 +250,7 @@ typedef struct QueryDesc
 	uint64		es_processed;	/* # of tuples processed */
 	Oid			es_lastoid;		/* oid of row inserted */
 	bool		extended_query;   /* simple or extended query protocol? */
-	bool		parallel_cursor;   /* if is a parallel cursor */
+	bool		parallel_retrieve_cursor;   /* if is a PARALLEL RETRIEVE CURSOR */
 	char		*portal_name;	/* NULL for unnamed portal */
 
 	QueryDispatchDesc *ddesc;

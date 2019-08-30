@@ -36,7 +36,7 @@ RESET
 SET
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 
 --- adminuser should be able to see all the endpoints declared by u1 with status INIT
@@ -56,7 +56,7 @@ SET
 (3 rows)
 
 --- execute the cursor by u1
-1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
 
 --- adminuser should be able to see the cursor status change to READY
 2: SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
@@ -147,16 +147,16 @@ CLOSE
 END
 
 
---------- Test2: Admin should NOT be able to execute other user's parallel cursor
+--------- Test2: Admin should NOT be able to execute other user's PARALLEL RETRIEVE CURSOR
 --- c1 is declared by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 
---- adminuser should NOT be able to execute the parallel cursor
+--- adminuser should NOT be able to execute the PARALLEL RETRIEVE CURSOR
 1: SET SESSION AUTHORIZATION adminuser;
 SET
 1: SELECT current_user;
@@ -164,9 +164,9 @@ SET
 --------------
  adminuser    
 (1 row)
-1: EXECUTE PARALLEL CURSOR c1;
-ERROR:  The parallel cursor was created by a different user.
-HINT:  Using the same user as the parallel cursor creator to execute.
+1: CHECK PARALLEL RETRIEVE CURSOR c1;
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to execute.
 2: SELECT usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
  usename | status   
 ---------+----------
@@ -178,15 +178,15 @@ HINT:  Using the same user as the parallel cursor creator to execute.
 END
 
 
---------- Test3: Admin should NOT be able to retrieve from other's parallel cursor
+--------- Test3: Admin should NOT be able to retrieve from other's PARALLEL RETRIEVE CURSOR
 --- c1 is declared and executed by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
 
 2: @out_sh 'get_cell TOKEN3 3 1 && match_sub token_id3 $TOKEN3': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
  token                              | usename | status
@@ -196,7 +196,7 @@ DECLARE
  token_id3 | u1      | READY
 (3 rows)
 
---- adminuser should NOT be able to retrieve from other's parallel cursor
+--- adminuser should NOT be able to retrieve from other's PARALLEL RETRIEVE CURSOR
 *R: SET SESSION AUTHORIZATION adminuser;
 SET
 
@@ -228,14 +228,14 @@ SET
 *R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
 ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpointretrieve.c:214)
 
-ERROR:  The parallel cursor was created by a different user.
-HINT:  Using the same user as the parallel cursor creator to retrieve.
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 
-ERROR:  The parallel cursor was created by a different user.
-HINT:  Using the same user as the parallel cursor creator to retrieve.
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 
-ERROR:  The parallel cursor was created by a different user.
-HINT:  Using the same user as the parallel cursor creator to retrieve.
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
@@ -269,13 +269,13 @@ CLOSE
 END
 
 
---------- Test4: Admin should be able to close parallel cursor
+--------- Test4: Admin should be able to close PARALLEL RETRIEVE CURSOR
 --- c1 is declared and executed by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 --- Close c1 by adminuser
 1: SET SESSION AUTHORIZATION adminuser;
@@ -292,7 +292,7 @@ END
 SET
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'get_cell TOKEN5 3 1 && match_sub token_id5 $TOKEN5': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
  token                              | usename | status
@@ -313,7 +313,7 @@ SET
 --- execute the cursor by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
-1&: EXECUTE PARALLEL CURSOR c1;  <waiting ...>
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
 
 --- u2 is not able to see u1's endpoints in RETRIEVE mode
 *R: SET SESSION AUTHORIZATION u2;
@@ -345,14 +345,14 @@ SET
 *R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
 ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpointretrieve.c:214)
 
-ERROR:  The parallel cursor was created by a different user.
-HINT:  Using the same user as the parallel cursor creator to retrieve.
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 
-ERROR:  The parallel cursor was created by a different user.
-HINT:  Using the same user as the parallel cursor creator to retrieve.
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 
-ERROR:  The parallel cursor was created by a different user.
-HINT:  Using the same user as the parallel cursor creator to retrieve.
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
@@ -386,55 +386,55 @@ CLOSE
 END
 
 
---------- Test6: u2 should NOT be able to execute other u1's parallel cursor if it cannot access t1
+--------- Test6: u2 should NOT be able to execute other u1's PARALLEL RETRIEVE CURSOR if it cannot access t1
 --- c1 is declared by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 
 --- u2 cannot execute u1's cursor if it cannot access t1
 1: SET SESSION AUTHORIZATION u2;
 SET
-1: EXECUTE PARALLEL CURSOR c1;
-ERROR:  The parallel cursor was created by a different user.
-HINT:  Using the same user as the parallel cursor creator to execute.
+1: CHECK PARALLEL RETRIEVE CURSOR c1;
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to execute.
 
 1: END;
 END
 
---------- Test7: u2 should NOT be able to execute other u1's parallel cursor even when it can access t1
+--------- Test7: u2 should NOT be able to execute other u1's PARALLEL RETRIEVE CURSOR even when it can access t1
 1: SET SESSION AUTHORIZATION u1;
 SET
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 
----1: EXECUTE PARALLEL CURSOR c1;
+---1: CHECK PARALLEL RETRIEVE CURSOR c1;
 1: SET SESSION AUTHORIZATION adminuser;
 SET
 1: GRANT ALL ON TABLE t1 TO u2;
 GRANT
 1: SET SESSION AUTHORIZATION u2;
 SET
-1: EXECUTE PARALLEL CURSOR c1;
-ERROR:  The parallel cursor was created by a different user.
-HINT:  Using the same user as the parallel cursor creator to execute.
+1: CHECK PARALLEL RETRIEVE CURSOR c1;
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to execute.
 
 1: END;
 END
 
---------- Test8: u2 should NOT be able to execute parallel cursor for table t2 since it cannot access t2
+--------- Test8: u2 should NOT be able to CHECK PARALLEL RETRIEVE CURSOR for table t2 since it cannot access t2
 1: SET SESSION AUTHORIZATION u2;
 SET
 1: BEGIN;
 BEGIN
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT * FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: EXECUTE PARALLEL CURSOR c1;
+1: CHECK PARALLEL RETRIEVE CURSOR c1;
 ERROR:  permission denied for relation t1
 1: END;
 END

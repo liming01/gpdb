@@ -721,13 +721,13 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		/*
 		 * Endpoint is on the QD, aggregate for example
 		 */
-		if (Gp_role == GP_ROLE_DISPATCH && queryDesc->parallel_cursor
+		if (Gp_role == GP_ROLE_DISPATCH && queryDesc->parallel_retrieve_cursor
 			&& queryDesc->operation == CMD_SELECT
 			&& !(eflags & EXEC_FLAG_EXPLAIN_ONLY)
 			&& exec_identity == GP_ROOT_SLICE
 			&& LocallyExecutingSliceIndex(estate) == 0)
 		{
-			SetParallelCursorExecRole(PCER_SENDER);
+			SetParallelCursorExecRole(PRCER_SENDER);
 		}
 
 		/* non-root on QE */
@@ -976,7 +976,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 		{
 
 			/*
-			 * When run a root slice, and it is a parallel cursor, it means
+			 * When run a root slice, and it is a PARALLEL RETRIEVE CURSOR, it means
 			 * QD become the end point for connection. It is true, for
 			 * instance, SELECT * FROM foo LIMIT 10, and the result should
 			 * go out from QD.
@@ -984,7 +984,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			 * For the scenario: endpoint on QE, the query plan is changed,
 			 * the root slice also exists on QE.
 			 */
-			if (GetParallelCursorExecRole() == PCER_SENDER)
+			if (GetParallelCursorExecRole() == PRCER_SENDER)
 			{
 				endpointDest = CreateTQDestReceiverForEndpoint(queryDesc->tupDesc);
 				(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
@@ -1000,10 +1000,10 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			ExecutePlan(estate,
 						queryDesc->planstate,
 						operation,
-						(GetParallelCursorExecRole() == PCER_SENDER ? true : sendTuples),
+						(GetParallelCursorExecRole() == PRCER_SENDER ? true : sendTuples),
 						count,
 						direction,
-						(GetParallelCursorExecRole() == PCER_SENDER ? endpointDest : dest));
+						(GetParallelCursorExecRole() == PRCER_SENDER ? endpointDest : dest));
 		}
 		else
 		{
@@ -1068,7 +1068,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	/*
 	 * shutdown tuple receiver, if we started it
 	 */
-	if (GetParallelCursorExecRole() == PCER_SENDER && endpointDest!=NULL)
+	if (GetParallelCursorExecRole() == PRCER_SENDER && endpointDest != NULL)
 	{
 		DestroyTQDestReceiverForEndpoint(endpointDest);
 	}
@@ -2071,7 +2071,7 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	 * Initialize the slice table.
 	 */
 	if (Gp_role == GP_ROLE_DISPATCH)
-		FillSliceTable(estate, plannedstmt, queryDesc->parallel_cursor);
+		FillSliceTable(estate, plannedstmt, queryDesc->parallel_retrieve_cursor);
 
 	/*
 	 * Initialize private state information for each SubPlan.  We must do this
@@ -2157,9 +2157,9 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 
     /*
      * Query with Parallel Retrieved don't have valid query on QD,
-     * set tupDesc to NULL so that CHECK PARALLEL CURSOR not return result set.
+     * set tupDesc to NULL so that CHECK PARALLEL RETRIEVE CURSOR not return result set.
      */
-	if ((RootSliceIndex(estate) != LocallyExecutingSliceIndex(estate)) || (Gp_role == GP_ROLE_DISPATCH && queryDesc->parallel_cursor))
+	if ((RootSliceIndex(estate) != LocallyExecutingSliceIndex(estate)) || (Gp_role == GP_ROLE_DISPATCH && queryDesc->parallel_retrieve_cursor))
 		return;
 
 	/*
@@ -5025,7 +5025,7 @@ FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 	cxt.currentSliceId = 0;
 
 	/*
-	 * INTO and PARALLEL CURSOR are handled here because they dispatch but have
+	 * INTO and PARALLEL RETRIEVE CURSOR are handled here because they dispatch but have
 	 * no motion between QD and QEs.
 	 */
 	if (stmt->intoClause != NULL || stmt->copyIntoClause != NULL)

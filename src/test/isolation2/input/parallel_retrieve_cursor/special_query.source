@@ -1,7 +1,7 @@
 -- @Description Tests create parallel for some special query
 -- 
 
---------- Test1: test for parallel cursor on select transient record types
+--------- Test1: test for PARALLEL RETRIEVE CURSOR on select transient record types
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 AS SELECT generate_series(1, 10) AS x DISTRIBUTED by (x);
 
@@ -10,9 +10,9 @@ CREATE OR REPLACE FUNCTION make_record(n int) RETURNS RECORD LANGUAGE plpgsql AS
 SELECT make_record(x) FROM t1;
 
 1: BEGIN;
-1: DECLARE c1 PARALLEL CURSOR FOR SELECT make_record(x) FROM t1;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT make_record(x) FROM t1;
 1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM GP_ENDPOINTS WHERE cursorname='c1';
-1&: EXECUTE PARALLEL CURSOR c1;
+1&: CHECK PARALLEL RETRIEVE CURSOR c1;
 
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
 *R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";

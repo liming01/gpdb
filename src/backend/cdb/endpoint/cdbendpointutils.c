@@ -81,7 +81,7 @@ extern bool token_equals(const int8 *token1, const int8 *token2);
 extern uint64 create_magic_num_from_token(const int8 *token);
 
 struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
-	{0}, PCER_NONE
+	{0}, PRCER_NONE
 };
 
 /*
@@ -172,15 +172,15 @@ PrintToken(const int8 *token)
  * Set the role of endpoint, sender or receiver
  */
 void
-SetParallelCursorExecRole(enum ParallelCursorExecRole role)
+SetParallelCursorExecRole(enum ParallelRetrCursorExecRole role)
 {
-	if (EndpointCtl.Gp_pce_role != PCER_NONE)
+	if (EndpointCtl.Gp_prce_role != PRCER_NONE)
 		elog(ERROR, "endpoint role %s is already set",
-			 EndpointRoleToString(EndpointCtl.Gp_pce_role));
+			 EndpointRoleToString(EndpointCtl.Gp_prce_role));
 
 	elog(DEBUG3, "CDB_ENDPOINT: set endpoint role to %s", EndpointRoleToString(role));
 
-	EndpointCtl.Gp_pce_role = role;
+	EndpointCtl.Gp_prce_role = role;
 }
 
 /*
@@ -189,31 +189,31 @@ SetParallelCursorExecRole(enum ParallelCursorExecRole role)
 void
 ClearParallelCursorExecRole(void)
 {
-	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint role %s", EndpointRoleToString(EndpointCtl.Gp_pce_role));
+	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint role %s", EndpointRoleToString(EndpointCtl.Gp_prce_role));
 
-	EndpointCtl.Gp_pce_role = PCER_NONE;
+	EndpointCtl.Gp_prce_role = PRCER_NONE;
 }
 
 /*
- * Return the value of static variable Gp_pce_role
+ * Return the value of static variable Gp_prce_role
  */
-enum ParallelCursorExecRole GetParallelCursorExecRole(void)
+enum ParallelRetrCursorExecRole GetParallelCursorExecRole(void)
 {
-	return EndpointCtl.Gp_pce_role;
+	return EndpointCtl.Gp_prce_role;
 }
 
 const char *
-EndpointRoleToString(enum ParallelCursorExecRole role)
+EndpointRoleToString(enum ParallelRetrCursorExecRole role)
 {
 	switch (role)
 	{
-		case PCER_SENDER:
+		case PRCER_SENDER:
 			return "[END POINT SENDER]";
 
-		case PCER_RECEIVER:
+		case PRCER_RECEIVER:
 			return "[END POINT RECEIVER]";
 
-		case PCER_NONE:
+		case PRCER_NONE:
 			return "[END POINT NONE]";
 
 		default:

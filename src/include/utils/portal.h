@@ -195,7 +195,7 @@ typedef struct PortalData
 	/* MPP: is this portal a CURSOR, or protocol level portal? */
 	bool		is_extended_query; /* simple or extended query protocol? */
 
-	/* Parallel cursor info. This info only valid on QD, which is same as
+	/* PARALLEL RETRIEVE CURSOR info. This info only valid on QD, which is same as
 	 * the cursor specific named portal, now gpdb QE doesn't support cursor
 	 * mode query portal.
 	 */

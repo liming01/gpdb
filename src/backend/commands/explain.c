@@ -620,7 +620,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	if (queryDesc->utilitystmt && IsA(queryDesc->utilitystmt, DeclareCursorStmt))
 		cursorOptions |= ((DeclareCursorStmt *) queryDesc->utilitystmt)->options;
 
-	if (cursorOptions & CURSOR_OPT_PARALLEL)
+	if (cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
 	{
 		char endpoint_info[1024];
 		enum EndPointExecPosition endPointExecPosition;

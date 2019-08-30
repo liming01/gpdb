@@ -610,7 +610,7 @@ PortalDrop(Portal portal, bool isTopCommit)
 		portal->holdStore = NULL;
 	}
 
-	/* Clear token if it is a parallel cursor */
+	/* Clear token if it is a PARALLEL RETRIEVE CURSOR */
 	if (IsEndpointTokenValid(portal->parallel_cursor_token))
 	{
 		DestroyParallelCursor(portal->name);
@@ -1254,8 +1254,8 @@ pg_cursor(PG_FUNCTION_ARGS)
 		values[2] = BoolGetDatum(portal->cursorOptions & CURSOR_OPT_HOLD);
 		values[3] = BoolGetDatum(portal->cursorOptions & CURSOR_OPT_BINARY);
 		values[4] = BoolGetDatum(portal->cursorOptions & CURSOR_OPT_SCROLL);
-		/* Note: CURSOR_OPT_PARALLEL is 0x0100, out of range of the bool (char) */
-		values[5] = BoolGetDatum((portal->cursorOptions & CURSOR_OPT_PARALLEL) != 0);
+		/* Note: CURSOR_OPT_PARALLEL_RETRIEVE is 0x0100, out of range of the bool (char) */
+		values[5] = BoolGetDatum((portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE) != 0);
 		values[6] = TimestampTzGetDatum(portal->creation_time);
 
 		tuplestore_putvalues(tupstore, tupdesc, values, nulls);

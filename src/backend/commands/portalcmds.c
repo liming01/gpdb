@@ -162,10 +162,10 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	}
 #endif
 	/*
-	 * Generate a token for parallel cursor, and add it into
+	 * Generate a token for PARALLEL RETRIEVE CURSOR, and add it into
 	 * shared memory
 	 */
-	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
 	{
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 		char		cmd[255];
@@ -175,7 +175,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 		cids = ChooseEndpointContentIDForParallelCursor(
 			stmt->planTree, &endPointExecPosition);
 
-		/*Alloc token and add parallel cursor*/
+		/*Alloc token and add PARALLEL RETRIEVE CURSOR*/
 		AddParallelCursorToken(portal->parallel_cursor_token,
 				       portal->name, gp_session_id, GetUserId(),
 				       endPointExecPosition,
@@ -200,7 +200,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	PortalStart(portal, params, 0, GetActiveSnapshot(), NULL);
 
-	if (portal->cursorOptions & CURSOR_OPT_PARALLEL)
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
 	{
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 		WaitEndpointReady(stmt->planTree, portal->name);
@@ -229,7 +229,7 @@ PerformPortalFetch(FetchStmt *stmt,
 {
 	Portal		portal;
 	uint64		nprocessed;
-	bool		isParallelCursorFinished = false;
+	bool		isParallelRetrCursorFinished = false;
 
 	/*
 	 * Disallow empty-string cursor name (conflicts with protocol-level
@@ -250,36 +250,36 @@ PerformPortalFetch(FetchStmt *stmt,
 		return;					/* keep compiler happy */
 	}
 
-	bool is_parallel = (portal->cursorOptions & CURSOR_OPT_PARALLEL) > 0 ;
-	if (is_parallel != stmt->isParallelCursor)
+	bool is_parallel_retrieve = (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE) > 0 ;
+	if (is_parallel_retrieve != stmt->isParallelRetrCursor)
 	{
-		if (stmt->isParallelCursor)
+		if (stmt->isParallelRetrCursor)
 		{
 			ereport(ERROR,
 			        (errcode(ERRCODE_SYNTAX_ERROR),
-				        errmsg("Cannot specify 'EXECUTE PARALLEL CURSOR' for non-parallel cursor."),
+				        errmsg("Cannot specify 'CHECK PARALLEL RETRIEVE CURSOR' for non-PARALLEL RETRIEVE CURSOR."),
 				        errhint("Using 'FETCH' statement instead.")));
 		}
 		else if (stmt->ismove)
 		{
 			ereport(ERROR,
 			        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				        errmsg("The 'MOVE' statement for parallel cursor is not supported."),
-				        errhint("Using 'EXECUTE PARALLEL CURSOR' statement instead.")));
+				        errmsg("The 'MOVE' statement for PARALLEL RETRIEVE CURSOR is not supported."),
+				        errhint("Using 'CHECK PARALLEL RETRIEVE CURSOR' statement instead.")));
 		}
 		else
 		{
 			ereport(ERROR,
 			        (errcode(ERRCODE_SYNTAX_ERROR),
-				        errmsg("Cannot specify 'FETCH' for parallel cursor."),
-				        errhint("Using 'EXECUTE PARALLEL CURSOR' statement instead.")));
+				        errmsg("Cannot specify 'FETCH' for PARALLEL RETRIEVE CURSOR."),
+				        errhint("Using 'CHECK PARALLEL RETRIEVE CURSOR' statement instead.")));
 		}
 	}
-	if (is_parallel && !CheckParallelCursorPrivilege(portal->parallel_cursor_token)) {
+	if (is_parallel_retrieve && !CheckParallelCursorPrivilege(portal->parallel_cursor_token)) {
 		ereport(ERROR,
 			(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				errmsg("The parallel cursor was created by a different user."),
-				errhint("Using the same user as the parallel cursor creator to execute.")));
+				errmsg("The PARALLEL RETRIEVE CURSOR was created by a different user."),
+				errhint("Using the same user as the PARALLEL RETRIEVE CURSOR creator to execute.")));
 	}
 
 	/* Adjust dest if needed.  MOVE wants destination DestNone */
@@ -292,19 +292,19 @@ PerformPortalFetch(FetchStmt *stmt,
 								stmt->howMany,
 								dest);
 
-	if (stmt->isParallelCursor)
-		isParallelCursorFinished = CheckParallelCursorErrors(portal->queryDesc, stmt->isParallelCursorCheckWait);
+	if (stmt->isParallelRetrCursor)
+		isParallelRetrCursorFinished = CheckParallelCursorErrors(portal->queryDesc, stmt->isParallelRetrCursorCheckWait);
 
 	/* Return command status if wanted */
 	if (completionTag)
 	{
-        if (stmt->isParallelCursor){
-            if (isParallelCursorFinished)
+        if (stmt->isParallelRetrCursor){
+            if (isParallelRetrCursorFinished)
                 snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
-                         "PARALLEL CURSOR Finished");
+                         "FINISHED");
             else
                 snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
-                         "PARALLEL CURSOR Running");
+                         "RUNNING");
         }
 
 		else

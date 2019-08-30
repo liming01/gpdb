@@ -1,7 +1,7 @@
 /*
  * cdbendpointretrieve.c
  *
- * After define and execute a parallel cursor(see cdbendpoint.c), the results
+ * After define and execute a PARALLEL RETRIEVE CURSOR(see cdbendpoint.c), the results
  * are written to endpoints. Then connect the endpoint with retrieve role to
  * retrieve data from endpoint backend.
  *
@@ -53,7 +53,7 @@ extern uint64 create_magic_num_from_token(const int8 *token);
 /*
  * FindEndpointTokenByUser - authenticate for retrieve role connection.
  *
- * Return true if the user has parallel cursor/endpoint of the token
+ * Return true if the user has PARALLEL RETRIEVE CURSOR/endpoint of the token
  * Used by retrieve role authentication
  */
 bool
@@ -109,8 +109,8 @@ AttachEndpoint(const char *endpoint_name)
 	bool has_privilege = true;
 	pid_t attached_pid = InvalidPid;
 
-	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
-		elog(ERROR, "%s could not attach endpoint", EndpointRoleToString(EndpointCtl.Gp_pce_role));
+	if (EndpointCtl.Gp_prce_role != PRCER_RECEIVER)
+		elog(ERROR, "%s could not attach endpoint", EndpointRoleToString(EndpointCtl.Gp_prce_role));
 
 	if (my_shared_endpoint)
 		elog(ERROR, "endpoint is already attached");
@@ -176,13 +176,13 @@ AttachEndpoint(const char *endpoint_name)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					errmsg("The parallel cursor was created by a different user."),
-					errhint("Using the same user as the parallel cursor creator to retrieve.")));
+					errmsg("The PARALLEL RETRIEVE CURSOR was created by a different user."),
+					errhint("Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.")));
 	}
 
 	if (is_invalid_sendpid)
 	{
-		elog(ERROR, "the PARALLEL CURSOR related to endpoint %s is not EXECUTED.", endpoint_name);
+		elog(ERROR, "the PARALLEL RETRIEVE CURSOR related to endpoint %s is not EXECUTED.", endpoint_name);
 	}
 
 	if (already_attached)
@@ -195,7 +195,7 @@ AttachEndpoint(const char *endpoint_name)
 					errmsg("Endpoint %s is already attached by receiver(pid: %d)",
 						   endpoint_name, attached_pid),
 					errdetail("An endpoint can be attached by only one retrieving session "
-							  "for each 'EXECUTE PARALLEL CURSOR'")));
+							  "for each 'CHECK PARALLEL RETRIEVE CURSOR'")));
 
 	if (!my_shared_endpoint)
 		elog(ERROR, "failed to attach non-existing endpoint %s", endpoint_name);
@@ -502,7 +502,7 @@ DetachEndpoint(bool reset_pid)
 	if (!my_shared_endpoint) {
 		return;
 	}
-	Assert(EndpointCtl.Gp_pce_role == PCER_RECEIVER);
+	Assert(EndpointCtl.Gp_prce_role == PRCER_RECEIVER);
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
@@ -554,7 +554,7 @@ retrieve_cancel_action(const int8 *token, char *msg)
 	 * If current role is not receiver, the retrieve must already finished success
 	 * or get cleaned before.
 	 */
-	if (EndpointCtl.Gp_pce_role != PCER_RECEIVER)
+	if (EndpointCtl.Gp_prce_role != PRCER_RECEIVER)
 		elog(DEBUG3, "CDB_ENDPOINT: retrieve_cancel_action current role is not receiver.");
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
@@ -655,9 +655,9 @@ static void retrieve_xact_abort_callback(XactEvent ev, void *vp)
 	if (ev == XACT_EVENT_ABORT)
 	{
 		elog(DEBUG3, "CDB_ENDPOINT: retrieve xact abort callback");
-		if (EndpointCtl.Gp_pce_role == PCER_RECEIVER &&
+		if (EndpointCtl.Gp_prce_role == PRCER_RECEIVER &&
 			my_shared_endpoint != NULL &&
-			IsEndpointTokenValid(EndpointCtl.Gp_token))
+            IsEndpointTokenValid(EndpointCtl.Gp_token))
 		{
 			retrieve_cancel_action(EndpointCtl.Gp_token, "Endpoint retrieve statement aborted");
 			DetachEndpoint(true);
