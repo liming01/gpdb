@@ -73,7 +73,7 @@ installcheck-parallel-retrieve-cursor-check-segments:
 		exit -1 ; \
 	fi
 
-installcheck-parallel-retrieve-cursor: install installcheck-parallel-cursor-check-segments
+installcheck-parallel-retrieve-cursor: install installcheck-parallel-retrieve-cursor-check-segments
 	# TODO: Orca is not support by PARALLEL RETRIEVE CURSOR for now. Remove the optimizer
 	# setting when it is supported.
 	# before running test, set statement_timeout to 1 minute so that even if some

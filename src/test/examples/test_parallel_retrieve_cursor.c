@@ -4,7 +4,7 @@
  *
  * test_parallel_cursor.c
  *		this program only support gpdb with the PARALLEL RETRIEVE CURSOR feature. It shows how to
- * use LIBPQ to make a connect to gpdb master node and create & execute a PARALLEL RETRIEVE CURSOR,
+ * use LIBPQ to make a connect to gpdb master node and create a PARALLEL RETRIEVE CURSOR and check it's status,
  * and how to make multiple retrieve mode connections to all endpoints of the PARALLEL RETRIEVE CURSOR
  * (i.e. gpdb all segment nodes in this sample) and parallelly retrieve the results of these
  * endpoints.
@@ -117,7 +117,7 @@ exec_parallel_cursor_threadfunc(void *master_conn)
 {
 	PGconn	   *conn = (PGconn *) master_conn;
 
-	/* CHECK PARALLEL RETRIEVE CURSOR and it will wait for finish retrieving. */
+	/* CHECK PARALLEL RETRIEVE CURSOR in wait mode and it will wait for finish retrieving. */
 	if (exec_sql_without_resultset(conn, "CHECK PARALLEL RETRIEVE CURSOR myportal;") != 0)
 		exit(1);
 	return NULL;
@@ -132,11 +132,14 @@ main(int argc, char **argv)
 			   *pgtty;
 	char	   *dbName;
 	int			i;
+	int			retVal;  /* return value for this func */
 
 	PGconn	   *master_conn,
 			  **endpoint_conns = NULL;
 	size_t		endpoint_conns_num = 0;
-	char	   *token = NULL;
+	char	   *token = NULL,
+			   **endpoint_names = NULL;
+
 
 	/*
 	 * PGresult   *res1, *res2;
@@ -190,7 +193,7 @@ main(int argc, char **argv)
 	/*
 	 * get the endpoints info of this PARALLEL RETRIEVE CURSOR
 	 */
-	const char *sql1 = "select hostname,port,token,status from pg_catalog.gp_endpoints where cursorname='myportal';";
+	const char *sql1 = "select hostname,port,token,endpointname from pg_catalog.gp_endpoints where cursorname='myportal';";
 
 	printf("\nExec SQL: %s\n", sql1);
 	res1 = PQexec(master_conn, sql1);
@@ -210,6 +213,7 @@ main(int argc, char **argv)
 	}
 
 	endpoint_conns = malloc(ntup * sizeof(PGconn *));
+	endpoint_names = malloc(ntup * sizeof(char *));
 	endpoint_conns_num = ntup;
 
 	/*
@@ -229,6 +233,8 @@ main(int argc, char **argv)
 			 */
 			token = strdup(PQgetvalue(res1, i, 2));
 		}
+		endpoint_names[i] = strdup(PQgetvalue(res1, i, 3));
+
 		endpoint_conns[i] = PQsetdbLogin(host, port, pgoptions_retrieve_mode,
 										 pgtty, dbName,
 										 NULL, token);
@@ -268,28 +274,8 @@ main(int argc, char **argv)
 
 		printf("\n------ Begin retrieving data from Endpoint %d# ------\n", i);
 
-LABEL_RETRY:
-		/* check that this endpoint is ready to be retrieved. */
-		snprintf(sql, sizeof(sql), "SELECT 1 FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='%s' and status='READY';", token);
-		printf("\nExec SQL: %s\n", sql);
-		res1 = PQexec(endpoint_conns[i], sql);
-		if (PQresultStatus(res1) != PGRES_TUPLES_OK)
-		{
-			fprintf(stderr, "select GP_ENDPOINTS_STATUS_INFO view didn't return tuples properly\n");
-			PQclear(res1);
-			goto LABEL_ERR;
-		}
-		/* retry until the result set rows > 0 */
-		int			ntup = PQntuples(res1);
-
-		if (ntup == 0)
-		{
-			fprintf(stderr, "select gp_endpoints view doesn't return rows\n");
-			PQclear(res1);
-			goto LABEL_RETRY;
-		}
-
-		snprintf(sql, sizeof(sql), "RETRIEVE ALL FROM %s;", token);
+		/* the endpoint is ready to be retrieved when 'DECLARE PARALLEL RETRIEVE CURSOR returns, here begin to retrieve */
+		snprintf(sql, sizeof(sql), "RETRIEVE ALL FROM ENDPOINT %s;", endpoint_names[i]);
 		exec_sql_with_resultset(endpoint_conns[i], sql);
 		printf("\n------ End retrieving data from Endpoint %d# ------.\n", i);
 	}
@@ -308,15 +294,29 @@ LABEL_RETRY:
 	if (exec_sql_without_resultset(master_conn, "END;") != 0)
 		goto LABEL_ERR;
 
+
+/*	 fclose(debug); */
+	retVal = 0;
+	goto LABEL_FINISH;
+
+LABEL_ERR:
+	retVal = 1;
+
+LABEL_FINISH:
 	/* close the connections to the database and cleanup */
 	finish_conn_nicely(master_conn, endpoint_conns, endpoint_conns_num);
 
-/*	 fclose(debug); */
-	return 0;
-
-LABEL_ERR:
-	finish_conn_nicely(master_conn, endpoint_conns, endpoint_conns_num);
 	if (token)
 		free(token);
-	return 1;
+
+	if (endpoint_names)
+	{
+		for (int i=0; i< endpoint_conns_num; i++)
+			if(endpoint_names[i])
+				free(endpoint_names[i]);
+
+		free(endpoint_names);
+	}
+
+	return retVal;
 }
