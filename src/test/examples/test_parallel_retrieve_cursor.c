@@ -130,7 +130,7 @@ main(int argc, char **argv)
 			   *pgoptions,
 			   *pgoptions_retrieve_mode,
 			   *pgtty;
-	char	   *dbName;
+	char	   *dbName, *dbUser;
 	int			i;
 	int			retVal;  /* return value for this func */
 
@@ -146,13 +146,14 @@ main(int argc, char **argv)
 	 */
 	PGresult   *res1;
 
-	if (argc != 2)
+	if (argc != 3)
 	{
-		fprintf(stderr, "usage: %s dbName\n", argv[0]);
+		fprintf(stderr, "usage: %s dbUser dbName\n", argv[0]);
 		fprintf(stderr, "      show how to use PARALLEL RETRIEVE CURSOR to parallelly retrieve data from multiple endpoints.\n");
 		exit(1);
 	}
-	dbName = argv[1];
+	dbUser = argv[1];
+	dbName = argv[2];
 
 	/*
 	 * begin, by setting the parameters for a backend connection if the
@@ -237,7 +238,7 @@ main(int argc, char **argv)
 
 		endpoint_conns[i] = PQsetdbLogin(host, port, pgoptions_retrieve_mode,
 										 pgtty, dbName,
-										 NULL, token);
+										 dbUser, token);
 		check_prepare_conn(endpoint_conns[i], dbName);
 	}
 	PQclear(res1);
