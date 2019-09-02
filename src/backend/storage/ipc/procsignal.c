@@ -284,10 +284,6 @@ QueryFinishHandler(void)
 	if (!proc_exit_inprogress && Gp_role == GP_ROLE_EXECUTE)
 	{
 		QueryFinishPending = true;
-
-		/* Should also consider finish PARALLEL RETRIEVE CURSOR endpoints otherwise
-		 * it'll continue send tuple to shem_mq */
-		HandleEndpointFinish();
 	}
 }
 

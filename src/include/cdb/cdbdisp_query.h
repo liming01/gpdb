@@ -90,12 +90,6 @@ CdbDispatchCommandToSegments(const char* strCommand,
 							 List *segments,
 							 struct CdbPgResults* cdb_pgresults);
 
-void
-CdbDispatchCommandToExistingGang(const char *strCommand,
-								 int flags,
-								 struct Gang *gp,
-								 struct CdbPgResults *cdb_pgresults);
-
 /*
  * CdbDispatchUtilityStatement
  *

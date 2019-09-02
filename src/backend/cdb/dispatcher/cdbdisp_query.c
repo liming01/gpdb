@@ -354,66 +354,6 @@ CdbDispatchCommandToSegments(const char *strCommand,
 										   cdb_pgresults);
 }
 
-void
-CdbDispatchCommandToExistingGang(const char *strCommand,
-								 int flags,
-								 struct Gang *gp,
-								 struct CdbPgResults *cdb_pgresults)
-{
-	CdbDispatcherState *ds;
-	CdbDispatchResults *pr;
-	ErrorData *qeError = NULL;
-	char *queryText;
-	int queryTextLength;
-	DispatchCommandQueryParms *pQueryParms;
-	bool needTwoPhase = flags & DF_NEED_TWO_PHASE;
-
-	if (needTwoPhase)
-		setupTwoPhaseTransaction();
-
-	elogif((Debug_print_full_dtm || log_min_messages <= DEBUG5), LOG,
-		   "CdbDispatchCommand: %s (needTwoPhase = %s)",
-		   strCommand, (needTwoPhase ? "true" : "false"));
-	pQueryParms = cdbdisp_buildCommandQueryParms(strCommand, flags);
-
-	/*
-	 * Dispatch the command.
-	 */
-	ds = cdbdisp_makeDispatcherState(false);
-
-	queryText = buildGpQueryString(pQueryParms, &queryTextLength);
-
-	Assert(gp);
-	ds->allocatedGangs = lcons(gp, ds->allocatedGangs);
-	ds->largestGangSize = Max(ds->largestGangSize, gp->size);
-
-	cdbdisp_makeDispatchResults(ds, 1, flags & DF_CANCEL_ON_ERROR);
-	cdbdisp_makeDispatchParams (ds, 1, queryText, queryTextLength);
-
-	cdbdisp_dispatchToGang(ds, gp, -1);
-
-	if ((flags & DF_NEED_TWO_PHASE) != 0 || isDtxExplicitBegin())
-		addToGxactTwophaseSegments(gp);
-
-	cdbdisp_waitDispatchFinish(ds);
-
-	cdbdisp_checkDispatchResult(ds, DISPATCH_WAIT_NONE);
-
-	pr = cdbdisp_getDispatchResults(ds, &qeError);
-
-	if (qeError)
-	{
-		cdbdisp_destroyDispatcherState(ds);
-		ReThrowError(qeError);
-	}
-
-	cdbdisp_returnResults(pr, cdb_pgresults);
-	list_free(ds->allocatedGangs);
-	ds->allocatedGangs = NIL;
-	ds->largestGangSize = 0;
-	cdbdisp_destroyDispatcherState(ds);
-}
-
 /*
  * CdbDispatchUtilityStatement
  *

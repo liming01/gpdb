@@ -47,6 +47,7 @@
 #include "utils/builtins.h"
 #include "utils/elog.h"
 #include "utils/faultinjector.h"
+#include "storage/procsignal.h"
 
 #define WAIT_RECEIVE_TIMEOUT            50
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
@@ -620,6 +621,7 @@ CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName)
 	return CreateTupleQueueDestReceiver(currentMQEntry->mq_handle);
 }
 
+
 /*
  * DestroyTQDestReceiverForEndpoint - destroy TupleQueueDestReceiver
  *
@@ -640,12 +642,27 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	(*endpointDest->rShutdown)(endpointDest);
 	(*endpointDest->rDestroy)(endpointDest);
 	sender_close();
-
 	sender_finish();
+
+	ResetLatch(&MyProc->procLatch);
 	unset_endpoint_sender_pid(my_shared_endpoint);
 	set_attach_status(Status_Finished);
-//	if (QueryFinishPending)
-//		free_endpoint_by_cursor_name(EndpointCtl.cursor_name);
+
+	PG_TRY();
+	{
+		if (!QueryFinishPending) {
+			CHECK_FOR_INTERRUPTS();
+			WaitLatch(&MyProc->procLatch, WL_LATCH_SET, 0);
+			ResetLatch(&MyProc->procLatch);
+		}
+	}
+	PG_CATCH();
+	{
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	free_endpoint_by_cursor_name(EndpointCtl.cursor_name);
 	ClearGpToken();
 	ClearParallelCursorExecRole();
 }
@@ -820,22 +837,6 @@ CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait)
 		isParallelRetrCursorFinished = cdbdisp_isDispatchFinished(ds);
 	}
 	return isParallelRetrCursorFinished;
-}
-
-void
-HandleEndpointFinish(void)
-{
-
-	if (my_shared_endpoint && EndpointCtl.Gp_prce_role == PRCER_SENDER)
-	{
-		LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
-		if (my_shared_endpoint->attach_status == Status_Prepared ||
-			my_shared_endpoint->attach_status == Status_Attached)
-		{
-			SetLatch(&MyProc->procLatch);
-		}
-		LWLockRelease(ParallelCursorEndpointLock);
-	}
 }
 
 /*
