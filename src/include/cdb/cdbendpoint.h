@@ -139,7 +139,6 @@ typedef struct EndpointDesc
 	int session_id;                    /* Connection session id */
 	Oid user_id;                       /* User ID of the current executed PARALLEL RETRIEVE CURSOR */
 	bool empty;                        /* Whether current EndpointDesc slot in DSM is free */
-	Latch init_done;                   /* Latch to wait until the query starts successfully */
 } EndpointDesc;
 
 /*
@@ -167,6 +166,7 @@ typedef struct EndpointControl
 {
 	int8 Gp_token[ENDPOINT_TOKEN_LEN];         /* Current PARALLEL RETRIEVE CURSOR token */
 	enum ParallelRetrCursorExecRole Gp_prce_role;   /* Current PARALLEL RETRIEVE CURSOR role */
+	char cursor_name[NAMEDATALEN];
 } EndpointControl;
 
 typedef ParallelCursorTokenDesc *ParaCursorToken;
@@ -204,10 +204,10 @@ extern void DestroyParallelCursor(const char *cursorName);
  * Below functions should run on Endpoints(QE/QD).
  */
 /* Functions used in CHECK PARALLEL RETRIEVE CURSOR stage, on Endpoints(QE/QD) */
-extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc);
+extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName);
 extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 /* Endpoint backend register/free, execute on Endpoints(QE/QD) */
-extern void AllocEndpointOfToken(const int8 *token, const char *cursorName);
+extern void AllocEndpointOfToken(const char *cursorName);
 
 extern bool CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait);
 extern void HandleEndpointFinish(void);

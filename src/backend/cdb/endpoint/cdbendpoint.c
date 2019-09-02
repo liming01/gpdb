@@ -48,7 +48,6 @@
 #include "utils/faultinjector.h"
 
 #define WAIT_RECEIVE_TIMEOUT            50
-#define WAIT_ENDPOINT_INIT_TIMEOUT      5000
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
 #define InvalidSession                  (-1)
 
@@ -69,7 +68,6 @@ static EndpointDesc *my_shared_endpoint = NULL;          /* Current EndpointDesc
 static void init_shared_endpoints(void *address);
 static void free_endpoint(EndpointDesc *endpointDesc);
 static void free_endpoint_by_cursor_name(const char *cursor_name);
-static void free_all_endpoints_in_session(int sessionId);
 static void wait_for_init_by_cursor_name(const char *cursor_name);
 static void init_shared_tokens(void *address);
 static void reset_shared_token(ParallelCursorTokenDesc *desc);
@@ -84,8 +82,8 @@ static void sender_finish(void);
 static void sender_close(void);
 static void unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc);
 static void signal_receiver_abort(volatile EndpointDesc *endPointDesc);
-static void endpoint_cleanup(void);
-static void register_endpoint_callbacks(void);
+static void endpoint_abort(void);
+static void register_endpoint_xact_callbacks(void);
 static void sender_xact_abort_callback(XactEvent ev, void *vp);
 static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 									SubTransactionId parentSubid, void *arg);
@@ -148,8 +146,6 @@ EndpointCTXShmemInit(void)
 	{
 		init_shared_endpoints(SharedEndpoints);
 	}
-	// Register callback to deal with proc exit.
-	register_endpoint_callbacks();
 }
 
 /*
@@ -172,7 +168,6 @@ init_shared_endpoints(void *address)
 		endpoints[i].attach_status = Status_NotAttached;
 		endpoints[i].empty = true;
 		InitSharedLatch(&endpoints[i].ack_done);
-		InitSharedLatch(&endpoints[i].init_done);
 	}
 }
 
@@ -198,8 +193,9 @@ init_shared_tokens(void *address)
  * shmem_exit()
  * --> before_shmem_exit
  *     --> parallel_cursor_exit_callback
- *         --> remove_parallel_cursor all tokens, no need to free endpoints since
- *         endpoint's callback will free itself.
+ *         --> reset_shared_token all tokens, no need to free endpoints since
+ *         endpoint's callback will free the exist EndpointDesc slot
+ *         for current session.
  *     --> ... (other before shmem callback if exists)
  *     --> ... (other callbacks)
  *     --> ShutdownPostgres (the last before shmem callback)
@@ -209,8 +205,7 @@ init_shared_tokens(void *address)
  *                 --> AtCleanup_Portals
  *                     --> PortalDrop
  *                         --> DestoryParallelCursor
- *                         	   --> remove_parallel_cursor will do nothing cause
- *                         	   clean job already done in parallel_cursor_exit_callback
+ *                         	   --> remove_parallel_cursor
  */
 static void
 parallel_cursor_exit_callback(int code, Datum arg)
@@ -639,8 +634,11 @@ dbid_to_contentid(CdbComponentDatabases *cdbs, int16 dbid)
  * Create TupleQueueDestReceiver base on the message queue to pass tuples to retriever.
  */
 DestReceiver *
-CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc)
+CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName)
 {
+	// Register callback to deal with proc exit.
+	register_endpoint_xact_callbacks();
+	AllocEndpointOfToken(cursorName);
 	set_sender_pid();
 	check_end_point_allocated();
 
@@ -652,7 +650,6 @@ CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc)
 	currentMQEntry->retrieve_ts = NULL;
 	currentMQEntry->tq_reader = NULL;
 	create_and_connect_mq(tupleDesc);
-	SetLatch(&my_shared_endpoint->init_done);
 	return CreateTupleQueueDestReceiver(currentMQEntry->mq_handle);
 }
 
@@ -726,14 +723,7 @@ set_sender_pid(void)
 
 	if (found_idx != -1)
 	{
-		SharedEndpoints[i].database_id = MyDatabaseId;
 		SharedEndpoints[i].sender_pid = MyProcPid;
-		SharedEndpoints[i].receiver_pid = InvalidPid;
-		memcpy(SharedEndpoints[i].token, EndpointCtl.Gp_token, ENDPOINT_TOKEN_LEN);
-		SharedEndpoints[i].session_id = gp_session_id;
-		SharedEndpoints[i].user_id = GetUserId();
-		SharedEndpoints[i].attach_status = Status_NotAttached;
-		SharedEndpoints[i].empty = false;
 		OwnLatch(&SharedEndpoints[i].ack_done);
 	}
 
@@ -751,20 +741,18 @@ set_sender_pid(void)
  * Find a free slot in DSM and set token and other info.
  */
 void
-AllocEndpointOfToken(const int8 *token, const char *cursorName)
+AllocEndpointOfToken(const char *cursorName)
 {
 	int i;
 	int found_idx = -1;
 
-	if (!IsEndpointTokenValid(token))
+	if (!IsEndpointTokenValid(EndpointCtl.Gp_token))
 		elog(ERROR, "allocate endpoint of invalid token ID");
 	Assert(SharedEndpoints);
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 #ifdef FAULT_INJECTOR
 	/* inject fault "skip" to set end-point shared memory slot full */
-
-
 	FaultInjectorType_e typeE = SIMPLE_FAULT_INJECTOR("endpoint_shared_memory_slot_full");
 
 	if (typeE == FaultInjectorTypeFullMemorySlot)
@@ -807,7 +795,7 @@ AllocEndpointOfToken(const int8 *token, const char *cursorName)
 	/* find the slot with the same token */
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		if (token_equals(SharedEndpoints[i].token, token))
+		if (token_equals(SharedEndpoints[i].token, EndpointCtl.Gp_token))
 		{
 			found_idx = i;
 			break;
@@ -827,15 +815,15 @@ AllocEndpointOfToken(const int8 *token, const char *cursorName)
 	if (found_idx != -1)
 	{
 		generate_endpoint_name(SharedEndpoints[i].name, cursorName, gp_session_id, GpIdentity.segindex);
+		snprintf(EndpointCtl.cursor_name, NAMEDATALEN, "%s", cursorName);
 		SharedEndpoints[i].database_id = MyDatabaseId;
-		memcpy(SharedEndpoints[i].token, token, ENDPOINT_TOKEN_LEN);
+		memcpy(SharedEndpoints[i].token, EndpointCtl.Gp_token, ENDPOINT_TOKEN_LEN);
 		SharedEndpoints[i].session_id = gp_session_id;
 		SharedEndpoints[i].user_id = GetUserId();
 		SharedEndpoints[i].sender_pid = InvalidPid;
 		SharedEndpoints[i].receiver_pid = InvalidPid;
 		SharedEndpoints[i].attach_status = Status_NotAttached;
 		SharedEndpoints[i].empty = false;
-		OwnLatch(&SharedEndpoints[i].init_done);
 	}
 
 	LWLockRelease(ParallelCursorEndpointLock);
@@ -853,23 +841,9 @@ wait_for_init_by_cursor_name(const char *cursor_name)
 {
 	int wr = 0;
 	EndpointDesc *endpointDesc = find_endpoint_by_cursor_name(cursor_name);
-	if (!endpointDesc) {
-		elog(ERROR, "Endpoint doesn't exist");
-	}
-
-	wr = WaitLatch(&endpointDesc->init_done,
-				   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
-				   WAIT_ENDPOINT_INIT_TIMEOUT);
-
-	if (wr & WL_TIMEOUT)
-	{
-		elog(ERROR, "Endpoint initialization timeout");
-	}
-
-	if (wr & WL_POSTMASTER_DEATH)
-	{
-		elog(ERROR, "Postmaster died");
-	}
+//	if (!endpointDesc) {
+//		elog(ERROR, "Endpoint doesn't exist");
+//	}
 }
 
 /*
@@ -884,33 +858,6 @@ free_endpoint_by_cursor_name(const char *cursor_name)
 	if (endpointDesc) {
 		free_endpoint(endpointDesc);
 	}
-}
-
-/*
- * Free all EndpointDesc entries belong to the given session.
- */
-void
-free_all_endpoints_in_session(int sessionId)
-{
-	List *endpointsToFree = NIL;
-	ListCell *l;
-
-	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-	    if (SharedEndpoints[i].session_id == sessionId)
-		{
-			endpointsToFree = lappend(endpointsToFree, &SharedEndpoints[i]);
-		}
-	}
-	LWLockRelease(ParallelCursorEndpointLock);
-
-	foreach(l, endpointsToFree)
-	{
-	    EndpointDesc *endpointDesc = lfirst(l);
-	    free_endpoint(endpointDesc);
-	}
-	list_free(endpointsToFree);
 }
 
 /*
@@ -933,7 +880,6 @@ free_endpoint(EndpointDesc *endpointDesc)
 	endpointDesc->session_id = InvalidSession;
 	endpointDesc->user_id = InvalidOid;
 	endpointDesc->empty = true;
-	DisownLatch(&endpointDesc->init_done);
 	LWLockRelease(ParallelCursorEndpointLock);
 }
 
@@ -1187,8 +1133,7 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
 	 * The sender pid in Endpoint entry must be MyProcPid or InvalidPid.
 	 * Note the "gp_operate_endpoints_token" UDF dispatch comment.
 	 */
-	// FIXME: This will be called in the transaction end callback, apperently, where MyProcPid will be different
-	//Assert(MyProcPid == endPointDesc->sender_pid || endPointDesc->sender_pid == InvalidPid);
+	Assert(MyProcPid == endPointDesc->sender_pid || endPointDesc->sender_pid == InvalidPid);
 	if (MyProcPid == endPointDesc->sender_pid)
 	{
 		endPointDesc->sender_pid = InvalidPid;
@@ -1230,9 +1175,9 @@ signal_receiver_abort(volatile EndpointDesc *endPointDesc)
  *
  * The sender should only have one in EndpointCtl.TokensInXact list.
  */
-static void endpoint_cleanup(void)
+static void endpoint_abort(void)
 {
-	free_all_endpoints_in_session(gp_session_id);
+	free_endpoint_by_cursor_name(EndpointCtl.cursor_name);
 	my_shared_endpoint = NULL;
 	ClearGpToken();
 	ClearParallelCursorExecRole();
@@ -1242,17 +1187,24 @@ static void endpoint_cleanup(void)
  * Register callback for endpoint/sender to deal with xact abort.
  */
 static void
-register_endpoint_callbacks(void)
+register_endpoint_xact_callbacks(void)
 {
-	// Register callback to deal with proc endpoint xact abort.
-	RegisterSubXactCallback(sender_subxact_callback, NULL);
-	RegisterXactCallback(sender_xact_abort_callback, NULL);
+	static bool is_registered = false;
+
+	if (!is_registered)
+	{
+		// Register callback to deal with proc endpoint xact abort.
+		RegisterSubXactCallback(sender_subxact_callback, NULL);
+		RegisterXactCallback(sender_xact_abort_callback, NULL);
+		is_registered = true;
+	}
 }
 
 /*
  * If endpoint/sender on xact abort, we need to do sender clean jobs.
  */
-static void sender_xact_abort_callback(XactEvent ev, void *vp)
+void
+sender_xact_abort_callback(XactEvent ev, void *vp)
 {
 	if (ev == XACT_EVENT_ABORT)
 	{
@@ -1261,7 +1213,7 @@ static void sender_xact_abort_callback(XactEvent ev, void *vp)
 			return;
 		}
 		elog(DEBUG3, "CDB_ENDPOINT: sender xact abort callback");
-		endpoint_cleanup();
+		endpoint_abort();
 		/*
 		 * During xact abort, should make sure the endpoint_cleanup called first.
 		 * Cause if call sender_close to detach the message queue first, the retriever
@@ -1277,7 +1229,8 @@ static void sender_xact_abort_callback(XactEvent ev, void *vp)
 /*
  * If endpoint/sender on sub xact abort, we need to do sender clean jobs.
  */
-static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
+void
+sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 									SubTransactionId parentSubid, void *arg)
 {
 	if (event == SUBXACT_EVENT_ABORT_SUB)
@@ -1334,6 +1287,7 @@ set_attach_status(enum AttachStatus status)
  * We dispatch this UDF by "CdbDispatchCommandToSegments" and "CdbDispatchCommand",
  * It'll always dispatch to writer gang, which is the gang that allocate endpoints on.
  * Since we always allocate endpoints on the top most slice gang.
+ * FIXME: refactor to make wait and free work on endpoint QE/entry QD
  */
 Datum
 gp_operate_endpoints_token(PG_FUNCTION_ARGS)
@@ -1358,7 +1312,7 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 			case 'p':
 				/* Push endpoint */
 				ParseToken(token, token_str);
-				AllocEndpointOfToken(token, cursor_name);
+//				AllocEndpointOfToken(token, cursor_name);
 				break;
 			case 'w':
 				wait_for_init_by_cursor_name(cursor_name);

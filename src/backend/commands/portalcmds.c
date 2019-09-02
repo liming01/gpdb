@@ -167,9 +167,8 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
 	{
-		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
-		char		cmd[255];
-		List *cids;
+		PlannedStmt *stmt = (PlannedStmt *) linitial(portal->stmts);
+		List        *cids;
 		enum EndPointExecPosition endPointExecPosition;
 
 		cids = ChooseEndpointContentIDForParallelCursor(
@@ -180,19 +179,6 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 				       portal->name, gp_session_id, GetUserId(),
 				       endPointExecPosition,
 					   cids);
-		if (endPointExecPosition == ENDPOINT_ON_QD) {
-			AllocEndpointOfToken(portal->parallel_cursor_token, portal->name);
-		} else {
-			char *token_str = PrintToken(portal->parallel_cursor_token);
-			snprintf(cmd, 255, "select __gp_operate_endpoints_token('p', '%s', '%s')", token_str, portal->name);
-			pfree(token_str);
-			if (endPointExecPosition == ENDPOINT_ON_ALL_QE) {
-				/* Push token to all segments */
-				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
-			} else {
-				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, cids, NULL);
-			}
-		}
 	}
 
 	/*

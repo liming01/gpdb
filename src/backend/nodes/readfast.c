@@ -1445,6 +1445,8 @@ _readQueryDispatchDesc(void)
 	READ_NODE_FIELD(oidAssignments);
 	READ_NODE_FIELD(sliceTable);
 	READ_NODE_FIELD(cursorPositions);
+	READ_STRING_FIELD(cursorName);
+	READ_STRING_FIELD(parallelRetrieveTokenStr);
 	READ_BOOL_FIELD(useChangedAOOpts);
 	READ_DONE();
 }

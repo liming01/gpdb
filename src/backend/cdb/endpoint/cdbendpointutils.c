@@ -81,7 +81,7 @@ extern bool token_equals(const int8 *token1, const int8 *token2);
 extern uint64 create_magic_num_from_token(const int8 *token);
 
 struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
-	{0}, PRCER_NONE
+	{0}, PRCER_NONE, {0}
 };
 
 /*
@@ -122,6 +122,10 @@ void
 ClearGpToken(void)
 {
 	InvalidateEndpointToken(EndpointCtl.Gp_token);
+
+	// FIXME: since the token will get eliminated, we can refactor
+	// the endpoint name logic then.
+	memset(EndpointCtl.cursor_name, 0, NAMEDATALEN);
 }
 
 /*
@@ -268,16 +272,20 @@ static enum AttachStatus status_string_to_enum(char *status)
 	if (strcmp(status, GP_ENDPOINT_STATUS_INIT) == 0)
 	{
 		return Status_NotAttached;
-	} else if (strcmp(status, GP_ENDPOINT_STATUS_READY) == 0)
+	}
+	else if (strcmp(status, GP_ENDPOINT_STATUS_READY) == 0)
 	{
 		return Status_Prepared;
-	} else if (strcmp(status, GP_ENDPOINT_STATUS_RETRIEVING) == 0)
+	}
+	else if (strcmp(status, GP_ENDPOINT_STATUS_RETRIEVING) == 0)
 	{
 		return Status_Attached;
-	} else if (strcmp(status, GP_ENDPOINT_STATUS_FINISH) == 0)
+	}
+	else if (strcmp(status, GP_ENDPOINT_STATUS_FINISH) == 0)
 	{
 		return Status_Finished;
-	} else
+	}
+	else
 	{
 		elog(ERROR, "unknown end point status %s", status);
 		return Status_NotAttached;
@@ -630,8 +638,13 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					values[7] = CStringGetTextDatum(endpoint_status_enum_to_string( qe_status));
 					nulls[7]  = false;
 
-					values[8] = CStringGetTextDatum(qe_status->name);
-					nulls[8]  = false;
+					if (qe_status)
+					{
+						values[8] = CStringGetTextDatum(qe_status->name);
+						nulls[8]  = false;
+					}
+					else
+						nulls[8]  = true;
 
 					tuple  = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 					result = HeapTupleGetDatum(tuple);

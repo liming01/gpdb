@@ -336,7 +336,7 @@ retrieve_role_authentication(Port *port)
 	passwd = recv_password_packet(port);
 	if (passwd == NULL)
 	{
-		ereport(FATAL, (errcode(ERRCODE_INVALID_PASSWORD), errmsg(msg)));
+		ereport(FATAL, (errcode(ERRCODE_INVALID_PASSWORD), errmsg("%s", msg)));
 	}
 
 	/*
@@ -346,7 +346,7 @@ retrieve_role_authentication(Port *port)
 	owner_uid = get_role_oid(port->user_name, false);
 	if (!FindEndpointTokenByUser(owner_uid, passwd))
 	{
-		ereport(FATAL, (errcode(ERRCODE_INVALID_PASSWORD), errmsg(msg)));
+		ereport(FATAL, (errcode(ERRCODE_INVALID_PASSWORD), errmsg("%s", msg)));
 	}
 
 	FakeClientAuthentication(port);

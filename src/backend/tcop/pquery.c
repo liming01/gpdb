@@ -693,7 +693,13 @@ PortalStart(Portal portal, ParamListInfo params,
 				}
 
 				if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
+				{
+					if (queryDesc->ddesc == NULL)
+						queryDesc->ddesc = makeNode(QueryDispatchDesc);
 					queryDesc->parallel_retrieve_cursor = true;
+					queryDesc->ddesc->cursorName = queryDesc->portal_name;
+					queryDesc->ddesc->parallelRetrieveTokenStr = PrintToken(portal->parallel_cursor_token);
+				}
 
 				queryDesc->plannedstmt->query_mem = ResourceManagerGetQueryMemoryLimit(queryDesc->plannedstmt);
 

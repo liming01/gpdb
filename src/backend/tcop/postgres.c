@@ -1165,6 +1165,12 @@ exec_mpp_query(const char *query_string,
 
 		if (ddesc->oidAssignments)
 			AddPreassignedOids(ddesc->oidAssignments);
+		if (ddesc->parallelRetrieveTokenStr)
+		{
+			int8 token[ENDPOINT_TOKEN_LEN] = {0};
+			ParseToken(token, ddesc->parallelRetrieveTokenStr);
+			SetGpToken(token);
+		}
     }
 
 	/*
@@ -5293,8 +5299,6 @@ PostgresMain(int argc, char *argv[],
 					int serializedQueryDispatchDesclen = 0;
 					int resgroupInfoLen = 0;
 
-					const char *tokenStr = NULL;
-
 					TimestampTz statementStart;
 					Oid suid;
 					Oid ouid;
@@ -5359,9 +5363,6 @@ PostgresMain(int argc, char *argv[],
 					if (resgroupInfoLen > 0)
 						resgroupInfoBuf = pq_getmsgbytes(&input_message, resgroupInfoLen);
 
-					// Will get an empty string if token doesn't exist.
-					tokenStr = pq_getmsgstring(&input_message);
-
 					pq_getmsgend(&input_message);
 
 					elog((Debug_print_full_dtm ? LOG : DEBUG5), "MPP dispatched stmt from QD: %s.",query_string);
@@ -5415,12 +5416,6 @@ PostgresMain(int argc, char *argv[],
 					}
 					else
 					{
-						if (strlen(tokenStr)) {
-							int8 token[ENDPOINT_TOKEN_LEN] = {0};
-							ParseToken(token, tokenStr);
-							SetGpToken(token);
-						}
-
 						exec_mpp_query(query_string,
 									   serializedQuerytree, serializedQuerytreelen,
 									   serializedPlantree, serializedPlantreelen,

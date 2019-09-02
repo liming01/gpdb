@@ -986,7 +986,8 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			 */
 			if (GetParallelCursorExecRole() == PRCER_SENDER)
 			{
-				endpointDest = CreateTQDestReceiverForEndpoint(queryDesc->tupDesc);
+				endpointDest = CreateTQDestReceiverForEndpoint(
+					queryDesc->tupDesc, queryDesc->ddesc->cursorName);
 				(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
 			}
 
