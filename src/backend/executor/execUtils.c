@@ -2080,6 +2080,18 @@ void mppExecutorFinishup(QueryDesc *queryDesc)
 			ReThrowError(qeError);
 		}
 
+		if (queryDesc->ddesc->parallelRetrieveTokenStr)
+		{
+			size_t cmd_len = 255;
+			char cmd[cmd_len];
+			snprintf(cmd, cmd_len, "select __gp_operate_endpoints_token('f', '', '%s')",
+					 queryDesc->ddesc->cursorName);
+			CdbDispatchCommandToExistingGang(
+				cmd, DF_CANCEL_ON_ERROR,
+				(Gang *) lfirst(list_head(ds->allocatedGangs)),
+				NULL);
+		}
+
 		/* If top slice was delegated to QEs, get num of rows processed. */
 		int primaryWriterSliceIndex = PrimaryWriterSliceIndex(estate);
 		//if (sliceRunsOnQE(currentSlice))

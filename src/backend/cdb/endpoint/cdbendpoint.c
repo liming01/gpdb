@@ -30,6 +30,7 @@
 #include <poll.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <cdb/cdbdisp_dtx.h>
 
 #include "cdb/cdbendpoint.h"
 #include "access/xact.h"
@@ -66,8 +67,6 @@ static EndpointDesc *my_shared_endpoint = NULL;          /* Current EndpointDesc
 
 /* Endpoint and PARALLEL RETRIEVE CURSOR token helper function */
 static void init_shared_endpoints(void *address);
-static void free_endpoint(EndpointDesc *endpointDesc);
-static void free_endpoint_by_cursor_name(const char *cursor_name);
 static void wait_for_init_by_cursor_name(const char *cursor_name);
 static void init_shared_tokens(void *address);
 static void reset_shared_token(ParallelCursorTokenDesc *desc);
@@ -83,6 +82,8 @@ static void sender_close(void);
 static void unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc);
 static void signal_receiver_abort(volatile EndpointDesc *endPointDesc);
 static void endpoint_abort(void);
+static void free_endpoint(EndpointDesc *endpointDesc);
+static void free_endpoint_by_cursor_name(const char *cursor_name);
 static void register_endpoint_xact_callbacks(void);
 static void sender_xact_abort_callback(XactEvent ev, void *vp);
 static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
@@ -554,44 +555,10 @@ CheckParallelCursorPrivilege(const int8 *token)
 void
 DestroyParallelCursor(const char *cursorName)
 {
-	bool found;
 	bool on_qd = false;
 	List *seg_list = NIL;
 
-	found = remove_parallel_cursor(cursorName, &on_qd, &seg_list);
-
-	/*
-	 * During abort progress, the Endpoints'(on QE/QD) xact abort will
-	 * clean endpoint info. So there's no need dispatch the free endpoint
-	 * UDF cmd to Endpoints(on QE/QD).
-	 *
-	 * Also, if dispatch free endpoint UDF cmd to Endpoints during in
-	 * abort progress, it'll trigger "signal 6: Abort trap" exception.
-	 */
-	if (found && !IsAbortInProgress())
-	{
-		/* free end-point */
-		if (on_qd)
-		{
-			free_endpoint_by_cursor_name(cursorName);
-		} else
-		{
-			size_t cmd_len = 255;
-			char cmd[cmd_len];
-			snprintf(cmd, cmd_len, "select __gp_operate_endpoints_token('f', '', '%s')",
-					cursorName);
-			if (seg_list != NIL)
-			{
-				/* dispatch to some segments. */
-				CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, seg_list, NULL);
-			}
-			else
-			{
-				/* dispatch to all segments. */
-				CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
-			}
-		}
-	}
+	remove_parallel_cursor(cursorName, &on_qd, &seg_list);
 }
 
 /*
@@ -677,62 +644,10 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	sender_finish();
 	unset_endpoint_sender_pid(my_shared_endpoint);
 	set_attach_status(Status_Finished);
+//	if (QueryFinishPending)
+//		free_endpoint_by_cursor_name(EndpointCtl.cursor_name);
 	ClearGpToken();
 	ClearParallelCursorExecRole();
-}
-
-/*
- * AllocEndpointOfToken should be called before set_sender_pid.
- * Since current QD/QE has been specified as endpoint, when start
- * to send data to message queue, we set current proc id as sender id.
- * Also set other info for the allocated EndpointDesc entry.
- */
-static void
-set_sender_pid(void)
-{
-	int i;
-	int found_idx = -1;
-
-	Assert(SharedEndpoints);
-
-	elog(DEBUG3, "CDB_ENDPOINT: set sender pid");
-	if (EndpointCtl.Gp_prce_role != PRCER_SENDER)
-		elog(ERROR, "%s could not allocate endpoint slot",
-			 EndpointRoleToString(EndpointCtl.Gp_prce_role));
-
-	if (my_shared_endpoint && IsEndpointTokenValid(my_shared_endpoint->token))
-		elog(ERROR, "endpoint is already allocated");
-
-	CheckTokenValid();
-
-	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
-
-	/*
-     * Presume that for any token, only one PARALLEL RETRIEVE CURSOR is activated at
-     * that time.
-     */
-	/* find the slot with the same token */
-	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (token_equals(SharedEndpoints[i].token, EndpointCtl.Gp_token))
-		{
-			found_idx = i;
-			break;
-		}
-	}
-
-	if (found_idx != -1)
-	{
-		SharedEndpoints[i].sender_pid = MyProcPid;
-		OwnLatch(&SharedEndpoints[i].ack_done);
-	}
-
-	my_shared_endpoint = &SharedEndpoints[i];
-
-	LWLockRelease(ParallelCursorEndpointLock);
-
-	if (!my_shared_endpoint)
-		elog(ERROR, "failed to allocate endpoint");
 }
 
 /*
@@ -824,12 +739,37 @@ AllocEndpointOfToken(const char *cursorName)
 		SharedEndpoints[i].receiver_pid = InvalidPid;
 		SharedEndpoints[i].attach_status = Status_NotAttached;
 		SharedEndpoints[i].empty = false;
+		my_shared_endpoint = &SharedEndpoints[i];
 	}
 
 	LWLockRelease(ParallelCursorEndpointLock);
 
 	if (found_idx == -1)
 		elog(ERROR, "failed to allocate endpoint");
+}
+
+/*
+ * AllocEndpointOfToken should be called before set_sender_pid.
+ * Since current QD/QE has been specified as endpoint, when start
+ * to send data to message queue, we set current proc id as sender id.
+ * Also set other info for the allocated EndpointDesc entry.
+ */
+static void
+set_sender_pid(void)
+{
+	Assert(SharedEndpoints);
+
+	elog(DEBUG3, "CDB_ENDPOINT: set sender pid");
+	if (EndpointCtl.Gp_prce_role != PRCER_SENDER)
+		elog(ERROR, "%s could not allocate endpoint slot",
+			 EndpointRoleToString(EndpointCtl.Gp_prce_role));
+
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
+
+	my_shared_endpoint->sender_pid = MyProcPid;
+	OwnLatch(&my_shared_endpoint->ack_done);
+
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*
@@ -844,43 +784,6 @@ wait_for_init_by_cursor_name(const char *cursor_name)
 //	if (!endpointDesc) {
 //		elog(ERROR, "Endpoint doesn't exist");
 //	}
-}
-
-/*
- *  Find and free the EndpointDesc entry by the cursor name.
- */
-void
-free_endpoint_by_cursor_name(const char *cursor_name)
-{
-	EndpointDesc *endpointDesc = find_endpoint_by_cursor_name(cursor_name);
-
-	// FIXME: Log error instead?
-	if (endpointDesc) {
-		free_endpoint(endpointDesc);
-	}
-}
-
-/*
- * Free the given EndpointDesc entry.
- */
-void
-free_endpoint(EndpointDesc *endpointDesc)
-{
-	if (!endpointDesc && !endpointDesc->empty)
-		elog(ERROR, "not an valid endpoint");
-
-	elog(DEBUG3, "CDB_ENDPOINTS: Free endpoint '%s'.", endpointDesc->name);
-
-	unset_endpoint_sender_pid(endpointDesc);
-
-	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
-	endpointDesc->database_id = InvalidOid;
-	InvalidateEndpointToken(endpointDesc->token);
-	endpointDesc->handle = DSM_HANDLE_INVALID;
-	endpointDesc->session_id = InvalidSession;
-	endpointDesc->user_id = InvalidOid;
-	endpointDesc->empty = true;
-	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /**
@@ -1184,6 +1087,43 @@ static void endpoint_abort(void)
 }
 
 /*
+ *  Find and free the EndpointDesc entry by the cursor name.
+ */
+void
+free_endpoint_by_cursor_name(const char *cursor_name)
+{
+	EndpointDesc *endpointDesc = find_endpoint_by_cursor_name(cursor_name);
+
+	// FIXME: Log error instead?
+	if (endpointDesc) {
+		free_endpoint(endpointDesc);
+	}
+}
+
+/*
+ * Free the given EndpointDesc entry.
+ */
+void
+free_endpoint(EndpointDesc *endpointDesc)
+{
+	if (!endpointDesc && !endpointDesc->empty)
+		elog(ERROR, "not an valid endpoint");
+
+	elog(DEBUG3, "CDB_ENDPOINTS: Free endpoint '%s'.", endpointDesc->name);
+
+	unset_endpoint_sender_pid(endpointDesc);
+
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
+	endpointDesc->database_id = InvalidOid;
+	InvalidateEndpointToken(endpointDesc->token);
+	endpointDesc->handle = DSM_HANDLE_INVALID;
+	endpointDesc->session_id = InvalidSession;
+	endpointDesc->user_id = InvalidOid;
+	endpointDesc->empty = true;
+	LWLockRelease(ParallelCursorEndpointLock);
+}
+
+/*
  * Register callback for endpoint/sender to deal with xact abort.
  */
 static void
@@ -1305,15 +1245,10 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 	token_str = PG_GETARG_CSTRING(1);
 	cursor_name = PG_GETARG_CSTRING(2);
 
-	if (Gp_role == GP_ROLE_EXECUTE && Gp_is_writer)
+	if (Gp_role == GP_ROLE_EXECUTE)
 	{
 		switch (operation)
 		{
-			case 'p':
-				/* Push endpoint */
-				ParseToken(token, token_str);
-//				AllocEndpointOfToken(token, cursor_name);
-				break;
 			case 'w':
 				wait_for_init_by_cursor_name(cursor_name);
 				break;

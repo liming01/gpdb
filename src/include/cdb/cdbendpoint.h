@@ -200,6 +200,9 @@ extern bool CheckParallelCursorPrivilege(const int8 *token);
 /* Remove PARALLEL RETRIEVE CURSOR during cursor portal drop/abort, on QD */
 extern void DestroyParallelCursor(const char *cursorName);
 
+extern bool CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait);
+extern void HandleEndpointFinish(void);
+
 /*
  * Below functions should run on Endpoints(QE/QD).
  */
@@ -208,9 +211,6 @@ extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const 
 extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 /* Endpoint backend register/free, execute on Endpoints(QE/QD) */
 extern void AllocEndpointOfToken(const char *cursorName);
-
-extern bool CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait);
-extern void HandleEndpointFinish(void);
 
 /* UDFs for endpoints operation */
 extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
