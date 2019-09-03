@@ -122,3 +122,60 @@ sub() {
     done
     echo "${RAW_STR}"
 }
+
+# for @out_sh
+# parse_endpoint <postfix> <endpoint_col> <token_col> <host_col> <port_col>
+# OUTPUT (environment variables):
+#   "TOKEN$postfix"
+#   "ENDPOINT_NAME$postfix[]"
+#   "ENDPOINT_TOKEN$postfix[]"
+#   "ENDPOINT_HOST$postfix[]"
+#   "ENDPOINT_PORT$postfix[]"
+parse_endpoint() {
+    local postfix=$1
+    local endpoint_name_col=$2
+    local token_col=$3
+    local host_col=$4
+    local port_col=$5
+
+    eval "ENDPOINT_NAME${postfix}=()"
+    eval "ENDPOINT_TOKEN${postfix}=()"
+    eval "ENDPOINT_HOST${postfix}=()"
+    eval "ENDPOINT_PORT${postfix}=()"
+    # Filter out the first two lines and the last line.
+    while IFS= read -r line ; do
+        local name="$(echo "${line}" | awk -F '|' "{print \$${endpoint_name_col}}" | awk '{$1=$1;print}')"
+        local token="$(echo "${line}" | awk -F '|' "{print \$${token_col}}" | awk '{$1=$1;print}')"
+        local host="$(echo "${line}" | awk -F '|' "{print \$${host_col}}" | awk '{$1=$1;print}' )" local port="$(echo "${line}" | awk -F '|' "{print \$${port_col}}" | awk '{$1=$1;print}' )"
+        eval "ENDPOINT_NAME${postfix}+=(${name})"
+        eval "ENDPOINT_TOKEN${postfix}+=(${token})"
+        eval "ENDPOINT_HOST${postfix}+=(${host})"
+        eval "ENDPOINT_PORT${postfix}+=(${port})"
+
+        eval "TOKEN${postfix}=${token}"
+        export RETRIEVE_TOKEN=${token}
+    done <<<$(echo "$RAW_STR" | tail -n +3 | head -n -1)
+}
+
+# Substitute endpoint name by the saved
+# e.g.:
+# sub_endpoint_name "@ENDPOINT1"
+sub_endpoint_name() {
+    local postfix="$(echo $1 | sed 's/@ENDPOINT//')"
+    eval "local names=(\${ENDPOINT_NAME${postfix}[@]})"
+    eval "local hosts=(\"\${ENDPOINT_HOST${postfix}[@]}\")"
+    eval "ports=(\${ENDPOINT_PORT${postfix}[@]})"
+    local i=0
+    for h in "${hosts[@]}" ; do
+        if [ "$GP_HOSTNAME" = "$h" ] ; then
+            if [ "$GP_PORT" = "${ports[$i]}" ] ; then
+                sub "$1" "${names[$i]}"
+                return
+            fi
+        fi
+        i=$((i+1))
+    done
+    # echo "Cannot find endpoint for postfix '$postfix', '$GP_HOSTNAME', '$GP_PORT'."
+    echo $RAW_STR
+}
+
