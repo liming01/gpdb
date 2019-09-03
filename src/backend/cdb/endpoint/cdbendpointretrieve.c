@@ -145,17 +145,20 @@ AttachEndpoint(const char *endpoint_name)
 				break;
 			}
 
-			if (SharedEndpoints[i].receiver_pid == MyProcPid)    /* already attached by
-																 * this process before */
+			if (SharedEndpoints[i].receiver_pid == MyProcPid)
 			{
+				/* already attached by this process before */
 				is_self_pid = true;
-			} else if (SharedEndpoints[i].receiver_pid != InvalidPid)        /* already attached by
-																		 * other process before */
+			}
+			else if (SharedEndpoints[i].receiver_pid != InvalidPid &&
+					SharedEndpoints[i].receiver_pid != MyProcPid)
 			{
+				/* already attached by other process before */
 				is_other_pid = true;
 				attached_pid = SharedEndpoints[i].receiver_pid;
 				break;
-			} else
+			}
+			else
 			{
 				SharedEndpoints[i].receiver_pid = MyProcPid;
 			}
@@ -515,8 +518,7 @@ DetachEndpoint(bool reset_pid)
 	 * Then DetachEndpoint gets the lock but at this time, the token in shared memory
 	 * is not current retrieve token. Nothing should be done.
 	 */
-	if (!my_shared_endpoint->empty &&
-		token_equals(EndpointCtl.Gp_token, my_shared_endpoint->token))
+	if (!my_shared_endpoint->empty)
 	{
 		/*
 		 * If the receiver pid get retrieve_cancel_action, the pid is InvalidToken
