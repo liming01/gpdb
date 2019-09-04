@@ -250,6 +250,8 @@ extern bool master_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid)
 extern bool dbid_in_bitmap(int32 *bitmap, int16 dbid);
 extern void add_dbid_into_bitmap(int32 *bitmap, int16 dbid);
 extern int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit);
+extern EndpointDesc *find_endpoint(const char *endpoint_name, int session_id);
+extern int get_session_id_by_token(const int8 *token);
 
 /* UDFs for endpoints info*/
 extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);

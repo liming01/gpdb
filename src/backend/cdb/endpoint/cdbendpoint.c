@@ -1302,3 +1302,69 @@ EndpointDesc * find_endpoint_by_cursor_name(const char *cursor_name)
 	return res;
 }
 
+/*
+ * Find the endpoint by given endpoint name and session id.
+ * For the sender, the session_id is the gp_session_id since it is the same with
+ * the session which created the parallel retrieve cursor.
+ * For the retriever, the session_id is picked by the token when doing the
+ * authentication.
+ */
+EndpointDesc *
+find_endpoint(const char *endpoint_name, int session_id)
+{
+	EndpointDesc *res = NULL;
+
+	Assert(endpoint_name);
+
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		// FIXME: This is a temporary implementation based on the assumption that
+		// endpoint_name is unique across sessions. But it is not right, we need
+		// to find the endpoint created by in the session with the given
+		// session_id.
+		if (!SharedEndpoints[i].empty && /*SharedEndpoints[i].session_id == session_id &&*/
+			strncmp(SharedEndpoints[i].name, endpoint_name, ENDPOINT_NAME_LEN) ==
+				0)
+		{
+			res = &SharedEndpoints[i];
+			break;
+		}
+	}
+	LWLockRelease(ParallelCursorEndpointLock);
+
+	if (!res)
+	{
+		elog(ERROR, "Endpoint %s doesn't exist.", endpoint_name);
+	}
+	return res;
+}
+
+/*
+ * Find the corresponding session id by the given token.
+ */
+int
+get_session_id_by_token(const int8 *token)
+{
+	// FIXME: This is a temporary implementation. token needs to be moved out of
+	// EndpointDesc struct.
+	int session_id = InvalidSession;
+
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	{
+		if (!SharedEndpoints[i].empty &&
+			token_equals(token, SharedEndpoints[i].token))
+		{
+			session_id = SharedEndpoints[i].session_id;
+			break;
+		}
+	}
+	LWLockRelease(ParallelCursorEndpointLock);
+
+	if (session_id == InvalidSession)
+	{
+		elog(ERROR, "The endpoint auth token is invalid");
+	}
+	return session_id;
+}
