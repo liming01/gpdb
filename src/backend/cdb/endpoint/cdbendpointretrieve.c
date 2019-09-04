@@ -27,7 +27,7 @@
 #include "utils/faultinjector.h"
 #include "utils/dynahash.h"
 
-/* Hash table to cache tuple descriptors for all tokens which have been retrieved
+/* Hash table to cache tuple descriptors for all endpoint_names which have been retrieved
  * in this retrieve session */
 static HTAB *MsgQueueHTB = NULL;
 static MsgQueueStatusEntry *currentMQEntry = NULL;
@@ -41,13 +41,13 @@ static TupleDesc read_tuple_desc_info(shm_toc *toc);
 static TupleTableSlot *receive_tuple_slot(void);
 static void receiver_finish(void);
 static void receiver_mq_close(void);
-static void retrieve_cancel_action(const int8 *token, char *msg);
+static void retrieve_cancel_action(const char *endpoint_name, char *msg);
 static void retrieve_exit_callback(int code, Datum arg);
 static void retrieve_xact_abort_callback(XactEvent ev, void *vp);
 static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 									  SubTransactionId parentSubid, void *arg);
 static void check_endpoint_name(const char *name);
-extern bool token_equals(const int8 *token1, const int8 *token2);
+extern bool endpoint_name_equals(const char *name1, const char *name2);
 extern uint64 create_magic_num_from_token(const int8 *token);
 
 /*
@@ -60,33 +60,17 @@ bool
 FindEndpointTokenByUser(Oid user_id, const char *token_str)
 {
 	bool isFound = false;
+	int8 token[ENDPOINT_TOKEN_LEN] = {0};
+
 	before_shmem_exit(retrieve_exit_callback, (Datum) 0);
 	RegisterSubXactCallback(retrieve_subxact_callback, NULL);
 	RegisterXactCallback(retrieve_xact_abort_callback, NULL);
-	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
-	{
-		if (!SharedEndpoints[i].empty &&
-			SharedEndpoints[i].user_id == user_id)
-		{
-			/*
-			 * Here convert token from bytes array to string before comparison so
-			 * that even if the password can not be parsed to int32, there is
-			 * no crash.
-			 */
-			char *tmpTokenStr = PrintToken(SharedEndpoints[i].token);
+	ParseToken(token, token_str);
+	EndpointCtl.session_id = get_session_id_by_token(token);
+	if (EndpointCtl.session_id != InvalidSession)
+		isFound = true;
 
-			if (strncmp(token_str, tmpTokenStr, ENDPOINT_TOKEN_STR_LEN) == 0)
-			{
-				isFound = true;
-				pfree(tmpTokenStr);
-				break;
-			}
-			pfree(tmpTokenStr);
-		}
-	}
-	LWLockRelease(ParallelCursorEndpointLock);
 	return isFound;
 }
 
@@ -121,10 +105,10 @@ AttachEndpoint(const char *endpoint_name)
 
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		// FIXME: Add session check here.
 		if (SharedEndpoints[i].database_id == MyDatabaseId &&
-			strncmp(SharedEndpoints[i].name, endpoint_name, ENDPOINT_NAME_LEN) == 0 &&
-			!SharedEndpoints[i].empty)
+			endpoint_name_equals(SharedEndpoints[i].name, endpoint_name) &&
+			!SharedEndpoints[i].empty &&
+			SharedEndpoints[i].session_id == EndpointCtl.session_id)
 		{
 			if (SharedEndpoints[i].user_id != GetUserId())
 			{
@@ -204,16 +188,15 @@ AttachEndpoint(const char *endpoint_name)
 		elog(ERROR, "failed to attach non-existing endpoint %s", endpoint_name);
 
 	/*
-	 * Search all tokens that retrieved in this session, set
-	 * CurrentRetrieveToken to it's array index
+	 * Search all endpoint_names that retrieved in this session
 	 */
 	if (MsgQueueHTB == NULL)
 	{
 		HASHCTL ctl;
 		MemSet(&ctl, 0, sizeof(ctl));
-		ctl.keysize = sizeof(ENDPOINT_NAME_LEN);
+		ctl.keysize = ENDPOINT_NAME_LEN;
 		ctl.entrysize = sizeof(MsgQueueStatusEntry);
-		ctl.hash = tag_hash;
+		ctl.hash = string_hash;
 		MsgQueueHTB = hash_create("endpoint hash", MAX_ENDPOINT_SIZE, &ctl,
 								  (HASH_ELEM | HASH_FUNCTION));
 	}
@@ -239,7 +222,6 @@ AttachEndpoint(const char *endpoint_name)
 static void
 init_conn_for_receiver(void)
 {
-	CheckTokenValid();
 	Assert(currentMQEntry);
 
 	elog(DEBUG3, "CDB_ENDPOINTS: init message queue conn for receiver");
@@ -262,7 +244,9 @@ init_conn_for_receiver(void)
 		elog(ERROR, "attach to shared message queue failed.");
 	}
 	dsm_pin_mapping(dsm_seg);
-	shm_toc *toc = shm_toc_attach(create_magic_num_from_token(my_shared_endpoint->token), dsm_segment_address(dsm_seg));
+	shm_toc *toc = shm_toc_attach(
+		create_magic_num_from_token(my_shared_endpoint->token),
+		dsm_segment_address(dsm_seg));
 	shm_mq *mq = shm_toc_lookup(toc, ENDPOINT_KEY_TUPLE_QUEUE);
 	shm_mq_set_receiver(mq, MyProc);
 	currentMQEntry->mq_handle = shm_mq_attach(mq, dsm_seg, NULL);
@@ -311,7 +295,9 @@ TupleDescOfRetrieve(void)
 		init_conn_for_receiver();
 
 		Assert(currentMQEntry->mq_handle);
-		shm_toc *toc = shm_toc_attach(create_magic_num_from_token(my_shared_endpoint->token), dsm_segment_address(currentMQEntry->mq_seg));
+		shm_toc *toc = shm_toc_attach(
+			create_magic_num_from_token(my_shared_endpoint->token),
+			dsm_segment_address(currentMQEntry->mq_seg));
 		td = read_tuple_desc_info(toc);
 		currentMQEntry->tq_reader = CreateTupleQueueReader(currentMQEntry->mq_handle, td);
 
@@ -381,7 +367,6 @@ RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
 
 	DetachEndpoint(false);
 	ClearParallelCursorExecRole();
-	ClearGpToken();
 }
 
 /*
@@ -515,16 +500,18 @@ DetachEndpoint(bool reset_pid)
 	 * Or during the retrieve abort stage, sender cleaned the EndpointDesc entry
 	 * my_shared_endpoint pointed to. And another endpoint gets allocated just
 	 * after the clean, which will occupy current my_shared_endpoint entry.
-	 * Then DetachEndpoint gets the lock but at this time, the token in shared memory
-	 * is not current retrieve token. Nothing should be done.
+	 * Then DetachEndpoint gets the lock but at this time, the session_id + endpoint_name
+	 * in shared memory is not current retrieved session_id + endpoint_name. Nothing should be done.
 	 */
-	if (!my_shared_endpoint->empty)
+	if (!my_shared_endpoint->empty
+		&& endpoint_name_equals(my_shared_endpoint->name, currentMQEntry->endpoint_name)
+		&& my_shared_endpoint->session_id == EndpointCtl.session_id)
 	{
 		/*
-		 * If the receiver pid get retrieve_cancel_action, the pid is InvalidToken
+		 * If the receiver pid get retrieve_cancel_action, the receiver pid is invalid.
 		 */
 		if (my_shared_endpoint->receiver_pid != MyProcPid &&
-			!IsEndpointTokenValid(my_shared_endpoint->token))
+			my_shared_endpoint->receiver_pid != InvalidPid)
 			elog(ERROR, "unmatched pid, expected %d but it's %d",
 				 MyProcPid, my_shared_endpoint->receiver_pid);
 
@@ -550,7 +537,7 @@ DetachEndpoint(bool reset_pid)
  * When retrieve role exit with error, let endpoint/sender know exception happened.
  */
 static void
-retrieve_cancel_action(const int8 *token, char *msg)
+retrieve_cancel_action(const char *endpoint_name, char *msg)
 {
 	/*
 	 * If current role is not receiver, the retrieve must already finished success
@@ -561,17 +548,14 @@ retrieve_cancel_action(const int8 *token, char *msg)
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	EndpointDesc *endpointDesc = find_endpoint(endpoint_name, EndpointCtl.session_id);
+	if (endpointDesc && endpointDesc->receiver_pid == MyProcPid
+		&& endpointDesc->attach_status != Status_Finished)
 	{
-		if (token_equals(SharedEndpoints[i].token, token) && SharedEndpoints[i].receiver_pid == MyProcPid
-			&& SharedEndpoints[i].attach_status != Status_Finished)
-		{
-			SharedEndpoints[i].receiver_pid = InvalidPid;
-			SharedEndpoints[i].attach_status = Status_NotAttached;
-			elog(DEBUG3, "CDB_ENDPOINT: signal sender to abort");
-			pg_signal_backend(SharedEndpoints[i].sender_pid, SIGINT, msg);
-			break;
-		}
+		endpointDesc->receiver_pid = InvalidPid;
+		endpointDesc->attach_status = Status_NotAttached;
+		elog(DEBUG3, "CDB_ENDPOINT: signal sender to abort");
+		pg_signal_backend(endpointDesc->sender_pid, SIGINT, msg);
 	}
 
 	LWLockRelease(ParallelCursorEndpointLock);
@@ -580,7 +564,7 @@ retrieve_cancel_action(const int8 *token, char *msg)
 /*
  * Callback when retrieve role on proc exit, before shmem exit.
  *
- * If retrieve role session do retrieve for more than one token.
+ * If retrieve role session do retrieve for more than one endpoint_name.
  * On exit, we need to detach all message queue.
  * It's a callback in before shmem exit.
  *
@@ -621,12 +605,11 @@ static void retrieve_exit_callback(int code, Datum arg)
 	hash_seq_init(&status, MsgQueueHTB);
 	while ((entry = (MsgQueueStatusEntry *) hash_seq_search(&status)) != NULL)
 	{
-		retrieve_cancel_action(entry->retrieve_token, "Endpoint retrieve session quit, "
+		retrieve_cancel_action(entry->endpoint_name, "Endpoint retrieve session quit, "
 													  "all unfinished endpoint backends will be cancelled");
 	}
 	DetachEndpoint(true);
 
-	ClearGpToken();
 	ClearParallelCursorExecRole();
 
 	/* Nothing to do if hashtable not set up */
@@ -647,9 +630,9 @@ static void retrieve_exit_callback(int code, Datum arg)
  * Retrieve role xact abort callback.
  *
  * If normal abort, DetachEndpoint and retrieve_cancel_action will only
- * be called once in current function for current token.
+ * be called once in current function for current endpoint_name.
  *
- * Buf if it's proc exit, these two methods will be called twice for current token.
+ * Buf if it's proc exit, these two methods will be called twice for current endpoint_name.
  * Since we call these two methods before dsm detach.
  */
 static void retrieve_xact_abort_callback(XactEvent ev, void *vp)
@@ -659,12 +642,11 @@ static void retrieve_xact_abort_callback(XactEvent ev, void *vp)
 		elog(DEBUG3, "CDB_ENDPOINT: retrieve xact abort callback");
 		if (EndpointCtl.Gp_prce_role == PRCER_RECEIVER &&
 			my_shared_endpoint != NULL &&
-            IsEndpointTokenValid(EndpointCtl.Gp_token))
+            EndpointCtl.session_id != InvalidSession)
 		{
-			retrieve_cancel_action(EndpointCtl.Gp_token, "Endpoint retrieve statement aborted");
+			retrieve_cancel_action(currentMQEntry->endpoint_name, "Endpoint retrieve statement aborted");
 			DetachEndpoint(true);
 		}
-		ClearGpToken();
 		ClearParallelCursorExecRole();
 	}
 }
@@ -684,7 +666,7 @@ static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySub
 static void
 check_endpoint_name(const char *name)
 {
-	if (!name[0]) {
-		ereport(FATAL, (errcode(ERRCODE_INVALID_NAME), "Invalid endpoint name"));
+	if (!IsEndpointNameValid(name)) {
+		ereport(ERROR, (errcode(ERRCODE_INVALID_NAME), "Invalid endpoint name"));
 	}
 }

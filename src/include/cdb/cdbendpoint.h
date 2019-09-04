@@ -42,6 +42,7 @@
 #define MAX_ENDPOINT_SIZE                1024
 #define ENDPOINT_TOKEN_LEN               16
 #define ENDPOINT_TOKEN_STR_LEN           (2 + ENDPOINT_TOKEN_LEN * 2) //"tk0A1B...4E5F"
+#define InvalidSession                  (-1)
 
 #define GP_ENDPOINT_STATUS_INIT          "INIT"
 #define GP_ENDPOINT_STATUS_READY         "READY"
@@ -167,6 +168,7 @@ typedef struct EndpointControl
 	int8 Gp_token[ENDPOINT_TOKEN_LEN];         /* Current PARALLEL RETRIEVE CURSOR token */
 	enum ParallelRetrCursorExecRole Gp_prce_role;   /* Current PARALLEL RETRIEVE CURSOR role */
 	char cursor_name[NAMEDATALEN];
+	int  session_id;
 } EndpointControl;
 
 typedef ParallelCursorTokenDesc *ParaCursorToken;
@@ -201,7 +203,6 @@ extern bool CheckParallelCursorPrivilege(const int8 *token);
 extern void DestroyParallelCursor(const char *cursorName);
 
 extern bool CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait);
-extern void HandleEndpointFinish(void);
 
 /*
  * Below functions should run on Endpoints(QE/QD).
@@ -242,6 +243,8 @@ extern enum ParallelRetrCursorExecRole GetParallelCursorExecRole(void);
 extern const char *EndpointRoleToString(enum ParallelRetrCursorExecRole role);
 extern bool IsEndpointTokenValid(const int8 *token);
 extern void InvalidateEndpointToken(int8 *token /*out*/);
+extern bool IsEndpointNameValid(const char *endpoint_name);
+extern void InvalidateEndpointName(char *endpoint_name /*out*/);
 
 /* Utility functions to handle tokens and endpoints in shared memory */
 extern bool endpoint_on_qd(ParaCursorToken para_cursor_token);

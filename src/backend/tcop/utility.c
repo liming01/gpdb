@@ -1943,7 +1943,7 @@ UtilityTupleDescriptor(Node *parsetree)
 					elog(ERROR, "RETRIEVE command can only run in retrieve mode");
 
                 SetParallelCursorExecRole(PRCER_RECEIVER);
-				AttachEndpoint(n->token_str);
+				AttachEndpoint(n->endpoint_name);
 
 				return CreateTupleDescCopy(TupleDescOfRetrieve());
 			}

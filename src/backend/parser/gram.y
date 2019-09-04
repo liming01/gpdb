@@ -11905,14 +11905,14 @@ RetrieveStmt:
 			RETRIEVE SignedIconst FROM ENDPOINT name
 				{
 					RetrieveStmt *n = makeNode(RetrieveStmt);
-					n->token_str = $5;
+					n->endpoint_name = $5;
 					n->count = $2;
 					$$ = (Node *)n;
 				}
 			| RETRIEVE ALL FROM ENDPOINT name
 				{
 					RetrieveStmt *n = makeNode(RetrieveStmt);
-					n->token_str = $5;
+					n->endpoint_name = $5;
 					n->count = -1;
 					n->is_all = true;
 					$$ = (Node *)n;

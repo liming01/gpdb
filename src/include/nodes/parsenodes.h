@@ -3369,7 +3369,7 @@ typedef struct AlterTSConfigurationStmt
 typedef struct RetrieveStmt
 {
 	NodeTag		type;
-	char		*token_str;
+	char		*endpoint_name;
 	int64		count;
 	bool		is_all;
 } RetrieveStmt;

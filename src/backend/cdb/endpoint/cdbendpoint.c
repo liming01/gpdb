@@ -51,7 +51,6 @@
 
 #define WAIT_RECEIVE_TIMEOUT            50
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
-#define InvalidSession                  (-1)
 
 #define SHMEM_PARALLEL_CURSOR_ENTRIES   "SharedMemoryParallelCursorTokens"
 #define SHMEM_ENDPOINTS_ENTRIES         "SharedMemoryEndpointDescEntries"
@@ -238,7 +237,7 @@ remove_parallel_cursor(const char *cursor_name, bool *on_qd, List **seg_list)
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (strncmp(SharedTokens[i].cursor_name, cursor_name, NAMEDATALEN) == 0 &&
-				SharedTokens[i].session_id == gp_session_id)
+			SharedTokens[i].session_id == gp_session_id)
 		{
 			found = true;
 			if (on_qd != NULL && endpoint_on_qd(&SharedTokens[i]))
@@ -648,19 +647,11 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	unset_endpoint_sender_pid(my_shared_endpoint);
 	set_attach_status(Status_Finished);
 
-	PG_TRY();
-	{
-		if (!QueryFinishPending) {
-			CHECK_FOR_INTERRUPTS();
-			WaitLatch(&MyProc->procLatch, WL_LATCH_SET, 0);
-			ResetLatch(&MyProc->procLatch);
-		}
+	if (!QueryFinishPending) {
+		CHECK_FOR_INTERRUPTS();
+		WaitLatch(&MyProc->procLatch, WL_LATCH_SET, 0);
+		ResetLatch(&MyProc->procLatch);
 	}
-	PG_CATCH();
-	{
-		PG_RE_THROW();
-	}
-	PG_END_TRY();
 
 	free_endpoint_by_cursor_name(EndpointCtl.cursor_name);
 	ClearGpToken();
@@ -1121,6 +1112,7 @@ free_endpoint(EndpointDesc *endpointDesc)
 	endpointDesc->session_id = InvalidSession;
 	endpointDesc->user_id = InvalidOid;
 	endpointDesc->empty = true;
+	InvalidateEndpointName(endpointDesc->name);
 	LWLockRelease(ParallelCursorEndpointLock);
 }
 
@@ -1236,7 +1228,6 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 	char operation;
 	const char *token_str = NULL;
 	const char *cursor_name = NULL;
-	int8 token[ENDPOINT_TOKEN_LEN] = {0};
 	Assert(Gp_role == GP_ROLE_EXECUTE);
 
 	if (PG_ARGISNULL(0) || PG_ARGISNULL(1))
@@ -1252,10 +1243,6 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 		{
 			case 'w':
 				wait_for_init_by_cursor_name(cursor_name);
-				break;
-			case 'f':
-				/* Free endpoint */
-				free_endpoint_by_cursor_name(cursor_name);
 				break;
 			default:
 				elog(ERROR, "Failed to execute gp_operate_endpoints_token('%c', '%s')", operation, token_str);
@@ -1308,6 +1295,8 @@ EndpointDesc * find_endpoint_by_cursor_name(const char *cursor_name)
  * the session which created the parallel retrieve cursor.
  * For the retriever, the session_id is picked by the token when doing the
  * authentication.
+ *
+ * The caller is responsible for acquiring ParallelCursorEndpointLock lock.
  */
 EndpointDesc *
 find_endpoint(const char *endpoint_name, int session_id)
@@ -1316,7 +1305,6 @@ find_endpoint(const char *endpoint_name, int session_id)
 
 	Assert(endpoint_name);
 
-	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		// FIXME: This is a temporary implementation based on the assumption that
@@ -1324,19 +1312,13 @@ find_endpoint(const char *endpoint_name, int session_id)
 		// to find the endpoint created by in the session with the given
 		// session_id.
 		if (!SharedEndpoints[i].empty && /*SharedEndpoints[i].session_id == session_id &&*/
-			strncmp(SharedEndpoints[i].name, endpoint_name, ENDPOINT_NAME_LEN) ==
-				0)
+			strncmp(SharedEndpoints[i].name, endpoint_name, ENDPOINT_NAME_LEN) == 0)
 		{
 			res = &SharedEndpoints[i];
 			break;
 		}
 	}
-	LWLockRelease(ParallelCursorEndpointLock);
 
-	if (!res)
-	{
-		elog(ERROR, "Endpoint %s doesn't exist.", endpoint_name);
-	}
 	return res;
 }
 
@@ -1362,9 +1344,5 @@ get_session_id_by_token(const int8 *token)
 	}
 	LWLockRelease(ParallelCursorEndpointLock);
 
-	if (session_id == InvalidSession)
-	{
-		elog(ERROR, "The endpoint auth token is invalid");
-	}
 	return session_id;
 }

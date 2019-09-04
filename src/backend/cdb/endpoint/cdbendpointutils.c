@@ -78,10 +78,11 @@ static const uint8 rightmost_one_pos[256] = {
 };
 
 extern bool token_equals(const int8 *token1, const int8 *token2);
+extern bool endpoint_name_equals(const char *name1, const char *name2);
 extern uint64 create_magic_num_from_token(const int8 *token);
 
 struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
-	{0}, PRCER_NONE, {0}
+	{0}, PRCER_NONE, {0}, -1
 };
 
 /*
@@ -803,6 +804,12 @@ token_equals(const int8* token1, const int8* token2)
 	return memcmp(token1, token2, ENDPOINT_TOKEN_LEN) == 0;
 }
 
+bool
+endpoint_name_equals(const char *name1, const char *name2)
+{
+	return strncmp(name1, name2, ENDPOINT_NAME_LEN) == 0;
+}
+
 void
 InvalidateEndpointToken(int8* token /*out*/)
 {
@@ -813,9 +820,23 @@ InvalidateEndpointToken(int8* token /*out*/)
 bool
 IsEndpointTokenValid(const int8* token) {
 	Assert(token);
-	for (int i = 0; i < ENDPOINT_TOKEN_LEN; ++i) {
+	for (int i = 0; i < ENDPOINT_TOKEN_LEN; ++i)
+	{
 		if (token[i]) return true;
 	}
 	return false;
 }
 
+bool IsEndpointNameValid(const char *endpoint_name)
+{
+	Assert(endpoint_name);
+	if (endpoint_name[0])
+		return true;
+	return false;
+}
+
+void InvalidateEndpointName(char *endpoint_name /*out*/)
+{
+	Assert(endpoint_name);
+	memset(endpoint_name, '\0', ENDPOINT_NAME_LEN);
+}
