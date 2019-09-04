@@ -12,12 +12,12 @@ INSERT 100
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 1 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpointname         | token                              | hostname    | port  | status
+----------------------+------------------------------------+-------------+-------+--------
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
 1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
 

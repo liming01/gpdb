@@ -137,16 +137,21 @@ parse_endpoint() {
     local token_col=$3
     local host_col=$4
     local port_col=$5
+    local index=1
 
     eval "ENDPOINT_NAME${postfix}=()"
     eval "ENDPOINT_TOKEN${postfix}=()"
     eval "ENDPOINT_HOST${postfix}=()"
     eval "ENDPOINT_PORT${postfix}=()"
-    # Filter out the first two lines and the last line.
     while IFS= read -r line ; do
-        local name="$(echo "${line}" | awk -F '|' "{print \$${endpoint_name_col}}" | awk '{$1=$1;print}')"
-        local token="$(echo "${line}" | awk -F '|' "{print \$${token_col}}" | awk '{$1=$1;print}')"
-        local host="$(echo "${line}" | awk -F '|' "{print \$${host_col}}" | awk '{$1=$1;print}' )" local port="$(echo "${line}" | awk -F '|' "{print \$${port_col}}" | awk '{$1=$1;print}' )"
+        local name=""
+        name="$(echo "${line}" | awk -F '|' "{print \$${endpoint_name_col}}" | awk '{$1=$1;print}')"
+        local token=""
+        token="$(echo "${line}" | awk -F '|' "{print \$${token_col}}" | awk '{$1=$1;print}')"
+        local host=""
+        host="$(echo "${line}" | awk -F '|' "{print \$${host_col}}" | awk '{$1=$1;print}' )"
+        local port=""
+        port="$(echo "${line}" | awk -F '|' "{print \$${port_col}}" | awk '{$1=$1;print}' )"
         eval "ENDPOINT_NAME${postfix}+=(${name})"
         eval "ENDPOINT_TOKEN${postfix}+=(${token})"
         eval "ENDPOINT_HOST${postfix}+=(${host})"
@@ -154,14 +159,24 @@ parse_endpoint() {
 
         eval "TOKEN${postfix}=${token}"
         export RETRIEVE_TOKEN=${token}
-    done <<<$(echo "$RAW_STR" | tail -n +3 | head -n -1)
+
+        match_sub "endpoint_id${postfix}_${index}" "${name}" \
+            port_id "${port}" \
+            token_id "${token}" \
+            host_id "${host}" > /dev/null
+
+        index=$((index+1))
+    # Filter out the first two lines and the last line.
+    done <<<"$(echo "$RAW_STR" | sed '1,2d;$d')"
+    echo "${RAW_STR}"
 }
 
 # Substitute endpoint name by the saved
 # e.g.:
 # sub_endpoint_name "@ENDPOINT1"
 sub_endpoint_name() {
-    local postfix="$(echo $1 | sed 's/@ENDPOINT//')"
+    local postfix=""
+    postfix="$(echo "$1" | sed 's/@ENDPOINT//')"
     eval "local names=(\${ENDPOINT_NAME${postfix}[@]})"
     eval "local hosts=(\"\${ENDPOINT_HOST${postfix}[@]}\")"
     eval "ports=(\${ENDPOINT_PORT${postfix}[@]})"
