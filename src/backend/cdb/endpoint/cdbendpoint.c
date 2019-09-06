@@ -31,6 +31,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <cdb/cdbdisp_dtx.h>
+#include <utils/portal.h>
+#include <cdb/cdbdispatchresult.h>
 
 #include "cdb/cdbendpoint.h"
 #include "access/xact.h"
@@ -68,6 +70,7 @@ static EndpointDesc *my_shared_endpoint = NULL;          /* Current EndpointDesc
 /* Endpoint and PARALLEL RETRIEVE CURSOR token helper function */
 static void init_shared_endpoints(void *address);
 static void wait_for_init_by_cursor_name(const char *cursor_name);
+static bool check_endpoint_finished_by_cursor_name(const char *cursor_name, bool isWait);
 static void init_shared_tokens(void *address);
 static void reset_shared_token(ParallelCursorTokenDesc *desc);
 static void parallel_cursor_exit_callback(int code, Datum arg);
@@ -98,6 +101,8 @@ extern bool token_equals(const int8 *token1, const int8 *token2);
 extern uint64 create_magic_num_from_token(const int8 *token);
 extern void generate_endpoint_name(char *name, const char *cursor_name, int32 session_id, int32 segindex);
 extern EndpointDesc * find_endpoint_by_cursor_name(const char *name);
+
+static bool check_parallel_retrieve_cursor(const char *cursorname, bool isWait);
 
 /*
  * Endpoint_ShmemSize - Calculate the shared memory size for PARALLEL RETRIEVE CURSOR execute.
@@ -494,9 +499,18 @@ AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id, Oi
 	}
 }
 
-void
-WaitEndpointReady(const struct Plan *planTree, const char *cursorName)
+/**
+ *  Calling endpoint UDF on QD process, and it will dispatch the query to all the endpoints nodes basing on this
+ *  parallel retrieve cursor plan. And return true if all endpoints return true.
+ * @param planTree
+ * @param cursorName
+ * @param operator
+ * @return If all endpoints returns true then return true, otherwise return false
+ */
+bool
+CallEndpointUDFOnQD(const struct Plan *planTree, const char *cursorName, const char operator)
 {
+    bool ret_val = true;
 	char cmd[255];
 	List *cids;
 	enum EndPointExecPosition endPointExecPosition;
@@ -506,24 +520,68 @@ WaitEndpointReady(const struct Plan *planTree, const char *cursorName)
 
 	if (endPointExecPosition == ENDPOINT_ON_QD)
 	{
-		DirectFunctionCall3(gp_operate_endpoints_token, CharGetDatum('w'),
-							CStringGetDatum(""), CStringGetDatum(cursorName));
+        ret_val = DatumGetBool(DirectFunctionCall3(gp_operate_endpoints_token, CharGetDatum('w'),
+							CStringGetDatum(""), CStringGetDatum(cursorName)));
 	}
 	else
 	{
-		snprintf(cmd, 255, "select __gp_operate_endpoints_token('w', '', '%s')", cursorName);
+        CdbPgResults cdb_pgresults = {NULL, 0};
+
+		snprintf(cmd, 255, "select __gp_operate_endpoints_token('%c', '', '%s')", operator, cursorName);
 		if (endPointExecPosition == ENDPOINT_ON_ALL_QE)
 		{
 			/* Push token to all segments */
-			CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, NULL);
+			CdbDispatchCommand(cmd, DF_CANCEL_ON_ERROR, &cdb_pgresults);
 		}
 		else
 		{
-			CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, cids, NULL);
+			CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, cids, &cdb_pgresults);
 		}
-	}
-}
 
+        for (int i = 0; i < cdb_pgresults.numResults; i++)
+        {
+            PGresult   *res = cdb_pgresults.pg_results[i];
+            int			ntuples;
+            int			nfields;
+            bool        ret_val_seg = false; /*return value from segment UDF calling*/
+
+            if (PQresultStatus(res) != PGRES_TUPLES_OK)
+            {
+                char	   *msg = pstrdup(PQresultErrorMessage(res));
+                cdbdisp_clearCdbPgResults(&cdb_pgresults);
+                ereport(ERROR,
+                        (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
+                                errmsg("could not get return value of UDF __gp_operate_endpoints_token() from segment"),
+                                errdetail("%s", msg)));
+            }
+
+            ntuples = PQntuples(res);
+            nfields = PQnfields(res);
+            if (ntuples != 1 || nfields != 1)
+            {
+                cdbdisp_clearCdbPgResults(&cdb_pgresults);
+                ereport(ERROR,
+                        (errcode(ERRCODE_INTERNAL_ERROR),
+                                errmsg("unexpected result set received from __gp_operate_endpoints_token()"),
+                                errdetail("Result set expected to be 1 row and 1 column, but it had %d rows and %d columns",
+                                          ntuples, nfields)));
+            }
+
+            ret_val_seg = (strncmp(PQgetvalue(res, 0, 0),"t",1)==0);
+
+            /* If any segment return false, then return false for this func*/
+            if (!ret_val_seg)
+                ret_val = ret_val_seg;
+                break;
+        }
+	}
+	return ret_val;
+}
+void
+WaitEndpointReady(const struct Plan *planTree, const char *cursorName)
+{
+    CallEndpointUDFOnQD(planTree, cursorName, 'w');
+}
 /*
  * Check if the given token is created by the current user.
  * Returns true if the given token is created by the current user.
@@ -745,6 +803,7 @@ AllocEndpointOfToken(const char *cursorName)
 		SharedEndpoints[i].user_id = GetUserId();
 		SharedEndpoints[i].sender_pid = InvalidPid;
 		SharedEndpoints[i].receiver_pid = InvalidPid;
+        InitSharedLatch(&SharedEndpoints[i].check_wait_latch);
 		SharedEndpoints[i].attach_status = Status_NotAttached;
 		SharedEndpoints[i].empty = false;
 		my_shared_endpoint = &SharedEndpoints[i];
@@ -787,13 +846,60 @@ set_sender_pid(void)
 void
 wait_for_init_by_cursor_name(const char *cursor_name)
 {
-	int wr = 0;
-	EndpointDesc *endpointDesc = find_endpoint_by_cursor_name(cursor_name);
+    EndpointDesc *endpointDesc = NULL;
+	//TODO: Now just loop here to wait for Endpoint QE create EndpointDesc
+    while((endpointDesc = find_endpoint_by_cursor_name(cursor_name))==NULL)
+        pg_usleep(1000);
+
 //	if (!endpointDesc) {
 //		elog(ERROR, "Endpoint doesn't exist");
 //	}
+    OwnLatch(&endpointDesc->check_wait_latch);
+    elog(LOG, "CDB_ENDPOINT: OwnLatch on endpointDesc->check_wait_latch by pid: %d", endpointDesc->check_wait_latch.owner_pid);
 }
+/**
+ * Chech if the endpoint has finished retrieving data
+ *
+ * @param cursor_name: specify the cursor this endpoint belongs to.
+ * @param isWait: wait until finished or not
+ *
+ * Return Value: whether this endpoint finished or not.
+ */
+bool
+check_endpoint_finished_by_cursor_name(const char *cursor_name, bool isWait)
+{
+    bool isFinished = false;
+    EndpointDesc *endpointDesc = NULL;
 
+    //TODO: Now just loop here to wait for Endpoint QE create EndpointDesc
+    while((endpointDesc = find_endpoint_by_cursor_name(cursor_name))==NULL)
+        pg_usleep(1000);
+
+    isFinished = endpointDesc->attach_status == Status_Finished;
+    if(isWait && !isFinished){
+        elog(LOG, "CDB_ENDPOINT: WaitLatch on endpointDesc->check_wait_latch by pid: %d", MyProcPid);
+        while (true)
+        {
+            int wr;
+            CHECK_FOR_INTERRUPTS();
+
+            if (QueryFinishPending)
+                break;
+            wr = WaitLatch(&endpointDesc->check_wait_latch,
+                           WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
+                           WAIT_RECEIVE_TIMEOUT);
+            if (wr & WL_TIMEOUT)
+                continue;
+            if (wr & WL_POSTMASTER_DEATH)
+            {
+                proc_exit(0);
+            }
+            break;
+        }
+        isFinished = endpointDesc->attach_status == Status_Finished;
+    }
+    return isFinished;
+}
 /**
  * Check the PARALLEL RETRIEVE CURSOR execution status, if get error, then rethrow the error
  *
@@ -1034,6 +1140,7 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
 		endPointDesc->sender_pid = InvalidPid;
 		ResetLatch(&endPointDesc->ack_done);
 		DisownLatch(&endPointDesc->ack_done);
+        SetLatch(&endPointDesc->check_wait_latch);
 	}
 
 	LWLockRelease(ParallelCursorEndpointLock);
@@ -1225,6 +1332,7 @@ set_attach_status(enum AttachStatus status)
 Datum
 gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 {
+    bool ret_val = false;
 	char operation;
 	const char *token_str = NULL;
 	const char *cursor_name = NULL;
@@ -1241,17 +1349,70 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 	{
 		switch (operation)
 		{
-			case 'w':
+		    case 'c':
+                ret_val = check_endpoint_finished_by_cursor_name(cursor_name, false);
+                break;
+            case 'h':
+                ret_val = check_endpoint_finished_by_cursor_name(cursor_name, true);
+                break;
+            case 'w':
 				wait_for_init_by_cursor_name(cursor_name);
-				break;
+                ret_val = true;
+                break;
 			default:
 				elog(ERROR, "Failed to execute gp_operate_endpoints_token('%c', '%s')", operation, token_str);
-				PG_RETURN_BOOL(false);
+				ret_val = false;
 		}
 	}
-	PG_RETURN_BOOL(true);
+	PG_RETURN_BOOL(ret_val);
 }
 
+bool
+check_parallel_retrieve_cursor(const char *cursor_name, bool isWait)
+{
+    bool ret_val = false;
+    bool is_parallel_retrieve = false;
+    Portal		portal;
+
+    /* get the portal from the portal name */
+    portal = GetPortalByName(cursor_name);
+    if (!PortalIsValid(portal))
+    {
+        ereport(ERROR,
+                (errcode(ERRCODE_UNDEFINED_CURSOR),
+                        errmsg("cursor \"%s\" does not exist", cursor_name)));
+        return false;					/* keep compiler happy */
+    }
+    is_parallel_retrieve = (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE) > 0 ;
+    if (!is_parallel_retrieve)
+    {
+        ereport(ERROR,
+                (errcode(ERRCODE_SYNTAX_ERROR),
+                        errmsg("This UDF only works for PARALLEL RETRIEVE CURSOR.")));
+        return false;
+    }
+    PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
+    ret_val = CallEndpointUDFOnQD(stmt->planTree,cursor_name, isWait? 'h': 'c');
+
+    return ret_val;
+}
+Datum
+gp_check_parallel_retrieve_cursor(PG_FUNCTION_ARGS)
+{
+    const char *cursor_name = NULL;
+    cursor_name = PG_GETARG_CSTRING(0);
+
+    PG_RETURN_BOOL(check_parallel_retrieve_cursor(cursor_name, false));
+}
+
+Datum
+gp_wait_parallel_retrieve_cursor(PG_FUNCTION_ARGS)
+{
+    const char *cursor_name = NULL;
+    cursor_name = PG_GETARG_CSTRING(0);
+
+    PG_RETURN_BOOL(check_parallel_retrieve_cursor(cursor_name, true));
+}
 /*
  * Generate the endpoint name based on the PARALLEL RETRIEVE CURSOR name,
  * session ID and the segment index.

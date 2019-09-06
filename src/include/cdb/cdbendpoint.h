@@ -136,6 +136,7 @@ typedef struct EndpointDesc
 	int8 token[ENDPOINT_TOKEN_LEN];    /* The token of the endpoint's running PARALLEL RETRIEVE CURSOR */
 	dsm_handle handle;                 /* DSM handle, which contains shared message queue */
 	Latch ack_done;                    /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
+    Latch check_wait_latch;            /* Latch to sync CHECK WAIT udf in write gang and ENDPOINT QE */
 	enum AttachStatus attach_status;   /* The attach status of the endpoint */
 	int session_id;                    /* Connection session id */
 	Oid user_id;                       /* User ID of the current executed PARALLEL RETRIEVE CURSOR */
@@ -197,6 +198,7 @@ extern List *ChooseEndpointContentIDForParallelCursor(
 extern void AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id,
 								   Oid user_id, enum EndPointExecPosition endPointExecPosition, List *seg_list);
 extern void WaitEndpointReady(const struct Plan *planTree, const char *cursorName);
+extern bool CallEndpointUDFOnQD(const struct Plan *planTree, const char *cursorName, const char operator);
 /* Called during EXECUTE CURSOR stage on QD. */
 extern bool CheckParallelCursorPrivilege(const int8 *token);
 /* Remove PARALLEL RETRIEVE CURSOR during cursor portal drop/abort, on QD */
@@ -215,8 +217,8 @@ extern void AllocEndpointOfToken(const char *cursorName);
 
 /* UDFs for endpoints operation */
 extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
-
-
+extern Datum gp_check_parallel_retrieve_cursor(PG_FUNCTION_ARGS);
+extern Datum gp_wait_parallel_retrieve_cursor(PG_FUNCTION_ARGS);
 /* cdbendpointretrieve.c */
 /*
  * Below functions should run on retrieve role backend.

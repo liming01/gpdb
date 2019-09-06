@@ -329,6 +329,13 @@ DESCR("endpoints status information");
 DATA(insert OID = 7180 ( __gp_operate_endpoints_token  PGNSP PGUID 12 1 0 0 0 f f f f f f v 3 0 16 "18 2275 2275" "{18,2275,2275,16}" "{i,i,i,o}" "{operation,tokenstr,cursorname,success}" _null_ gp_operate_endpoints_token _null_ _null_ _null_ n a ));
 DESCR("operation on endpoints entries");
 
+/* gp_check_parallel_retrieve_cursor(IN cursorname cstring, OUT finished bool) => bool */
+DATA(insert OID = 7181 ( gp_check_parallel_retrieve_cursor  PGNSP PGUID 12 1 0 0 0 f f f f f f v 1 0 16 "2275" "{2275,16}" "{i,o}" "{cursorname,finished}" _null_ gp_check_parallel_retrieve_cursor _null_ _null_ _null_ n a ));
+DESCR("check whether all endpoint of this parallel retrieve cursor has been retrieved finished");
+
+/* gp_wait_parallel_retrieve_cursor(IN cursorname cstring, OUT finished bool) => bool */
+DATA(insert OID = 7182 ( gp_wait_parallel_retrieve_cursor  PGNSP PGUID 12 1 0 0 0 f f f f f f v 1 0 16 "2275" "{2275,16}" "{i,o}" "{cursorname,finished}" _null_ gp_wait_parallel_retrieve_cursor _null_ _null_ _null_ n a ));
+DESCR("wait until all endpoint of this parallel retrieve cursor has been retrieved finished");
 
 /* the bitmap index access method routines */
 /* bmgettuple(internal, internal) => bool */
