@@ -37,9 +37,12 @@ DECLARE
  endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
 
-1: CHECK PARALLEL RETRIEVE CURSOR c1 NOWAIT;
-CHECK
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
+ finished 
+----------
+ f        
+(1 row)
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
 *R: @in_sh 'sub_endpoint_name @ENDPOINT1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT1';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
@@ -86,6 +89,9 @@ CHECK
 (4 rows)
 
 1<:  <... completed>
-CHECK
+ finished 
+----------
+ t        
+(1 row)
 1: CLOSE c1;
 CLOSE
