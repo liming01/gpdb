@@ -29,5 +29,9 @@ ROLLBACK;
 -- Test: non-PARALLEL RETRIEVE CURSOR can not support the "CHECK PARALLEL RETRIEVE CURSOR" statement
 BEGIN;
 DECLARE c1 CURSOR FOR SELECT * FROM t1;
-CHECK PARALLEL RETRIEVE CURSOR c1;
+SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
+ROLLBACK;
+BEGIN;
+DECLARE c1 CURSOR FOR SELECT * FROM t1;
+SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
 ROLLBACK;
