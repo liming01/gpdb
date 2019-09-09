@@ -25,15 +25,15 @@ DECLARE
 -- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions,
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
+4: @out_sh 'parse_endpoint 1 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+ endpointname         | token                              | hostname     | port  | status
+----------------------+------------------------------------+--------------+-------+--------
+ endpoint_id1_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
-2&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
-3&: CHECK PARALLEL RETRIEVE CURSOR c3;  <waiting ...>
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
+2&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
+3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');  <waiting ...>
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT1';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -47,7 +47,7 @@ DECLARE
 
 #2retrieve> FATAL:  Retrieve auth token is invalid
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE 10 FROM "@TOKEN1";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT1";
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -91,6 +91,14 @@ ROLLBACK
 ROLLBACK
 3: ROLLBACK;
 ROLLBACK
+
+1q: ... <quitting>
+2q: ... <quitting>
+3q: ... <quitting>
+-1Rq: FAILED:  Sessions not started cannot be quit
+1Rq: ... <quitting>
+2Rq: FAILED:  Sessions not started cannot be quit
+3Rq: FAILED:  Sessions not started cannot be quit
 
 --------- Test2: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
@@ -110,15 +118,15 @@ DECLARE
 -- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions,
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
- token                              | status
-------------------------------------+--------
- token_id2 | INIT
+4: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+ endpointname         | token                              | hostname     | port  | status
+----------------------+------------------------------------+--------------+-------+--------
+ endpoint_id2_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
-2&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
-3&: CHECK PARALLEL RETRIEVE CURSOR c3;  <waiting ...>
-*R: @in_sh 'sub @TOKEN2 $TOKEN2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
+2&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
+3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');  <waiting ...>
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -132,7 +140,7 @@ DECLARE
 
 #2retrieve> FATAL:  Retrieve auth token is invalid
 
-*R: @in_sh 'sub @TOKEN2 $TOKEN2': RETRIEVE 10 FROM "@TOKEN2";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT2";
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -177,6 +185,14 @@ ROLLBACK
 3: ROLLBACK;
 ROLLBACK
 
+1q: ... <quitting>
+2q: ... <quitting>
+3q: ... <quitting>
+-1Rq: FAILED:  Sessions not started cannot be quit
+1Rq: ... <quitting>
+2Rq: FAILED:  Sessions not started cannot be quit
+3Rq: FAILED:  Sessions not started cannot be quit
+
 --------- Test3: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
 BEGIN
@@ -195,15 +211,15 @@ DECLARE
 -- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions,
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_token_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
- token                              | status
-------------------------------------+--------
- token_id3 | INIT
+4: @out_sh 'parse_endpoint 3 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+ endpointname         | token                              | hostname     | port  | status
+----------------------+------------------------------------+--------------+-------+--------
+ endpoint_id3_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
-2&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
-3&: CHECK PARALLEL RETRIEVE CURSOR c3;  <waiting ...>
-*R: @in_sh 'sub @TOKEN3 $TOKEN3': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
+2&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
+3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');  <waiting ...>
+*R: @in_sh 'sub_endpoint_name @ENDPOINT3': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT3';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -217,7 +233,7 @@ DECLARE
 
 #2retrieve> FATAL:  Retrieve auth token is invalid
 
-*R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE 10 FROM "@TOKEN3";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT3";
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -262,6 +278,14 @@ ROLLBACK
 3: ROLLBACK;
 ROLLBACK
 
+1q: ... <quitting>
+2q: ... <quitting>
+3q: ... <quitting>
+-1Rq: FAILED:  Sessions not started cannot be quit
+1Rq: ... <quitting>
+2Rq: FAILED:  Sessions not started cannot be quit
+3Rq: FAILED:  Sessions not started cannot be quit
+
 --------- Test4: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
 BEGIN
@@ -280,15 +304,15 @@ DECLARE
 -- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions,
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_token_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
- token                              | status
-------------------------------------+--------
- token_id4 | INIT
+4: @out_sh 'parse_endpoint 4 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+ endpointname         | token                              | hostname     | port  | status
+----------------------+------------------------------------+--------------+-------+--------
+ endpoint_id4_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
-2&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
-3&: CHECK PARALLEL RETRIEVE CURSOR c3;  <waiting ...>
-*R: @in_sh 'sub @TOKEN4 $TOKEN4': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
+2&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
+3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');  <waiting ...>
+*R: @in_sh 'sub_endpoint_name @ENDPOINT4': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT4';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -302,7 +326,7 @@ DECLARE
 
 #2retrieve> FATAL:  Retrieve auth token is invalid
 
-*R: @in_sh 'sub @TOKEN4 $TOKEN4': RETRIEVE 10 FROM "@TOKEN4";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT4";
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 

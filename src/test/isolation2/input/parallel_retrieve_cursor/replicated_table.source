@@ -16,12 +16,12 @@ insert into rt1 select generate_series(1,100);
 -- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
-2&: CHECK PARALLEL RETRIEVE CURSOR c2;
-3&: CHECK PARALLEL RETRIEVE CURSOR c3;
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE 10 FROM "@TOKEN1";
+4: @out_sh 'parse_endpoint 1 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
+2&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');
+3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT1";
 -- cancel all 3 sessions
 4: select pg_cancel_backend(pid) from pg_stat_activity, gp_endpoints_info(true) where sess_id = sessionid AND (cursorname ='c1' or cursorname='c2' or cursorname='c3');
 1<:
@@ -31,6 +31,14 @@ insert into rt1 select generate_series(1,100);
 1: ROLLBACK;
 2: ROLLBACK;
 3: ROLLBACK;
+
+1q:
+2q:
+3q:
+-1Rq:
+1Rq:
+2Rq:
+3Rq:
 
 --------- Test2: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
@@ -44,12 +52,12 @@ insert into rt1 select generate_series(1,100);
 -- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
-2&: CHECK PARALLEL RETRIEVE CURSOR c2;
-3&: CHECK PARALLEL RETRIEVE CURSOR c3;
-*R: @in_sh 'sub @TOKEN2 $TOKEN2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
-*R: @in_sh 'sub @TOKEN2 $TOKEN2': RETRIEVE 10 FROM "@TOKEN2";
+4: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
+2&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');
+3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT2";
 -- cancel all 3 sessions
 4: select pg_cancel_backend(pid) from pg_stat_activity, gp_endpoints_info(true) where sess_id = sessionid AND (cursorname ='c1' or cursorname='c2' or cursorname='c3');
 1<:
@@ -59,6 +67,14 @@ insert into rt1 select generate_series(1,100);
 1: ROLLBACK;
 2: ROLLBACK;
 3: ROLLBACK;
+
+1q:
+2q:
+3q:
+-1Rq:
+1Rq:
+2Rq:
+3Rq:
 
 --------- Test3: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
@@ -72,12 +88,12 @@ insert into rt1 select generate_series(1,100);
 -- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_token_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
-2&: CHECK PARALLEL RETRIEVE CURSOR c2;
-3&: CHECK PARALLEL RETRIEVE CURSOR c3;
-*R: @in_sh 'sub @TOKEN3 $TOKEN3': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
-*R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE 10 FROM "@TOKEN3";
+4: @out_sh 'parse_endpoint 3 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
+2&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');
+3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');
+*R: @in_sh 'sub_endpoint_name @ENDPOINT3': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT3';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT3";
 -- cancel all 3 sessions
 4: select pg_cancel_backend(pid) from pg_stat_activity, gp_endpoints_info(true) where sess_id = sessionid AND (cursorname ='c1' or cursorname='c2' or cursorname='c3');
 1<:
@@ -87,6 +103,14 @@ insert into rt1 select generate_series(1,100);
 1: ROLLBACK;
 2: ROLLBACK;
 3: ROLLBACK;
+
+1q:
+2q:
+3q:
+-1Rq:
+1Rq:
+2Rq:
+3Rq:
 
 --------- Test4: Basic test for PARALLEL RETRIEVE CURSOR on replicated table
 1: BEGIN;
@@ -100,12 +124,12 @@ insert into rt1 select generate_series(1,100);
 -- Just declare & CHECK PARALLEL RETRIEVE CURSORs in all segment_number (i.e. 3) sessions, 
 -- so that there should have specific session: MOD(sessionid,3)=1;
 -- Get token only in specific session id and retrieve this token.
-4: @out_sh 'get_token_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
-2&: CHECK PARALLEL RETRIEVE CURSOR c2;
-3&: CHECK PARALLEL RETRIEVE CURSOR c3;
-*R: @in_sh 'sub @TOKEN4 $TOKEN4': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
-*R: @in_sh 'sub @TOKEN4 $TOKEN4': RETRIEVE 10 FROM "@TOKEN4";
+4: @out_sh 'parse_endpoint 4 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM GP_ENDPOINTS_INFO(TRUE) WHERE MOD(sessionid,3)=1;
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
+2&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');
+3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');
+*R: @in_sh 'sub_endpoint_name @ENDPOINT4': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT4';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT4";
 -- cancel all 3 sessions
 4: select pg_cancel_backend(pid) from pg_stat_activity, gp_endpoints_info(true) where sess_id = sessionid AND (cursorname ='c1' or cursorname='c2' or cursorname='c3');
 1<:
