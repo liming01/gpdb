@@ -594,7 +594,7 @@ CallEndpointUDFOnQD(const struct Plan *planTree, const char *cursorName, const c
 
 	if (endPointExecPosition == ENDPOINT_ON_QD)
 	{
-        ret_val = DatumGetBool(DirectFunctionCall3(gp_operate_endpoints_token, CharGetDatum('w'),
+        ret_val = DatumGetBool(DirectFunctionCall3(gp_operate_endpoints_token, CharGetDatum(operator),
 							CStringGetDatum(token_str), CStringGetDatum(cursorName)));
 	}
 	else
@@ -1483,7 +1483,6 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 	char operation;
 	const char *token_str = NULL;
 	const char *cursor_name = NULL;
-	Assert(Gp_role == GP_ROLE_EXECUTE);
 
 	if (PG_ARGISNULL(0) || PG_ARGISNULL(1))
 		PG_RETURN_BOOL(false);
@@ -1492,25 +1491,23 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 	token_str = PG_GETARG_CSTRING(1);
 	cursor_name = PG_GETARG_CSTRING(2);
 
-	if (Gp_role == GP_ROLE_EXECUTE)
-	{
-		switch (operation)
-		{
-		    case 'c':
-                ret_val = check_endpoint_finished_by_cursor_name(cursor_name, false);
-                break;
-            case 'h':
-                ret_val = check_endpoint_finished_by_cursor_name(cursor_name, true);
-                break;
-            case 'w':
-				wait_for_init_by_cursor_name(cursor_name, token_str);
-                ret_val = true;
-                break;
-			default:
-				elog(ERROR, "Failed to execute gp_operate_endpoints_token('%c', '%s')", operation, token_str);
-				ret_val = false;
-		}
-	}
+    switch (operation)
+    {
+        case 'c':
+            ret_val = check_endpoint_finished_by_cursor_name(cursor_name, false);
+            break;
+        case 'h':
+            ret_val = check_endpoint_finished_by_cursor_name(cursor_name, true);
+            break;
+        case 'w':
+            wait_for_init_by_cursor_name(cursor_name, token_str);
+            ret_val = true;
+            break;
+        default:
+            elog(ERROR, "Failed to execute gp_operate_endpoints_token('%c', '%s')", operation, token_str);
+            ret_val = false;
+    }
+
 	PG_RETURN_BOOL(ret_val);
 }
 
