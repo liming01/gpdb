@@ -110,8 +110,8 @@ CheckTokenValid(void)
 void
 SetGpToken(const int8 *token)
 {
-	if (IsEndpointTokenValid(EndpointCtl.Gp_token))
-		elog(ERROR, "endpoint token %s is already set", PrintToken(EndpointCtl.Gp_token));
+//	if (IsEndpointTokenValid(EndpointCtl.Gp_token))
+//		elog(ERROR, "endpoint token %s is already set", PrintToken(EndpointCtl.Gp_token));
 
 	memcpy(EndpointCtl.Gp_token, token, ENDPOINT_TOKEN_LEN);
 }

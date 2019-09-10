@@ -30,12 +30,10 @@ INSERT 10
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 1 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
 1: CLOSE c1;
 CLOSE
@@ -45,7 +43,7 @@ CLOSE
 -------+--------
 (0 rows)
 -- check no token info on QE after close PARALLEL RETRIEVE CURSOR
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT1';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -59,7 +57,7 @@ CLOSE
 
 
 -- error out for closed cursor
-1: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
 ERROR:  cursor "c1" does not exist
 1: ROLLBACK;
 ROLLBACK
@@ -102,7 +100,7 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: CHECK PARALLEL RETRIEVE CURSOR c2;
+1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');
 ERROR:  cursor "c2" does not exist
 1: ROLLBACK;
 ROLLBACK
@@ -137,16 +135,14 @@ DECLARE
 DECLARE
 1: DECLARE c11 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -164,7 +160,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -281,17 +277,25 @@ DECLARE
 (25 rows)
 
 1<:  <... completed>
-EXECUTE
--- check no endpoint info
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
- token_id1 | FINISH
- token_id1 | FINISH
+ finished 
+----------
+ t        
+(1 row)
+-- check all endpoint status
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ status 
+--------
+ FINISH 
+ FINISH 
+ FINISH 
 (3 rows)
 1: ROLLBACK;
 ROLLBACK
+-- check no endpoint info
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ status 
+--------
+(0 rows)
 
 -- Test5: if conflict with normal cursors
 1: BEGIN;
@@ -312,16 +316,14 @@ BEGIN
 DECLARE
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
+ endpoint_id2_2 | token_id | host_id | port_id | READY
+ endpoint_id2_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -339,7 +341,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -456,14 +458,17 @@ DECLARE
 (25 rows)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 -- check no endpoint info
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
- token_id1 | FINISH
- token_id1 | FINISH
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ status 
+--------
+ FINISH 
+ FINISH 
+ FINISH 
 (3 rows)
 1: ROLLBACK;
 ROLLBACK
@@ -473,14 +478,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 10;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpointname         | token                              | hostname     | port  | status
+----------------------+------------------------------------+--------------+-------+--------
+ endpoint_id2_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
  READY  
@@ -497,7 +502,7 @@ DECLARE
  status 
 --------
 (0 rows)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  a  
 ----
  1  
@@ -512,19 +517,22 @@ DECLARE
  10 
 (10 rows)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 -- check no endpoint info
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ status 
+--------
+ FINISH 
 (1 row)
 1: ROLLBACK;
 ROLLBACK
@@ -534,14 +542,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 0;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpointname         | token                              | hostname     | port  | status
+----------------------+------------------------------------+--------------+-------+--------
+ endpoint_id2_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
  READY  
@@ -558,24 +566,27 @@ DECLARE
  status 
 --------
 (0 rows)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  a 
 ---
 (0 rows)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 -- check no endpoint info
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ status 
+--------
+ FINISH 
 (1 row)
 1: ROLLBACK;
 ROLLBACK
@@ -585,16 +596,16 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t2;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpointname         | token                              | hostname     | port  | status
+----------------------+------------------------------------+--------------+-------+--------
+ endpoint_id2_1 | token_id | host_id | port_id | READY
+ endpoint_id2_2 | token_id | host_id | port_id | READY
+ endpoint_id2_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
 (0 rows)
@@ -613,8 +624,8 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
  a 
 ---
@@ -629,14 +640,17 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointre
 (0 rows)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 -- check no endpoint info
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
- token_id1 | FINISH
- token_id1 | FINISH
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ status 
+--------
+ FINISH 
+ FINISH 
+ FINISH 
 (3 rows)
 1: ROLLBACK;
 ROLLBACK
@@ -646,16 +660,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t3;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
+ endpoint_id2_2 | token_id | host_id | port_id | READY
+ endpoint_id2_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
 (0 rows)
@@ -674,8 +686,8 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
  a     
 -------
@@ -700,14 +712,17 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointre
 (2 rows)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 -- check no endpoint info
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
- token_id1 | FINISH
- token_id1 | FINISH
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ status 
+--------
+ FINISH 
+ FINISH 
+ FINISH 
 (3 rows)
 1: ROLLBACK;
 ROLLBACK
@@ -717,16 +732,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t4;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
+ endpoint_id2_2 | token_id | host_id | port_id | READY
+ endpoint_id2_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
 (0 rows)
@@ -745,8 +758,8 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
  a 
 ---
@@ -761,14 +774,17 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointre
 (0 rows)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 -- check no endpoint info
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
- token_id1 | FINISH
- token_id1 | FINISH
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ status 
+--------
+ FINISH 
+ FINISH 
+ FINISH 
 (3 rows)
 1: ROLLBACK;
 ROLLBACK
@@ -778,31 +794,32 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 WHERE a = 50;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_2 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
  READY  
 (1 row)
-1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  a  
 ----
  50 
 (1 row)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 -- check no endpoint info
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ status 
+--------
+ FINISH 
 (1 row)
 1: ROLLBACK;
 ROLLBACK
@@ -812,30 +829,31 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT SUM(a) FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
--1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+-1R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
  READY  
 (1 row)
--1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
+-1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  sum  
 ------
  5050 
 (1 row)
 
 1<:  <... completed>
-EXECUTE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
+ finished 
+----------
+ t        
+(1 row)
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ status 
+--------
+ FINISH 
 (1 row)
 1: ROLLBACK;
 ROLLBACK
@@ -845,30 +863,31 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT AVG(a) FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
--1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+-1R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
  READY  
 (1 row)
--1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
+-1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  avg                 
 ---------------------
  50.5000000000000000 
 (1 row)
 
 1<:  <... completed>
-EXECUTE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
+ finished 
+----------
+ t        
+(1 row)
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ status 
+--------
+ FINISH 
 (1 row)
 1: ROLLBACK;
 ROLLBACK
@@ -878,30 +897,31 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT COUNT(*) FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
--1R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+-1R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
  READY  
 (1 row)
--1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
+-1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  count 
 -------
  100   
 (1 row)
 
 1<:  <... completed>
-EXECUTE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
+ finished 
+----------
+ t        
+(1 row)
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ status 
+--------
+ FINISH 
 (1 row)
 1: ROLLBACK;
 ROLLBACK
@@ -911,17 +931,15 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1, t5 where t1.a = t5.b;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
  a | b 
 ---+---
@@ -946,13 +964,16 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointre
 (4 rows)
 
 1<:  <... completed>
-EXECUTE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
- token_id1 | FINISH
- token_id1 | FINISH
+ finished 
+----------
+ t        
+(1 row)
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ status 
+--------
+ FINISH 
+ FINISH 
+ FINISH 
 (3 rows)
 1: ROLLBACK;
 ROLLBACK
@@ -962,25 +983,26 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT COUNT(*) FROM t1, t5 where t1.a = t5.b;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
--1R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
+-1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  count 
 -------
  10    
 (1 row)
 
 1<:  <... completed>
-EXECUTE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
+ finished 
+----------
+ t        
+(1 row)
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ status 
+--------
+ FINISH 
 (1 row)
 1: ROLLBACK;
 ROLLBACK
@@ -990,16 +1012,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
 (0 rows)
@@ -1018,8 +1038,8 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
  a  
 ----
@@ -1134,10 +1154,17 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointre
 (25 rows)
 
 1<:  <... completed>
-EXECUTE
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+ finished 
+----------
+ t        
+(1 row)
+1: CLOSE c1;
+CLOSE
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
+DECLARE
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
 (0 rows)
@@ -1156,8 +1183,8 @@ EXECUTE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
  a  
 ----
@@ -1272,13 +1299,16 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointre
 (25 rows)
 
 1<:  <... completed>
-EXECUTE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
- token_id1 | FINISH
- token_id1 | FINISH
+ finished 
+----------
+ t        
+(1 row)
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ status 
+--------
+ FINISH 
+ FINISH 
+ FINISH 
 (3 rows)
 1: ROLLBACK;
 ROLLBACK
@@ -1288,16 +1318,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
 (0 rows)
@@ -1316,8 +1344,8 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
  a  
 ----
@@ -1436,10 +1464,17 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointre
 2Rq: ... <quitting>
 
 1<:  <... completed>
-EXECUTE
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+ finished 
+----------
+ t        
+(1 row)
+1: CLOSE c1;
+CLOSE
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
+DECLARE
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT2';
  status 
 --------
 (0 rows)
@@ -1458,8 +1493,8 @@ EXECUTE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint @ENDPOINT2 (cdbendpointretrieve.c:188)
 
  a  
 ----
@@ -1574,13 +1609,16 @@ ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointre
 (25 rows)
 
 1<:  <... completed>
-EXECUTE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | FINISH
- token_id1 | FINISH
- token_id1 | FINISH
+ finished 
+----------
+ t        
+(1 row)
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ status 
+--------
+ FINISH 
+ FINISH 
+ FINISH 
 (3 rows)
 1: ROLLBACK;
 ROLLBACK
@@ -1592,18 +1630,16 @@ BEGIN
 SAVEPOINT
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
 1: ROLLBACK TO s1;
 ROLLBACK
-1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token | status 
--------+--------
+1: SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ status 
+--------
 (0 rows)
 
 1: ROLLBACK;
