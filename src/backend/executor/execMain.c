@@ -5055,7 +5055,7 @@ FillSliceTable(EState *estate, PlannedStmt *stmt, bool parallel_cursor)
 		int			numsegments = stmt->planTree->flow->numsegments;
 		enum EndPointExecPosition endPointExecPosition = GetParallelCursorEndpointPosition(stmt->planTree);
 
-		if (endPointExecPosition == ENDPOINT_ON_QD)
+		if (endPointExecPosition == ENDPOINT_ON_Entry_DB)
 			currentSlice->gangType = GANGTYPE_ENTRYDB_READER;
 		else if (endPointExecPosition == ENDPOINT_ON_SINGLE_QE)
 			currentSlice->gangType = GANGTYPE_SINGLETON_READER;

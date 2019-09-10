@@ -41,7 +41,7 @@ static TupleDesc read_tuple_desc_info(shm_toc *toc);
 static TupleTableSlot *receive_tuple_slot(void);
 static void receiver_finish(void);
 static void receiver_mq_close(void);
-static void retrieve_cancel_action(const char *endpoint_name, char *msg);
+static void retrieve_cancel_action(const char *endpointName, char *msg);
 static void retrieve_exit_callback(int code, Datum arg);
 static void retrieve_xact_abort_callback(XactEvent ev, void *vp);
 static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
@@ -57,7 +57,7 @@ extern uint64 create_magic_num_from_token(const int8 *token);
  * Used by retrieve role authentication
  */
 bool
-FindEndpointTokenByUser(Oid user_id, const char *token_str)
+FindEndpointTokenByUser(Oid userID, const char *tokenStr)
 {
 	bool isFound = false;
 	int8 token[ENDPOINT_TOKEN_LEN] = {0};
@@ -66,7 +66,7 @@ FindEndpointTokenByUser(Oid user_id, const char *token_str)
 	RegisterSubXactCallback(retrieve_subxact_callback, NULL);
 	RegisterXactCallback(retrieve_xact_abort_callback, NULL);
 
-	ParseToken(token, token_str);
+	ParseToken(token, tokenStr);
 	EndpointCtl.session_id = get_session_id_by_token(token);
 	if (EndpointCtl.session_id != InvalidSession)
 		isFound = true;
@@ -80,7 +80,7 @@ FindEndpointTokenByUser(Oid user_id, const char *token_str)
  * Find the endpoint to retrieve from EndpointDesc entries.
  */
 void
-AttachEndpoint(const char *endpoint_name)
+AttachEndpoint(const char *endpointName)
 {
 	int i;
 	bool isFound = false;
@@ -99,14 +99,14 @@ AttachEndpoint(const char *endpoint_name)
 	if (my_shared_endpoint)
 		elog(ERROR, "endpoint is already attached");
 
-	check_endpoint_name(endpoint_name);
+	check_endpoint_name(endpointName);
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (SharedEndpoints[i].database_id == MyDatabaseId &&
-			endpoint_name_equals(SharedEndpoints[i].name, endpoint_name) &&
+			endpoint_name_equals(SharedEndpoints[i].name, endpointName) &&
 			!SharedEndpoints[i].empty &&
 			SharedEndpoints[i].session_id == EndpointCtl.session_id)
 		{
@@ -169,23 +169,23 @@ AttachEndpoint(const char *endpoint_name)
 
 	if (is_invalid_sendpid)
 	{
-		elog(ERROR, "the PARALLEL RETRIEVE CURSOR related to endpoint %s is not EXECUTED.", endpoint_name);
+		elog(ERROR, "the PARALLEL RETRIEVE CURSOR related to endpoint %s is not EXECUTED.", endpointName);
 	}
 
 	if (already_attached)
 		elog(ERROR, "Endpoint %s is already being retrieved by receiver(pid: %d)",
-			 endpoint_name, attached_pid);
+			 endpointName, attached_pid);
 
 	if (is_other_pid)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("Endpoint %s is already attached by receiver(pid: %d)",
-						   endpoint_name, attached_pid),
+						   endpointName, attached_pid),
 					errdetail("An endpoint can be attached by only one retrieving session "
 							  "for each 'CHECK PARALLEL RETRIEVE CURSOR'")));
 
 	if (!my_shared_endpoint)
-		elog(ERROR, "failed to attach non-existing endpoint %s", endpoint_name);
+		elog(ERROR, "failed to attach non-existing endpoint %s", endpointName);
 
 	/*
 	 * Search all endpoint_names that retrieved in this session
@@ -212,7 +212,6 @@ AttachEndpoint(const char *endpoint_name)
 	{
 		currentMQEntry->retrieve_status = RETRIEVE_STATUS_INIT;
 	}
-
 }
 
 /*
@@ -485,7 +484,7 @@ receiver_mq_close(void)
  * Errors in these function is not expect to be raised.
  */
 void
-DetachEndpoint(bool reset_pid)
+DetachEndpoint(bool resetPID)
 {
 	if (!my_shared_endpoint) {
 		return;
@@ -515,7 +514,7 @@ DetachEndpoint(bool reset_pid)
 			elog(ERROR, "unmatched pid, expected %d but it's %d",
 				 MyProcPid, my_shared_endpoint->receiver_pid);
 
-		if (reset_pid)
+		if (resetPID)
 		{
 			my_shared_endpoint->receiver_pid = InvalidPid;
 		}
@@ -537,7 +536,7 @@ DetachEndpoint(bool reset_pid)
  * When retrieve role exit with error, let endpoint/sender know exception happened.
  */
 static void
-retrieve_cancel_action(const char *endpoint_name, char *msg)
+retrieve_cancel_action(const char *endpointName, char *msg)
 {
 	/*
 	 * If current role is not receiver, the retrieve must already finished success
@@ -548,7 +547,7 @@ retrieve_cancel_action(const char *endpoint_name, char *msg)
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
-	EndpointDesc *endpointDesc = find_endpoint(endpoint_name, EndpointCtl.session_id);
+	EndpointDesc *endpointDesc = find_endpoint(endpointName, EndpointCtl.session_id);
 	if (endpointDesc && endpointDesc->receiver_pid == MyProcPid
 		&& endpointDesc->attach_status != Status_Finished)
 	{

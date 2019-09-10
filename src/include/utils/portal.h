@@ -199,7 +199,7 @@ typedef struct PortalData
 	 * the cursor specific named portal, now gpdb QE doesn't support cursor
 	 * mode query portal.
 	 */
-	int8		parallel_cursor_token[ENDPOINT_TOKEN_LEN];
+	int8		parallelCursorToken[ENDPOINT_TOKEN_LEN];
 
 	/*
 	 * This field belongs with createSubid, but in pre-9.5 branches, add it

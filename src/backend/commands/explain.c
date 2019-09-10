@@ -630,7 +630,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 			queryDesc->plannedstmt->planTree, &endPointExecPosition);
 		ExplainOpenGroup("Cursor", "Cursor", true, es);
 		switch(endPointExecPosition) {
-			case ENDPOINT_ON_QD: {
+			case ENDPOINT_ON_Entry_DB: {
 				snprintf(endpoint_info, sizeof(endpoint_info), "on master");
 				break;
 			}

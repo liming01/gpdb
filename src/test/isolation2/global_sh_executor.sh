@@ -168,7 +168,8 @@ parse_endpoint() {
         index=$((index+1))
     # Filter out the first two lines and the last line.
     done <<<"$(echo "$RAW_STR" | sed '1,2d;$d')"
-    echo "${RAW_STR}"
+    # Ignore first 2 lines(table header) since hostname length may affect the diff result.
+    echo "${RAW_STR}" | sed '1,2d'
 }
 
 # Substitute endpoint name by the saved

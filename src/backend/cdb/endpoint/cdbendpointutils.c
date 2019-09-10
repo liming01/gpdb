@@ -134,23 +134,23 @@ ClearGpToken(void)
  * the given token pointer.
  */
 void
-ParseToken(int8 *token /*out*/, const char *token_str)
+ParseToken(int8 *token /*out*/, const char *tokenStr)
 {
 	static const char *fmt = "Invalid token \"%s\"";
-	if (token_str[0] == 't' && token_str[1] == 'k' &&
-			strlen(token_str) == ENDPOINT_TOKEN_STR_LEN)
+	if (tokenStr[0] == 't' && tokenStr[1] == 'k' &&
+			strlen(tokenStr) == ENDPOINT_TOKEN_STR_LEN)
 	{
 		PG_TRY();
 		{
-			hex_decode(token_str + 2, ENDPOINT_TOKEN_LEN * 2, (char*)token);
+			hex_decode(tokenStr + 2, ENDPOINT_TOKEN_LEN * 2, (char*)token);
 		}
 		PG_CATCH(); {
 			/* Create a general message on purpose for security concerns. */
-			elog(ERROR, fmt, token_str);
+			elog(ERROR, fmt, tokenStr);
 		}
 		PG_END_TRY();
 	} else {
-		elog(ERROR, fmt, token_str);
+		elog(ERROR, fmt, tokenStr);
 	}
 }
 
@@ -308,9 +308,9 @@ static char *endpoint_status_enum_to_string(EndpointStatus *ep_status)
 /*
  * Return true if this end-point exists on QD.
  */
-bool endpoint_on_qd(ParaCursorToken para_cursor_token)
+bool endpoint_on_entry_db(ParaCursorToken paraCursorToken)
 {
-	return (para_cursor_token->endpoint_cnt == 1) && (para_cursor_token->endPointExecPosition == ENDPOINT_ON_QD);
+	return (paraCursorToken->endpoint_cnt == 1) && (paraCursorToken->endPointExecPosition == ENDPOINT_ON_Entry_DB);
 }
 
 /*
@@ -318,22 +318,22 @@ bool endpoint_on_qd(ParaCursorToken para_cursor_token)
  * This function is to determine if the end-point exists in the segment(dbid).
  */
 bool
-seg_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid)
+seg_dbid_has_token(ParaCursorToken paraCursorToken, int16 dbid)
 {
-	if (para_cursor_token->endPointExecPosition == ENDPOINT_ON_ALL_QE)
+	if (paraCursorToken->endPointExecPosition == ENDPOINT_ON_ALL_QE)
 		return true;
 
-	return dbid_in_bitmap(para_cursor_token->dbIds, dbid);
+	return dbid_in_bitmap(paraCursorToken->dbIds, dbid);
 }
 
 /*
  * This function is to determine if the end-point exists on the master(dbid).
  */
 bool
-master_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid)
+master_dbid_has_token(ParaCursorToken paraCursorToken, int16 dbid)
 {
-	if (para_cursor_token->endPointExecPosition == ENDPOINT_ON_QD)
-		return dbid_in_bitmap(para_cursor_token->dbIds, dbid);
+	if (paraCursorToken->endPointExecPosition == ENDPOINT_ON_Entry_DB)
+		return dbid_in_bitmap(paraCursorToken->dbIds, dbid);
 
 	return false;
 }
@@ -827,16 +827,16 @@ IsEndpointTokenValid(const int8* token) {
 	return false;
 }
 
-bool IsEndpointNameValid(const char *endpoint_name)
+bool IsEndpointNameValid(const char *endpointName)
 {
-	Assert(endpoint_name);
-	if (endpoint_name[0])
+	Assert(endpointName);
+	if (endpointName[0])
 		return true;
 	return false;
 }
 
-void InvalidateEndpointName(char *endpoint_name /*out*/)
+void InvalidateEndpointName(char *endpointName /*out*/)
 {
-	Assert(endpoint_name);
-	memset(endpoint_name, '\0', ENDPOINT_NAME_LEN);
+	Assert(endpointName);
+	memset(endpointName, '\0', ENDPOINT_NAME_LEN);
 }

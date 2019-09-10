@@ -41,8 +41,8 @@
 #define MAX_NWORDS                       128
 #define MAX_ENDPOINT_SIZE                1024
 #define ENDPOINT_TOKEN_LEN               16
-#define ENDPOINT_TOKEN_STR_LEN           (2 + ENDPOINT_TOKEN_LEN * 2) //"tk0A1B...4E5F"
-#define InvalidSession                  (-1)
+#define ENDPOINT_TOKEN_STR_LEN           (2 + ENDPOINT_TOKEN_LEN * 2) // "tk0A1B...4E5F"
+#define InvalidSession                   (-1)
 
 #define GP_ENDPOINT_STATUS_INIT          "INIT"
 #define GP_ENDPOINT_STATUS_READY         "READY"
@@ -73,7 +73,7 @@ enum ParallelRetrCursorExecRole
 enum EndPointExecPosition
 {
 	ENDPOINT_POS_INVALID,
-	ENDPOINT_ON_QD,
+	ENDPOINT_ON_Entry_DB,
 	ENDPOINT_ON_SINGLE_QE,
 	ENDPOINT_ON_SOME_QE,
 	ENDPOINT_ON_ALL_QE
@@ -113,7 +113,7 @@ typedef struct ParallelCursorTokenDesc
 	int session_id;                    /* Which session created this PARALLEL RETRIEVE CURSOR */
 	int endpoint_cnt;                  /* How many endpoints are created */
 	Oid user_id;                       /* User ID of the current executed PARALLEL RETRIEVE CURSOR */
-	enum EndPointExecPosition endPointExecPosition;  /* Position: on QD, On all QE, On Some QEs */
+	enum EndPointExecPosition endPointExecPosition;  /* Position: on Entry DB, On all QE, On Some QEs */
 	int32 dbIds[MAX_NWORDS];           /* A bitmap stores the dbids of every endpoint, size is 4906 bits(32X128) */
 } ParallelCursorTokenDesc;
 
@@ -148,12 +148,11 @@ typedef struct EndpointDesc
  * So that we can retrieve from different endpoints in the same retriever and switch
  * between different endpoints.
  *
- * For endpoint(on QD/QE), only keep one entry to track current message queue.
+ * For endpoint(on Entry DB/QE), only keep one entry to track current message queue.
  */
 typedef struct MsgQueueStatusEntry
 {
 	char endpoint_name[ENDPOINT_NAME_LEN];     /* The name of endpoint to be retrieved, also behave as hash key */
-	int8 retrieve_token[ENDPOINT_TOKEN_LEN];   /* The PARALLEL RETRIEVE CURSOR token, also as the hash table entry key */
 	dsm_segment *mq_seg;                       /* The dsm handle which contains shared memory message queue */
 	shm_mq_handle *mq_handle;                  /* Shared memory message queue */
 	TupleTableSlot *retrieve_ts;               /* tuple slot used for retrieve data */
@@ -195,39 +194,34 @@ extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
 	const struct Plan *planTree);
 extern List *ChooseEndpointContentIDForParallelCursor(
 	const struct Plan *planTree, enum EndPointExecPosition *position);
-extern void AddParallelCursorToken(int8 *token /*out*/, const char *name, int session_id,
-								   Oid user_id, enum EndPointExecPosition endPointExecPosition, List *seg_list);
+extern void AddParallelCursorToken(int8 *token /*out*/, const char *name, int sessionID,
+								   Oid userID, enum EndPointExecPosition endPointExecPosition, List *segList);
 extern void WaitEndpointReady(const struct Plan *planTree, const char *cursorName);
-extern bool CallEndpointUDFOnQD(const struct Plan *planTree, const char *cursorName, const char operator);
-/* Called during EXECUTE CURSOR stage on QD. */
-extern bool CheckParallelCursorPrivilege(const int8 *token);
 /* Remove PARALLEL RETRIEVE CURSOR during cursor portal drop/abort, on QD */
 extern void DestroyParallelCursor(const char *cursorName);
 
-extern bool CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait);
-
 /*
- * Below functions should run on Endpoints(QE/QD).
+ * Below functions should run on Endpoints(QE/Entry DB).
  */
-/* Functions used in CHECK PARALLEL RETRIEVE CURSOR stage, on Endpoints(QE/QD) */
+/* Functions used in CHECK PARALLEL RETRIEVE CURSOR stage, on Endpoints(QE/Entry DB) */
 extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName);
 extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
-/* Endpoint backend register/free, execute on Endpoints(QE/QD) */
-extern void AllocEndpointOfToken(const char *cursorName);
 
 /* UDFs for endpoints operation */
 extern Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS);
 extern Datum gp_check_parallel_retrieve_cursor(PG_FUNCTION_ARGS);
 extern Datum gp_wait_parallel_retrieve_cursor(PG_FUNCTION_ARGS);
+
+
 /* cdbendpointretrieve.c */
 /*
  * Below functions should run on retrieve role backend.
  */
-extern bool FindEndpointTokenByUser(Oid user_id, const char *token_str);
-extern void AttachEndpoint(const char *endpoint_name);
+extern bool FindEndpointTokenByUser(Oid userID, const char *tokenStr);
+extern void AttachEndpoint(const char *endpointName);
 extern TupleDesc TupleDescOfRetrieve(void);
 extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
-extern void DetachEndpoint(bool reset_pid);
+extern void DetachEndpoint(bool resetPID);
 
 
 /* cdbendpointutils.c */
@@ -237,7 +231,7 @@ extern void CheckTokenValid(void);
 extern bool IsGpTokenValid(void);
 extern void SetGpToken(const int8 *token);
 extern void ClearGpToken(void);
-extern void ParseToken(int8 *token /*out*/, const char *token_str);
+extern void ParseToken(int8 *token /*out*/, const char *tokenStr);
 extern char *PrintToken(const int8 *token); /* Need to pfree() the result */
 extern void SetParallelCursorExecRole(enum ParallelRetrCursorExecRole role);
 extern void ClearParallelCursorExecRole(void);
@@ -245,17 +239,17 @@ extern enum ParallelRetrCursorExecRole GetParallelCursorExecRole(void);
 extern const char *EndpointRoleToString(enum ParallelRetrCursorExecRole role);
 extern bool IsEndpointTokenValid(const int8 *token);
 extern void InvalidateEndpointToken(int8 *token /*out*/);
-extern bool IsEndpointNameValid(const char *endpoint_name);
-extern void InvalidateEndpointName(char *endpoint_name /*out*/);
+extern bool IsEndpointNameValid(const char *endpointName);
+extern void InvalidateEndpointName(char *endpointName /*out*/);
 
 /* Utility functions to handle tokens and endpoints in shared memory */
-extern bool endpoint_on_qd(ParaCursorToken para_cursor_token);
-extern bool seg_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid);
-extern bool master_dbid_has_token(ParaCursorToken para_cursor_token, int16 dbid);
+extern bool endpoint_on_entry_db(ParaCursorToken paraCursorToken);
+extern bool seg_dbid_has_token(ParaCursorToken paraCursorToken, int16 dbid);
+extern bool master_dbid_has_token(ParaCursorToken paraCursorToken, int16 dbid);
 extern bool dbid_in_bitmap(int32 *bitmap, int16 dbid);
 extern void add_dbid_into_bitmap(int32 *bitmap, int16 dbid);
 extern int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit);
-extern EndpointDesc *find_endpoint(const char *endpoint_name, int session_id);
+extern EndpointDesc *find_endpoint(const char *endpointName, int sessionID);
 extern int get_session_id_by_token(const int8 *token);
 
 /* UDFs for endpoints info*/

@@ -175,7 +175,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 			stmt->planTree, &endPointExecPosition);
 
 		/*Alloc token and add PARALLEL RETRIEVE CURSOR*/
-		AddParallelCursorToken(portal->parallel_cursor_token,
+		AddParallelCursorToken(portal->parallelCursorToken,
 				       portal->name, gp_session_id, GetUserId(),
 				       endPointExecPosition,
 					   cids);
@@ -215,7 +215,6 @@ PerformPortalFetch(FetchStmt *stmt,
 {
 	Portal		portal;
 	uint64		nprocessed;
-	bool		isParallelRetrCursorFinished = false;
 
 	/*
 	 * Disallow empty-string cursor name (conflicts with protocol-level
@@ -261,12 +260,6 @@ PerformPortalFetch(FetchStmt *stmt,
 				        errhint("Using 'CHECK PARALLEL RETRIEVE CURSOR' statement instead.")));
 		}
 	}
-	if (is_parallel_retrieve && !CheckParallelCursorPrivilege(portal->parallel_cursor_token)) {
-		ereport(ERROR,
-			(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				errmsg("The PARALLEL RETRIEVE CURSOR was created by a different user."),
-				errhint("Using the same user as the PARALLEL RETRIEVE CURSOR creator to execute.")));
-	}
 
 	/* Adjust dest if needed.  MOVE wants destination DestNone */
 	if (stmt->ismove)
@@ -278,22 +271,9 @@ PerformPortalFetch(FetchStmt *stmt,
 								stmt->howMany,
 								dest);
 
-	if (stmt->isParallelRetrCursor)
-		isParallelRetrCursorFinished = CheckParallelCursorErrors(portal->queryDesc, stmt->isParallelRetrCursorCheckWait);
-
 	/* Return command status if wanted */
 	if (completionTag)
 	{
-        if (stmt->isParallelRetrCursor){
-            if (isParallelRetrCursorFinished)
-                snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
-                         "FINISHED");
-            else
-                snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
-                         "RUNNING");
-        }
-
-		else
 			snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
 					 stmt->ismove ? "MOVE" : "FETCH",
 					 nprocessed);
