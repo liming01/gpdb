@@ -48,7 +48,7 @@ static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySub
 									  SubTransactionId parentSubid, void *arg);
 static void check_endpoint_name(const char *name);
 extern bool endpoint_name_equals(const char *name1, const char *name2);
-extern uint64 create_magic_num_from_token(const int8 *token);
+extern uint64 create_magic_num_for_endpoint(const int8 *token);
 
 /*
  * FindEndpointTokenByUser - authenticate for retrieve role connection.
@@ -244,7 +244,7 @@ init_conn_for_receiver(void)
 	}
 	dsm_pin_mapping(dsm_seg);
 	shm_toc *toc = shm_toc_attach(
-		create_magic_num_from_token(my_shared_endpoint->token),
+		create_magic_num_for_endpoint(my_shared_endpoint),
 		dsm_segment_address(dsm_seg));
 	shm_mq *mq = shm_toc_lookup(toc, ENDPOINT_KEY_TUPLE_QUEUE);
 	shm_mq_set_receiver(mq, MyProc);
@@ -295,7 +295,7 @@ TupleDescOfRetrieve(void)
 
 		Assert(currentMQEntry->mq_handle);
 		shm_toc *toc = shm_toc_attach(
-			create_magic_num_from_token(my_shared_endpoint->token),
+			create_magic_num_for_endpoint(my_shared_endpoint),
 			dsm_segment_address(currentMQEntry->mq_seg));
 		td = read_tuple_desc_info(toc);
 		currentMQEntry->tq_reader = CreateTupleQueueReader(currentMQEntry->mq_handle, td);

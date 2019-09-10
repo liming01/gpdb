@@ -175,10 +175,8 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 			stmt->planTree, &endPointExecPosition);
 
 		/*Alloc token and add PARALLEL RETRIEVE CURSOR*/
-		AddParallelCursorToken(portal->parallelCursorToken,
-				       portal->name, gp_session_id, GetUserId(),
-				       endPointExecPosition,
-					   cids);
+		AddParallelCursorToken(portal->name, gp_session_id, GetUserId(),
+							   endPointExecPosition, cids);
 	}
 
 	/*

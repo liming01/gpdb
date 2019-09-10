@@ -185,10 +185,9 @@ typedef struct QueryDispatchDesc
 	List	   *cursorPositions;
 
 	/*
-	 * For parallel retrieve cursor. Pass cursor name and other info to QEs.
+	 * For parallel retrieve cursor. Pass cursor name to QEs.
 	 */
-	char	   *cursorName;
-	char	   *parallelRetrieveTokenStr;
+	char	   *parallelCursorName;
 
 	/*
 	 * Set to true for CTAS and SELECT INTO. Set to false for ALTER TABLE

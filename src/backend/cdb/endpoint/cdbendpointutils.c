@@ -79,7 +79,7 @@ static const uint8 rightmost_one_pos[256] = {
 
 extern bool token_equals(const int8 *token1, const int8 *token2);
 extern bool endpoint_name_equals(const char *name1, const char *name2);
-extern uint64 create_magic_num_from_token(const int8 *token);
+extern uint64 create_magic_num_for_endpoint(const EndpointDesc *desc);
 
 struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
 	{0}, PRCER_NONE, {0}, -1
@@ -228,13 +228,11 @@ EndpointRoleToString(enum ParallelRetrCursorExecRole role)
 }
 
 static EndpointStatus *
-find_endpoint_status(EndpointStatus *status_array, int number,
-					 const int8 *token, int dbid)
+find_endpoint_status(EndpointStatus *status_array, int number, int dbid)
 {
 	for (int i = 0; i < number; i++)
 	{
-		if (token_equals(status_array[i].token, token)
-			&& status_array[i].dbid == dbid)
+		if (status_array[i].dbid == dbid)
 		{
 			return &status_array[i];
 		}
@@ -554,7 +552,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				if (!entry->empty)
 				{
 					EndpointStatus* status = &mystatus->status[mystatus->status_num - cnt + idx];
-					memcpy(status->token, entry->token, ENDPOINT_TOKEN_LEN);
+					memcpy(status->token, get_token_by_session_id(entry->session_id), ENDPOINT_TOKEN_LEN);
 					status->dbid = contentid_get_dbid(MASTER_CONTENT_ID, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
 					status->attach_status = entry->attach_status;
 					status->sender_pid = entry->sender_pid;
@@ -582,7 +580,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		ParaCursorToken entry = &SharedTokens[mystatus->curTokenIdx];
 
-		if (IsEndpointTokenValid(entry->token)
+		if (entry->cursor_name[0]
 			&& (superuser() || entry->user_id == GetUserId())
 			&& (entry->session_id == gp_session_id|| is_all))
 		{
@@ -609,7 +607,11 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				{
 					/* get a primary node and return this token with this node info*/
 					Datum result;
-					char *token = PrintToken(entry->token);
+					EndpointStatus *qe_status = find_endpoint_status(mystatus->status,
+						                                  mystatus->status_num,
+						                                  dbinfo->dbid);
+
+					char *token = PrintToken(qe_status->token);
 
 					memset(values, 0, sizeof(values));
 					memset(nulls, 0, sizeof(nulls));
@@ -632,10 +634,6 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					/*
 					 * find out the status of end-point
 					 */
-					EndpointStatus *qe_status = find_endpoint_status(mystatus->status,
-						                                  mystatus->status_num,
-						                                  entry->token,
-						                                  dbinfo->dbid);
 					values[7] = CStringGetTextDatum(endpoint_status_enum_to_string( qe_status));
 					nulls[7]  = false;
 
@@ -743,7 +741,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
 		{
 			char *status = NULL;
-			char *token = PrintToken(entry->token);
+			char *token = PrintToken(get_token_by_session_id(entry->session_id));
 
 			values[0] = CStringGetTextDatum(token);
 			nulls[0] = false;
@@ -781,13 +779,13 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
  * Create a magic number from a given token for DSM TOC usage.
  * The same tokens will eventually generate the same magic number.
  */
-uint64 create_magic_num_from_token(const int8 *token)
+uint64 create_magic_num_for_endpoint(const EndpointDesc *desc)
 {
 	uint64 magic = 0;
-	Assert(token);
+	Assert(desc);
 	for (int i = 0; i < 8; i++)
 	{
-		magic |= ((uint64)token[i]) << i * 8;
+		magic |= ((uint64)desc->name[i]) << i * 8;
 	}
 	return magic;
 }

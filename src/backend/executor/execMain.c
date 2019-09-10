@@ -989,7 +989,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			{
 				set_latch_on_sigusr1 = true;
 				endpointDest = CreateTQDestReceiverForEndpoint(
-					queryDesc->tupDesc, queryDesc->ddesc->cursorName);
+					queryDesc->tupDesc, queryDesc->ddesc->parallelCursorName);
 				(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
 			}
 

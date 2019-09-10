@@ -246,7 +246,6 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	portal->atEnd = true;		/* disallow fetches until query is set */
 	portal->visible = true;
 	portal->creation_time = GetCurrentStatementStartTimestamp();
-	InvalidateEndpointToken(portal->parallelCursorToken);
 
 	/* set portal id and queue id if have enabled resource scheduling */
 	if (Gp_role == GP_ROLE_DISPATCH && IsResQueueEnabled())
@@ -610,8 +609,8 @@ PortalDrop(Portal portal, bool isTopCommit)
 		portal->holdStore = NULL;
 	}
 
-	/* Clear token if it is a PARALLEL RETRIEVE CURSOR */
-	if (IsEndpointTokenValid(portal->parallelCursorToken))
+	/* Destruction for PARALLEL RETRIEVE CURSOR */
+	if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
 	{
 		DestroyParallelCursor(portal->name);
 	}

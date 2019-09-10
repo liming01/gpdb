@@ -1058,6 +1058,7 @@ exec_mpp_query(const char *query_string,
 	SliceTable *sliceTable = NULL;
 	Slice      *slice = NULL;
 	ParamListInfo paramLI = NULL;
+	bool forParallelCursor = false;
 
 	Assert(Gp_role == GP_ROLE_EXECUTE);
 	/*
@@ -1165,11 +1166,10 @@ exec_mpp_query(const char *query_string,
 
 		if (ddesc->oidAssignments)
 			AddPreassignedOids(ddesc->oidAssignments);
-		if (ddesc->parallelRetrieveTokenStr)
+
+		if (ddesc->parallelCursorName && ddesc->parallelCursorName[0])
 		{
-			int8 token[ENDPOINT_TOKEN_LEN] = {0};
-			ParseToken(token, ddesc->parallelRetrieveTokenStr);
-			SetGpToken(token);
+			forParallelCursor = true;
 		}
     }
 
@@ -1349,7 +1349,7 @@ exec_mpp_query(const char *query_string,
 						  list_make1(plan ? (Node*)plan : (Node*)utilityStmt),
 						  NULL);
 
-		if ((commandType == CMD_SELECT) && (currentSliceId == 0) && IsGpTokenValid())
+		if ((commandType == CMD_SELECT) && (currentSliceId == 0) && forParallelCursor)
 			SetParallelCursorExecRole(PRCER_SENDER);
 
 		/*

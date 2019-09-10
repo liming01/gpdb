@@ -108,7 +108,6 @@ enum RetrieveStatus
  */
 typedef struct ParallelCursorTokenDesc
 {
-	int8 token[ENDPOINT_TOKEN_LEN];    /* Token */
 	char cursor_name[NAMEDATALEN];     /* The PARALLEL RETRIEVE CURSOR's name */
 	int session_id;                    /* Which session created this PARALLEL RETRIEVE CURSOR */
 	int endpoint_cnt;                  /* How many endpoints are created */
@@ -133,7 +132,6 @@ typedef struct EndpointDesc
 	Oid database_id;                   /* Database OID */
 	pid_t sender_pid;                  /* The PID of EPR_SENDER(endpoint), set before endpoint sends data */
 	pid_t receiver_pid;                /* The retrieve role's PID that connect to current endpoint */
-	int8 token[ENDPOINT_TOKEN_LEN];    /* The token of the endpoint's running PARALLEL RETRIEVE CURSOR */
 	dsm_handle handle;                 /* DSM handle, which contains shared message queue */
 	Latch ack_done;                    /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
     Latch check_wait_latch;            /* Latch to sync CHECK WAIT udf in write gang and ENDPOINT QE */
@@ -157,7 +155,7 @@ typedef struct MsgQueueStatusEntry
 	shm_mq_handle *mq_handle;                  /* Shared memory message queue */
 	TupleTableSlot *retrieve_ts;               /* tuple slot used for retrieve data */
 	TupleQueueReader *tq_reader;               /* TupleQueueReader to read tuple from message queue */
-	enum RetrieveStatus retrieve_status;       /* Track retrieve status for retrieve token entry */
+	enum RetrieveStatus retrieve_status;       /* Track retrieve status */
 } MsgQueueStatusEntry;
 
 /*
@@ -194,7 +192,7 @@ extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
 	const struct Plan *planTree);
 extern List *ChooseEndpointContentIDForParallelCursor(
 	const struct Plan *planTree, enum EndPointExecPosition *position);
-extern void AddParallelCursorToken(int8 *token /*out*/, const char *name, int sessionID,
+extern void AddParallelCursorToken(const char *name, int sessionID,
 								   Oid userID, enum EndPointExecPosition endPointExecPosition, List *segList);
 extern void WaitEndpointReady(const struct Plan *planTree, const char *cursorName);
 /* Remove PARALLEL RETRIEVE CURSOR during cursor portal drop/abort, on QD */
@@ -251,6 +249,7 @@ extern void add_dbid_into_bitmap(int32 *bitmap, int16 dbid);
 extern int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit);
 extern EndpointDesc *find_endpoint(const char *endpointName, int sessionID);
 extern int get_session_id_by_token(const int8 *token);
+extern const int8 *get_token_by_session_id(int sessionId);
 
 /* UDFs for endpoints info*/
 extern Datum gp_endpoints_info(PG_FUNCTION_ARGS);
