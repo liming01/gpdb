@@ -358,6 +358,12 @@ PortalCleanup(Portal portal)
 		 */
 		portal->queryDesc = NULL;
 
+		/* Destruction for PARALLEL RETRIEVE CURSOR */
+		if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
+		{
+			DestroyParallelCursor(portal->name);
+		}
+
 		if (portal->status != PORTAL_FAILED)
 		{
 			ResourceOwner saveResourceOwner;

@@ -55,6 +55,7 @@ class ConnectionInfo(object):
     __instance = None
 
     def __init__(self):
+        self.max_content_id = 0
         if ConnectionInfo.__instance is not None:
             raise Exception("ConnectionInfo is a singleton.")
 
@@ -65,6 +66,9 @@ class ConnectionInfo(object):
         con.close()
 
         ConnectionInfo.__instance = self
+        for content, _, _, _ in ConnectionInfo.__instance._conn_map:
+            if content >= self.max_content_id:
+                self.max_content_id = content + 1
 
     @staticmethod
     def __get_instance():
@@ -75,9 +79,11 @@ class ConnectionInfo(object):
     @staticmethod
     def get_hostname_port(name, role_name):
         content_id = int(name)
-        map = ConnectionInfo.__get_instance()._conn_map
-        for content, host, port, role in map:
-            if content_id == content and role == role_name:
+        conn_map = ConnectionInfo.__get_instance()._conn_map
+        max_content_id = ConnectionInfo.__get_instance().max_content_id
+        real_content_id = content_id % max_content_id if content_id >= 0 else content_id % (-max_content_id)
+        for content, host, port, role in conn_map:
+            if real_content_id == content and role == role_name:
                 return (host, port)
         raise Exception("Cannont find a connection with content_id=%d, role=%c" % (content_id, role_name))
 

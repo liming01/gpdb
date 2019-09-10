@@ -609,12 +609,6 @@ PortalDrop(Portal portal, bool isTopCommit)
 		portal->holdStore = NULL;
 	}
 
-	/* Destruction for PARALLEL RETRIEVE CURSOR */
-	if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
-	{
-		DestroyParallelCursor(portal->name);
-	}
-
 	/* delete tuplestore storage, if any */
 	if (portal->holdContext)
 		MemoryContextDelete(portal->holdContext);

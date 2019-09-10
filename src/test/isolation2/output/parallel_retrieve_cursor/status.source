@@ -13,15 +13,13 @@ BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'parse_endpoint 1 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- endpointname         | token                              | hostname    | port  | status
-----------------------+------------------------------------+-------------+-------+--------
  endpoint_id1_1 | token_id | host_id | port_id | READY
  endpoint_id1_2 | token_id | host_id | port_id | READY
  endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 ${TOKEN1}': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT1';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -39,7 +37,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 ${TOKEN1}': RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT1";
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -156,7 +154,10 @@ DECLARE
 (25 rows)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 1: CLOSE c1;
 CLOSE
 -- check no endpoint info
@@ -169,20 +170,20 @@ CLOSE
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------
 (0 rows)
 
 -- error out for closed cursor
-1: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
 ERROR:  cursor "c1" does not exist
 1: ROLLBACK;
 ROLLBACK
@@ -192,17 +193,27 @@ ROLLBACK
 BEGIN
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id2 | INIT
- token_id2 | INIT
- token_id2 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
+ endpoint_id2_2 | token_id | host_id | port_id | READY
+ endpoint_id2_3 | token_id | host_id | port_id | READY
 (3 rows)
--- test RETRIEVE report error if PARALLEL RETRIEVE CURSOR not executed
-0R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE 10 FROM "@TOKEN2";
-ERROR:  the PARALLEL RETRIEVE CURSOR related to endpoint token token_id2 is not EXECUTED. (cdbendpointretrieve.c:LINENO)
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
+-- test RETRIEVE success on seg1
+0R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT2";
+ a  
+----
+ 16 
+ 18 
+ 19 
+ 2  
+ 22 
+ 24 
+ 3  
+ 7  
+ 8  
+ 4  
+(10 rows)
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
 
 -- check initial status after "CHECK PARALLEL RETRIEVE CURSOR"
 2: @in_sh 'sub @TOKEN2 ${TOKEN2}': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c2' AND token='@TOKEN2';
@@ -218,7 +229,7 @@ ERROR:  the PARALLEL RETRIEVE CURSOR related to endpoint token token_id2 is not 
 
  ?column? | ?column? | status 
 ----------+----------+--------
- t        | f        | READY  
+ t        | t        | READY  
 (1 row)
 
  ?column? | ?column? | status 
@@ -231,21 +242,21 @@ ERROR:  the PARALLEL RETRIEVE CURSOR related to endpoint token token_id2 is not 
  t        | f        | READY  
 (1 row)
 -- check status if some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
-0R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE 10 FROM "@TOKEN2";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT2";
  a  
 ----
- 2  
- 3  
- 4  
- 7  
- 8  
- 16 
- 18 
- 19 
- 22 
- 24 
+ 27 
+ 29 
+ 34 
+ 37 
+ 39 
+ 41 
+ 42 
+ 45 
+ 51 
+ 53 
 (10 rows)
-1R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE ALL FROM "@TOKEN2";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  a  
 ----
  1  
@@ -312,27 +323,17 @@ ERROR:  the PARALLEL RETRIEVE CURSOR related to endpoint token token_id2 is not 
  t        | f        | READY  
 (1 row)
 -- return 0 row instead of reporting error if finished retrieving data from this endpoint, while other endpoint have not finished retrieving.
-1R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE ALL FROM "@TOKEN2";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  a 
 ---
 (0 rows)
 -- finished retrieving all endpoints and check status
-*R: @in_sh 'sub @TOKEN2 ${TOKEN2}': RETRIEVE ALL FROM "@TOKEN2";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
  a  
 ----
- 27 
- 29 
- 34 
- 37 
- 39 
- 41 
- 42 
- 45 
- 51 
- 53 
  54 
  55 
  59 
@@ -351,7 +352,7 @@ ERROR:  the PARALLEL RETRIEVE CURSOR related to endpoint token token_id2 is not 
  94 
  97 
  99 
-(28 rows)
+(18 rows)
 
  a 
 ---
@@ -412,7 +413,10 @@ ERROR:  the PARALLEL RETRIEVE CURSOR related to endpoint token token_id2 is not 
 (1 row)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 1: COMMIT;
 COMMIT
 -- check the cursor auto closed when transaction closed
@@ -426,20 +430,20 @@ COMMIT
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------
 (0 rows)
 
 -- error out for closed cursor
-1: CHECK PARALLEL RETRIEVE CURSOR c2;
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c2');
 ERROR:  cursor "c2" does not exist
 1: ROLLBACK;
 ROLLBACK
@@ -449,15 +453,13 @@ ROLLBACK
 BEGIN
 1: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
- token                              | status
-------------------------------------+--------
- token_id3 | INIT
- token_id3 | INIT
- token_id3 | INIT
+1: @out_sh 'parse_endpoint 3 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
+ endpoint_id3_1 | token_id | host_id | port_id | READY
+ endpoint_id3_2 | token_id | host_id | port_id | READY
+ endpoint_id3_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c3;  <waiting ...>
-0R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE 10 FROM "@TOKEN3";
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');  <waiting ...>
+0R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT3";
  a  
 ----
  2  
@@ -472,13 +474,13 @@ DECLARE
  24 
 (10 rows)
 -- a new retrieve session should report error
-3R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE 10 FROM "@TOKEN3";
-ERROR:  Endpoint token_id3 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
+3R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT3";
+ERROR:  Endpoint endpoint_id3_1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'CHECK PARALLEL RETRIEVE CURSOR'
 -- quit this new retrieve session
 3Rq: ... <quitting>
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
-1R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
  a  
 ----
  1  
@@ -531,17 +533,15 @@ DETAIL:  An endpoint can be attached by only one retrieving session for each 'CH
 ----------
  1        
 (1 row)
--- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
+-- check it can cancel the "gp_wait_parallel_retrieve_cursor"
 1<:  <... completed>
+ERROR:  Endpoint for 'c3' get aborted. (cdbendpoint.c:LINENO)
 ERROR:  canceling MPP operation
 -- check no endpoint info left
 2: @in_sh 'sub @TOKEN3 $TOKEN3': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c3' AND token='@TOKEN3';
- status   
-----------
- RELEASED 
- RELEASED 
- RELEASED 
-(3 rows)
+ status 
+--------
+(0 rows)
 *R: @in_sh 'sub @TOKEN3 $TOKEN3': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
@@ -558,7 +558,7 @@ ERROR:  canceling MPP operation
 ----------+----------+--------
 (0 rows)
 -- report error for EXECUTE canceled PARALLEL RETRIEVE CURSOR
-1: CHECK PARALLEL RETRIEVE CURSOR c3;
+1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 1: ROLLBACK;
 ROLLBACK
@@ -588,16 +588,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c4 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN4 3 1 ; match_sub token_id4 $TOKEN4': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c4';
- token                              | status
-------------------------------------+--------
- token_id4 | INIT
- token_id4 | INIT
- token_id4 | INIT
+1: @out_sh 'parse_endpoint 4 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c4';
+ endpoint_id4_1 | token_id | host_id | port_id | READY
+ endpoint_id4_2 | token_id | host_id | port_id | READY
+ endpoint_id4_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c4;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c4');  <waiting ...>
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
-0R: @in_sh 'sub @TOKEN4 $TOKEN4': RETRIEVE 10 FROM "@TOKEN4";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT4";
  a  
 ----
  2  
@@ -611,7 +609,7 @@ DECLARE
  22 
  24 
 (10 rows)
-1R: @in_sh 'sub @TOKEN4 $TOKEN4': RETRIEVE ALL FROM "@TOKEN4";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
  a  
 ----
  1  
@@ -666,18 +664,22 @@ DECLARE
 (1 row)
 -- exit this session because the connection closed, so that it will re-connect next time use this session.
 0Rq: ... <quitting>
--- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
+-- check it can cancel the "gp_wait_parallel_retrieve_cursor"
 1<:  <... completed>
 ERROR:  Error on receive from seg0 10.34.50.67:25432 pid=12603: server closed the connection unexpectedly
 DETAIL:  
 	This probably means the server terminated abnormally
 	before or while processing the request.
--- check no endpoint info left
-2: @in_sh 'sub @TOKEN4 $TOKEN4': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c4' AND token='@TOKEN4';
-ERROR:  Error on receive from seg0 10.34.50.67:25432 pid=12724: server closed the connection unexpectedly
+ERROR:  Error on receive from SEG IP:PORT pid=PID: server closed the connection unexpectedly
 DETAIL:  
 	This probably means the server terminated abnormally
 	before or while processing the request.
+-- check no endpoint info left
+2q: ... <quitting>
+2: @in_sh 'sub @TOKEN4 $TOKEN4': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c4' AND token='@TOKEN4';
+ status 
+--------
+(0 rows)
 *R: @in_sh 'sub @TOKEN4 $TOKEN4': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
@@ -693,7 +695,7 @@ DETAIL:
 ----------+----------+--------
 (0 rows)
 -- report error for EXECUTE canceled PARALLEL RETRIEVE CURSOR
-1: CHECK PARALLEL RETRIEVE CURSOR c4;
+1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c4');
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 1: ROLLBACK;
 ROLLBACK

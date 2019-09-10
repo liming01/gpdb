@@ -178,7 +178,9 @@ EndpointCTXShmemInit(void)
 	SharedSessionInfoHash =
 		ShmemInitHash(SHMEM_ENPOINTS_SESSION_INFO, MAX_ENDPOINT_SIZE,
 					  MAX_ENDPOINT_SIZE, &hctl, HASH_ELEM | HASH_FUNCTION);
-	before_shmem_exit(endpoint_exit_callback, (Datum) 0);
+	/* Register endpoint_exit_callback except postmaster process */
+	if (IsUnderPostmaster)
+		before_shmem_exit(endpoint_exit_callback, (Datum) 0);
 }
 
 /*
@@ -265,10 +267,8 @@ endpoint_exit_callback(int code, Datum arg)
 	// FIXME: Find a better place to do clean up
 	if (MyProc == NULL) return;
 
-	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 	/* Remove session info entry */
 	hash_search(SharedSessionInfoHash, &gp_session_id, HASH_REMOVE, NULL);
-	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*
@@ -729,12 +729,11 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	sender_close();
 	sender_finish();
 
-	// FIXME: More comments here. And check if we can just use ProcWaitForSignal
 	// instead.
-	ResetLatch(&MyProc->procLatch);
 	set_attach_status(Status_Finished);
 	unset_endpoint_sender_pid(my_shared_endpoint);
 
+	ResetLatch(&MyProc->procLatch);
 	if (!QueryFinishPending) {
 		CHECK_FOR_INTERRUPTS();
 		WaitLatch(&MyProc->procLatch, WL_LATCH_SET, 0);
@@ -1505,8 +1504,6 @@ get_session_id_by_token(const int8 *token)
 	SessionInfoEntry *info_entry = NULL;
 	HASH_SEQ_STATUS status;
 
-	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-
 	hash_seq_init(&status, SharedSessionInfoHash);
 	while ((info_entry = (SessionInfoEntry *) hash_seq_search(&status)) != NULL)
 	{
@@ -1518,12 +1515,9 @@ get_session_id_by_token(const int8 *token)
 		}
 	}
 
-	LWLockRelease(ParallelCursorEndpointLock);
-
 	return session_id;
 }
 
-/* Need to be called within the lock on ParallelCursorEndpointLock. */
 const int8 *
 get_token_by_session_id(int sessionId)
 {
