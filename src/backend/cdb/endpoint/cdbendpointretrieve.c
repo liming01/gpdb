@@ -48,7 +48,7 @@ static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySub
 									  SubTransactionId parentSubid, void *arg);
 static void check_endpoint_name(const char *name);
 extern bool endpoint_name_equals(const char *name1, const char *name2);
-extern uint64 create_magic_num_for_endpoint(const int8 *token);
+extern uint64 create_magic_num_for_endpoint(const EndpointDesc *endpoint);
 
 /*
  * FindEndpointTokenByUser - authenticate for retrieve role connection.

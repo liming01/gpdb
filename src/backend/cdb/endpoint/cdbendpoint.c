@@ -262,6 +262,8 @@ static void
 endpoint_exit_callback(int code, Datum arg)
 {
 	elog(DEBUG3, "CDB_ENDPOINT: endpoint_exit_callback.");
+	// FIXME: Find a better place to do clean up
+	if (MyProc == NULL) return;
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 	/* Remove session info entry */

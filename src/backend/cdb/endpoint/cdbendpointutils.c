@@ -611,13 +611,21 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 						                                  mystatus->status_num,
 						                                  dbinfo->dbid);
 
-					char *token = PrintToken(qe_status->token);
 
 					memset(values, 0, sizeof(values));
 					memset(nulls, 0, sizeof(nulls));
 
-					values[0] = CStringGetTextDatum(token);
-					nulls[0]  = false;
+					if (qe_status)
+					{
+						char *token = PrintToken(qe_status->token);
+						values[0]   = CStringGetTextDatum(token);
+						pfree(token);
+						nulls[0]  = false;
+					}
+					else
+					{
+						nulls[0]  = true;
+					}
 					values[1] = CStringGetTextDatum(entry->cursor_name);
 					nulls[1]  = false;
 					values[2] = Int32GetDatum(entry->session_id);
@@ -648,7 +656,6 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					tuple  = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 					result = HeapTupleGetDatum(tuple);
 					LWLockRelease(ParallelCursorEndpointLock);
-					pfree(token);
 					SRF_RETURN_NEXT(funcctx, result);
 				}
 			}
