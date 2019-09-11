@@ -47,14 +47,17 @@ CLOSE
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
-#0retrieve> FATAL:  Retrieve auth token is invalid
+ status 
+--------
+(0 rows)
 
+ status 
+--------
+(0 rows)
 
-#1retrieve> FATAL:  Retrieve auth token is invalid
-
-
-#2retrieve> FATAL:  Retrieve auth token is invalid
-
+ status 
+--------
+(0 rows)
 
 -- error out for closed cursor
 1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
@@ -136,9 +139,9 @@ DECLARE
 1: DECLARE c11 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
 1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- endpoint_id1_1 | token_id | host_id | port_id | READY
- endpoint_id1_2 | token_id | host_id | port_id | READY
- endpoint_id1_3 | token_id | host_id | port_id | READY
+ endpoint_id2_1 | token_id | host_id | port_id | READY
+ endpoint_id2_2 | token_id | host_id | port_id | READY
+ endpoint_id2_3 | token_id | host_id | port_id | READY
 (3 rows)
 1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
 
@@ -479,8 +482,6 @@ BEGIN
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 10;
 DECLARE
 1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- endpointname         | token                              | hostname     | port  | status
-----------------------+------------------------------------+--------------+-------+--------
  endpoint_id2_1 | token_id | host_id | port_id | READY
 (1 row)
 1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
@@ -543,8 +544,6 @@ BEGIN
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1 ORDER BY a LIMIT 0;
 DECLARE
 1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- endpointname         | token                              | hostname     | port  | status
-----------------------+------------------------------------+--------------+-------+--------
  endpoint_id2_1 | token_id | host_id | port_id | READY
 (1 row)
 1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c2');  <waiting ...>
@@ -597,8 +596,6 @@ BEGIN
 1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t2;
 DECLARE
 1: @out_sh 'parse_endpoint 2 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- endpointname         | token                              | hostname     | port  | status
-----------------------+------------------------------------+--------------+-------+--------
  endpoint_id2_1 | token_id | host_id | port_id | READY
  endpoint_id2_2 | token_id | host_id | port_id | READY
  endpoint_id2_3 | token_id | host_id | port_id | READY
