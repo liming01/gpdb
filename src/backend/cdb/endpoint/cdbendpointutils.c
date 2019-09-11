@@ -409,6 +409,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	if (Gp_role != GP_ROLE_DISPATCH)
 		elog(ERROR, "gp_endpoints_info() only can be called on query dispatcher");
 
+	bool allSessions = PG_GETARG_BOOL(0);
 	FuncCallContext *funcctx;
 	EndpointsInfo *mystatus;
 	MemoryContext oldcontext;
@@ -469,7 +470,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		CdbPgResults cdb_pgresults = {NULL, 0};
 
-		CdbDispatchCommand("SELECT token,dbid,status,senderpid,endpointname,cursorname,userid FROM pg_catalog.gp_endpoints_status_info()",
+		CdbDispatchCommand("SELECT endpointname,cursorname,token,dbid,status,senderpid,userid,sessionid FROM pg_catalog.gp_endpoints_status_info()",
 						   DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
 
 		if (cdb_pgresults.numResults == 0)
@@ -498,13 +499,14 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 
 				for (int j = 0; j < PQntuples(result); j++)
 				{
-					ParseToken(mystatus->status[idx].token, PQgetvalue(result, j, 0));
-					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 1));
-					mystatus->status[idx].attach_status = status_string_to_enum(PQgetvalue(result, j, 2));
-					mystatus->status[idx].sender_pid = atoi(PQgetvalue(result, j, 3));
-					strncpy(mystatus->status[idx].name, PQgetvalue(result, j, 4), ENDPOINT_NAME_LEN);
-					strncpy(mystatus->status[idx].cursor_name, PQgetvalue(result, j, 5), NAMEDATALEN);
+					strncpy(mystatus->status[idx].name, PQgetvalue(result, j, 0), ENDPOINT_NAME_LEN);
+					strncpy(mystatus->status[idx].cursor_name, PQgetvalue(result, j, 1), NAMEDATALEN);
+					ParseToken(mystatus->status[idx].token, PQgetvalue(result, j, 2));
+					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 3));
+					mystatus->status[idx].attach_status = status_string_to_enum(PQgetvalue(result, j, 4));
+					mystatus->status[idx].sender_pid = atoi(PQgetvalue(result, j, 5));
 					mystatus->status[idx].user_id = atoi(PQgetvalue(result, j, 6));
+					mystatus->status[idx].session_id = atoi(PQgetvalue(result, j, 7));
 					idx++;
 				}
 			}
@@ -543,12 +545,14 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				if (!entry->empty)
 				{
 					EndpointStatus* status = &mystatus->status[mystatus->status_num - cnt + idx];
+					strncpy(mystatus->status[idx].name, entry->name, ENDPOINT_NAME_LEN);
+					strncpy(mystatus->status[idx].cursor_name, entry->cursor_name, NAMEDATALEN);
 					memcpy(status->token, get_token_by_session_id(entry->session_id), ENDPOINT_TOKEN_LEN);
 					status->dbid = contentid_get_dbid(MASTER_CONTENT_ID, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
 					status->attach_status = entry->attach_status;
 					status->sender_pid = entry->sender_pid;
-					strncpy(mystatus->status[idx].name, entry->name, ENDPOINT_NAME_LEN);
-					strncpy(mystatus->status[idx].cursor_name, entry->cursor_name, NAMEDATALEN);
+					status->user_id = entry->user_id;
+					status->session_id = entry->session_id;
 					idx++;
 				}
 			}
@@ -565,22 +569,22 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 	while (mystatus->currIdx < mystatus->status_num)
 	{
 		Datum result;
-		EndpointStatus *qe_status	= &mystatus->status[mystatus->currIdx];
+		EndpointStatus *qe_status = &mystatus->status[mystatus->currIdx++];
+		Assert(qe_status);
+
+		if (!allSessions && qe_status->session_id != gp_session_id)
+		{
+			continue;
+		}
+
 		GpSegConfigEntry *segCnfInfo = dbid_get_dbinfo(qe_status->dbid);
 		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
 
-		if (qe_status)
-		{
-			char *token = PrintToken(qe_status->token);
-			values[0]   = CStringGetTextDatum(token);
-			pfree(token);
-			nulls[0] = false;
-		}
-		else
-		{
-			nulls[0] = true;
-		}
+		char *token = PrintToken(qe_status->token);
+		values[0]   = CStringGetTextDatum(token);
+		pfree(token);
+		nulls[0] = false;
 		values[1] = CStringGetTextDatum(qe_status->cursor_name);
 		nulls[1]  = false;
 		values[2] = Int32GetDatum(qe_status->session_id);
@@ -612,7 +616,6 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		tuple  = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 		result = HeapTupleGetDatum(tuple);
 
-		mystatus->currIdx++;
 		SRF_RETURN_NEXT(funcctx, result);
 	}
 	SRF_RETURN_DONE(funcctx);

@@ -170,16 +170,16 @@ CLOSE
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
--------+------------+-----------+-------------+--------+------+-----------+--------+--------------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
--------+------------+-----------+-------------+--------+------+-----------+--------+--------------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
--------+------------+-----------+-------------+--------+------+-----------+--------+--------------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
 -- error out for closed cursor
@@ -430,16 +430,16 @@ COMMIT
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
--------+------------+-----------+-------------+--------+------+-----------+--------+--------------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
--------+------------+-----------+-------------+--------+------+-----------+--------+--------------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname 
--------+------------+-----------+-------------+--------+------+-----------+--------+--------------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
 -- error out for closed cursor
