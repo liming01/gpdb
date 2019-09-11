@@ -129,6 +129,7 @@ typedef struct ParallelCursorTokenDesc
 typedef struct EndpointDesc
 {
 	char name[ENDPOINT_NAME_LEN];      /* Endpoint name */
+	char cursor_name[NAMEDATALEN];     /* Parallel cursor name */
 	Oid database_id;                   /* Database OID */
 	pid_t sender_pid;                  /* The PID of EPR_SENDER(endpoint), set before endpoint sends data */
 	pid_t receiver_pid;                /* The retrieve role's PID that connect to current endpoint */

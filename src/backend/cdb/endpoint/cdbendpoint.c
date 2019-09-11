@@ -812,6 +812,7 @@ alloc_endpoint_for_cursor(const char *cursorName)
 	generate_endpoint_name(SharedEndpoints[i].name, cursorName, gp_session_id,
 						   GpIdentity.segindex);
 	snprintf(EndpointCtl.cursor_name, NAMEDATALEN, "%s", cursorName);
+	memcpy(SharedEndpoints[i].cursor_name, cursorName, NAMEDATALEN);
 	SharedEndpoints[i].database_id = MyDatabaseId;
 	SharedEndpoints[i].session_id	= gp_session_id;
 	SharedEndpoints[i].user_id		 = GetUserId();
