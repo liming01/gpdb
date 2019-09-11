@@ -224,7 +224,6 @@ extern void DetachEndpoint(bool resetPID);
 
 /* cdbendpointutils.c */
 /* Utility functions */
-extern int64 GpToken(void);
 extern void CheckTokenValid(void);
 extern bool IsGpTokenValid(void);
 extern void SetGpToken(const int8 *token);

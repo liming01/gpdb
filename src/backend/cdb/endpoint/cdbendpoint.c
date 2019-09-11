@@ -53,7 +53,7 @@
 
 /* The timeout before returns failure for endpoints initialization. */
 #define WAIT_ENDPOINT_INIT_TIMEOUT      5000
-#define WAIT_RECEIVE_TIMEOUT            50
+#define WAIT_NORMAL_TIMEOUT             300
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
 
 #define SHMEM_PARALLEL_CURSOR_ENTRIES   "SharedMemoryParallelCursorTokens"
@@ -103,6 +103,7 @@ static void sender_close(void);
 static void unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc);
 static void signal_receiver_abort(volatile EndpointDesc *endPointDesc);
 static void endpoint_abort(void);
+static void wait_parallel_retrieve_close(void);
 static void free_endpoint(EndpointDesc *endpointDesc);
 static void free_endpoint_by_cursor_name(const char *cursorName);
 static void register_endpoint_xact_callbacks(void);
@@ -119,6 +120,7 @@ extern uint64 create_magic_num_for_endpoint(const EndpointDesc *endpoint);
 extern void generate_endpoint_name(char *name, const char *cursorName, int32 sessionID, int32 segindex);
 extern EndpointDesc * find_endpoint_by_cursor_name(const char *name, bool with_lock);
 
+static void check_dispatch_connection(void);
 static bool check_parallel_retrieve_cursor(const char *cursorName, bool isWait);
 
 /*
@@ -733,12 +735,7 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	set_attach_status(Status_Finished);
 	unset_endpoint_sender_pid(my_shared_endpoint);
 
-	ResetLatch(&MyProc->procLatch);
-	if (!QueryFinishPending) {
-		CHECK_FOR_INTERRUPTS();
-		WaitLatch(&MyProc->procLatch, WL_LATCH_SET, 0);
-		ResetLatch(&MyProc->procLatch);
-	}
+	wait_parallel_retrieve_close();
 
 	free_endpoint_by_cursor_name(EndpointCtl.cursor_name);
 	my_shared_endpoint = NULL;
@@ -943,7 +940,7 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 				break;
 			wr = WaitLatch(&endpointDesc->check_wait_latch,
 						   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
-						   WAIT_RECEIVE_TIMEOUT);
+						   WAIT_NORMAL_TIMEOUT);
 			if (wr & WL_TIMEOUT)
 				continue;
 			if (wr & WL_POSTMASTER_DEATH)
@@ -1057,31 +1054,12 @@ wait_receiver(void)
 		if (QueryFinishPending)
 			break;
 
-		/* Check the QD dispatcher connection is lost */
-		unsigned char firstchar;
-		int r;
-
-		pq_startmsgread();
-		r = pq_getbyte_if_available(&firstchar);
-		if (r < 0)
-		{
-			elog(ERROR, "unexpected EOF on query dispatcher connection");
-		}
-		else if (r > 0)
-		{
-			elog(ERROR, "query dispatcher should get nothing until QE backend finished processing");
-		}
-		else
-		{
-			/* no data available without blocking */
-			pq_endmsgread();
-			/* continue processing as normal case */
-		}
+		check_dispatch_connection();
 
 		elog(DEBUG5, "CDB_ENDPOINT: sender wait latch in wait_receiver()");
 		wr = WaitLatch(&my_shared_endpoint->ack_done,
 					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
-					   WAIT_RECEIVE_TIMEOUT);
+					   WAIT_NORMAL_TIMEOUT);
 		if (wr & WL_TIMEOUT)
 			continue;
 
@@ -1208,6 +1186,41 @@ static void endpoint_abort(void)
 	ClearParallelCursorExecRole();
 }
 
+void
+wait_parallel_retrieve_close(void)
+{
+	ResetLatch(&MyProc->procLatch);
+	while (true)
+	{
+		int wr;
+
+		CHECK_FOR_INTERRUPTS();
+
+		if (QueryFinishPending)
+			break;
+
+		check_dispatch_connection();
+
+		elog(DEBUG5, "CDB_ENDPOINT: wait for parallel retrieve cursor close");
+		wr = WaitLatch(&MyProc->procLatch,
+					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
+					   WAIT_NORMAL_TIMEOUT);
+		if (wr & WL_TIMEOUT)
+			continue;
+
+		if (wr & WL_POSTMASTER_DEATH)
+		{
+			elog(DEBUG3, "CDB_ENDPOINT: postmaster exit, close shared memory message queue.");
+			proc_exit(0);
+		}
+
+		Assert(wr & WL_LATCH_SET);
+		elog(DEBUG3, "CDB_ENDPOINT: parallel retrieve cursor close, get latch");
+		ResetLatch(&MyProc->procLatch);
+		break;
+	}
+}
+
 /*
  *  Find and free the EndpointDesc entry by the cursor name.
  */
@@ -1328,6 +1341,31 @@ set_attach_status(enum AttachStatus status)
 	LWLockRelease(ParallelCursorEndpointLock);
 }
 
+void
+check_dispatch_connection(void)
+{
+	/* Check the QD dispatcher connection is lost */
+	unsigned char firstchar;
+	int r;
+
+	pq_startmsgread();
+	r = pq_getbyte_if_available(&firstchar);
+	if (r < 0)
+	{
+		elog(ERROR, "unexpected EOF on query dispatcher connection");
+	}
+	else if (r > 0)
+	{
+		elog(ERROR, "query dispatcher should get nothing until QE backend finished processing");
+	}
+	else
+	{
+		/* no data available without blocking */
+		pq_endmsgread();
+		/* continue processing as normal case */
+	}
+}
+
 /*
  * gp_operate_endpoints_token - Operation for EndpointDesc entries on endpoint.
  *
@@ -1402,6 +1440,7 @@ check_parallel_retrieve_cursor(const char *cursorName, bool isWait)
 
     return ret_val;
 }
+
 Datum
 gp_check_parallel_retrieve_cursor(PG_FUNCTION_ARGS)
 {

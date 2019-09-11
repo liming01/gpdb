@@ -718,22 +718,21 @@ ROLLBACK
  ?column? | ?column? | status 
 ----------+----------+--------
 (0 rows)
+2Rq: ... <quitting>
 
 ---------- Test5: terminate (using signal TERM) QE exec backend
 1: BEGIN;
 BEGIN
 1: DECLARE c5 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN5 3 1 ; match_sub token_id5 $TOKEN5': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c5';
- token                              | status
-------------------------------------+--------
- token_id5 | INIT
- token_id5 | INIT
- token_id5 | INIT
+1: @out_sh 'parse_endpoint 5 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c5';
+ endpoint_id5_1 | token_id | host_id | port_id | READY
+ endpoint_id5_2 | token_id | host_id | port_id | READY
+ endpoint_id5_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c5;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c5');  <waiting ...>
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
-0R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE 10 FROM "@TOKEN5";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT5";
  a  
 ----
  2  
@@ -747,7 +746,12 @@ DECLARE
  22 
  24 
 (10 rows)
-1R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
+-- 1R still bind to Test4 session, so can not retrieve from current endpoint.
+1R: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";
+ERROR:  failed to attach non-existing endpoint endpoint_id5_2 (cdbendpointretrieve.c:LINENO)
+-- Since seg1 retrieve session is bind to Test4 session. And Test4 session get killed. We need to restart it.
+1Rq: ... <quitting>
+1R: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";
  a  
 ----
  1  
@@ -800,17 +804,15 @@ DECLARE
 ----------
  1        
 (1 row)
--- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
+-- check it can cancel the "gp_wait_parallel_retrieve_cursor"
 1<:  <... completed>
+ERROR:  Endpoint for 'c5' get aborted. (cdbendpoint.c:LINENO)
 ERROR:  terminating connection due to administrator command  (seg0 10.34.50.67:25432 pid=12905)
 -- check no endpoint info left
 2: @in_sh 'sub @TOKEN5 $TOKEN5': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c5' AND token='@TOKEN5';
- status   
-----------
- RELEASED 
- RELEASED 
- RELEASED 
-(3 rows)
+ status 
+--------
+(0 rows)
 *R: @in_sh 'sub @TOKEN5 $TOKEN5': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
@@ -827,7 +829,7 @@ ERROR:  terminating connection due to administrator command  (seg0 10.34.50.67:2
 ----------+----------+--------
 (0 rows)
 -- report error for EXECUTE canceled PARALLEL RETRIEVE CURSOR
-1: CHECK PARALLEL RETRIEVE CURSOR c5;
+1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c5');
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 1: ROLLBACK;
 ROLLBACK
@@ -857,22 +859,20 @@ ROLLBACK
 BEGIN
 1: DECLARE c6 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN6 3 1 ; match_sub token_id6 $TOKEN6': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c6';
- token                              | status
-------------------------------------+--------
- token_id6 | INIT
- token_id6 | INIT
- token_id6 | INIT
+1: @out_sh 'parse_endpoint 6 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c6';
+ endpoint_id6_1 | token_id | host_id | port_id | READY
+ endpoint_id6_2 | token_id | host_id | port_id | READY
+ endpoint_id6_3 | token_id | host_id | port_id | READY
 (3 rows)
--- get backend pid of this session which run 'CHECK PARALLEL RETRIEVE CURSOR'
+-- get backend pid of this session which run 'gp_wait_parallel_retrieve_cursor'
 1: @out_sh 'get_cell PID61 3 1 ; sub "${PID61}[ \t]*" QDPid61': select pg_backend_pid();
  pg_backend_pid
 ----------------
  QDPid61
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c6;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c6');  <waiting ...>
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
-0R: @in_sh 'sub @TOKEN6 $TOKEN6': RETRIEVE 10 FROM "@TOKEN6";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT6";
  a  
 ----
  2  
@@ -886,7 +886,7 @@ DECLARE
  22 
  24 
 (10 rows)
-1R: @in_sh 'sub @TOKEN6 $TOKEN6': RETRIEVE ALL FROM "@TOKEN6";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";
  a  
 ----
  1  
@@ -933,17 +933,14 @@ DECLARE
 ----------
  1        
 (1 row)
--- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
+-- check it can cancel the "gp_wait_parallel_retrieve_cursor"
 1<:  <... completed>
 ERROR:  canceling statement due to user request
 -- check no endpoint info left
 2: @in_sh 'sub @TOKEN6 $TOKEN6': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c6' AND token='@TOKEN6';
- status   
-----------
- RELEASED 
- RELEASED 
- RELEASED 
-(3 rows)
+ status 
+--------
+(0 rows)
 *R: @in_sh 'sub @TOKEN6 $TOKEN6': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
@@ -960,7 +957,7 @@ ERROR:  canceling statement due to user request
 ----------+----------+--------
 (0 rows)
 -- report error for EXECUTE canceled PARALLEL RETRIEVE CURSOR
-1: CHECK PARALLEL RETRIEVE CURSOR c6;
+1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c6');
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
 1: ROLLBACK;
 ROLLBACK
@@ -990,22 +987,20 @@ ROLLBACK
 BEGIN
 1: DECLARE c61 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN61 3 1 ; match_sub token_id61 $TOKEN61': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c61';
- token                              | status
-------------------------------------+--------
- token_id61 | INIT
- token_id61 | INIT
- token_id61 | INIT
+1: @out_sh 'parse_endpoint 61 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c61';
+ endpoint_id61_1 | token_id | host_id | port_id | READY
+ endpoint_id61_2 | token_id | host_id | port_id | READY
+ endpoint_id61_3 | token_id | host_id | port_id | READY
 (3 rows)
--- get backend pid of this session which run 'CHECK PARALLEL RETRIEVE CURSOR'
+-- get backend pid of this session which run 'gp_wait_parallel_retrieve_cursor'
 1: @out_sh 'get_cell PID611 3 1 ; sub "${PID611}[ \t]*" QDPid611': select pg_backend_pid();
  pg_backend_pid
 ----------------
  QDPid611
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c61;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c61');  <waiting ...>
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
-0R: @in_sh 'sub @TOKEN61 $TOKEN61': RETRIEVE 10 FROM "@TOKEN61";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT61': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT61";
  a  
 ----
  2  
@@ -1019,7 +1014,7 @@ DECLARE
  22 
  24 
 (10 rows)
-1R: @in_sh 'sub @TOKEN61 $TOKEN61': RETRIEVE ALL FROM "@TOKEN61";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT61': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT61";
  a  
 ----
  1  
@@ -1066,17 +1061,14 @@ DECLARE
 ----------
  1        
 (1 row)
--- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
+-- check it can cancel the "gp_wait_parallel_retrieve_cursor"
 1<:  <... completed>
 ERROR:  canceling statement due to user request
 -- check no endpoint info left
 2: @in_sh 'sub @TOKEN61 $TOKEN61': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c61' AND token='@TOKEN61';
- status   
-----------
- RELEASED 
- RELEASED 
- RELEASED 
-(3 rows)
+ status 
+--------
+(0 rows)
 *R: @in_sh 'sub @TOKEN61 $TOKEN61': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN61';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
@@ -1114,28 +1106,29 @@ ERROR:  canceling statement due to user request
  ?column? | ?column? | status 
 ----------+----------+--------
 (0 rows)
+0Rq: ... <quitting>
+1Rq: ... <quitting>
+2Rq: ... <quitting>
 
 ---------- Test7: terminate (using signal QUIT) the process of 'CHECK PARALLEL RETRIEVE CURSOR'
 1: BEGIN;
 BEGIN
 1: DECLARE c7 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN7 3 1 ; match_sub token_id7 $TOKEN7': SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c7';
- token                              | status
-------------------------------------+--------
- token_id7 | INIT
- token_id7 | INIT
- token_id7 | INIT
+1: @out_sh 'parse_endpoint 7 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c7';
+ endpoint_id7_1 | token_id | host_id | port_id | READY
+ endpoint_id7_2 | token_id | host_id | port_id | READY
+ endpoint_id7_3 | token_id | host_id | port_id | READY
 (3 rows)
--- get backend pid of this session which run 'CHECK PARALLEL RETRIEVE CURSOR'
+-- get backend pid of this session which run 'gp_wait_parallel_retrieve_cursor'
 1: @out_sh 'get_cell PID71 3 1 ; sub "${PID71}[ \t]*" QDPid71': select pg_backend_pid();
  pg_backend_pid
 ----------------
  QDPid71
 (1 row)
-1&: CHECK PARALLEL RETRIEVE CURSOR c7;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c7');  <waiting ...>
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
-0R: @in_sh 'sub @TOKEN7 $TOKEN7': RETRIEVE 10 FROM "@TOKEN7";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT7': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT7";
  a  
 ----
  2  
@@ -1149,7 +1142,7 @@ DECLARE
  22 
  24 
 (10 rows)
-1R: @in_sh 'sub @TOKEN7 $TOKEN7': RETRIEVE ALL FROM "@TOKEN7";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT7': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT7";
  a  
 ----
  1  
@@ -1197,7 +1190,7 @@ DECLARE
 ----------
  1        
 (1 row)
--- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
+-- check it can cancel the "gp_wait_parallel_retrieve_cursor"
 1<:  <... completed>
 server closed the connection unexpectedly
 	This probably means the server terminated abnormally
@@ -1227,7 +1220,7 @@ server closed the connection unexpectedly
 ----------+----------+--------
 (0 rows)
 -- report error for EXECUTE canceled PARALLEL RETRIEVE CURSOR
-1: CHECK PARALLEL RETRIEVE CURSOR c7;
+1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c7');
 ERROR:  cursor "c7" does not exist
 1: ROLLBACK;
 ROLLBACK
@@ -1260,9 +1253,9 @@ DECLARE
 1: @out_sh 'get_cell SESSION81 3 2 ; get_token_cell TOKEN81 3 1 ; match_sub_tt session81 $SESSION81 > /dev/null ; match_sub token81 $TOKEN81': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
  token                              | sessionid | status
 ------------------------------------+-----------+--------
- token81 | session81| INIT
- token81 | session81| INIT
- token81 | session81| INIT
+ token81 | session81| READY
+ token81 | session81| READY
+ token81 | session81| READY
 (3 rows)
 -- Session 2 can only see its own cursors by default.
 2: BEGIN;
@@ -1272,20 +1265,20 @@ DECLARE
 2: @out_sh 'get_cell SESSION82 3 2 ; get_token_cell TOKEN82 3 1 ; match_sub_tt session82 $SESSION82 > /dev/null ; match_sub token82 $TOKEN82': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
  token                              | sessionid | status
 ------------------------------------+-----------+--------
- token82 | session82| INIT
- token82 | session82| INIT
- token82 | session82| INIT
+ token82 | session82| READY
+ token82 | session82| READY
+ token82 | session82| READY
 (3 rows)
 -- Session 2 can only see all cursors with gp_endpoints_info(true).
 2: SELECT token,sessionid,status FROM gp_endpoints_info(true) WHERE cursorname='c8';
  token                              | sessionid | status 
 ------------------------------------+-----------+--------
- token81 | session81| INIT   
- token81 | session81| INIT   
- token81 | session81| INIT   
- token82 | session82| INIT   
- token82 | session82| INIT   
- token82 | session82| INIT   
+ token81 | session81| READY  
+ token81 | session81| READY  
+ token81 | session81| READY  
+ token82 | session82| READY  
+ token82 | session82| READY  
+ token82 | session82| READY  
 (6 rows)
 
 1: CLOSE c8;
