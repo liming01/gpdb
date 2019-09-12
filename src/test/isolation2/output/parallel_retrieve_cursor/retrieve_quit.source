@@ -12,43 +12,29 @@ INSERT 100
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
-(3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
-
-2: BEGIN;
-BEGIN
-2: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-2: @out_sh 'get_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id2 | INIT
- token_id2 | INIT
- token_id2 | INIT
-(3 rows)
-2&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
-
-3: BEGIN;
-BEGIN
-3: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-3: @out_sh 'get_cell TOKEN3 3 1 ; match_sub token_id3 $TOKEN3' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
- token                              | status
-------------------------------------+--------
- token_id3 | INIT
- token_id3 | INIT
- token_id3 | INIT
+1: @out_sh 'parse_endpoint 1 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-3&: CHECK PARALLEL RETRIEVE CURSOR c3;  <waiting ...>
+1: @out_sh 'parse_endpoint 2 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
+ endpoint_id2_2 | token_id | host_id | port_id | READY
+ endpoint_id2_3 | token_id | host_id | port_id | READY
+(3 rows)
+1: @out_sh 'parse_endpoint 3 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
+ endpoint_id3_1 | token_id | host_id | port_id | READY
+ endpoint_id3_2 | token_id | host_id | port_id | READY
+ endpoint_id3_3 | token_id | host_id | port_id | READY
+(3 rows)
+-- 3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');
 
 -- in one retrieve session, retrieve mutiple tokens (begin retrieving, finished retrieving, not yet retrieve)
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE 10 FROM "@TOKEN1";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT1' : RETRIEVE 10 FROM ENDPOINT "@ENDPOINT1";
  a  
 ----
  2  
@@ -62,7 +48,7 @@ DECLARE
  22 
  24 
 (10 rows)
-0R: @in_sh 'sub @TOKEN2 $TOKEN2' : RETRIEVE all FROM "@TOKEN2";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT2' : RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
  a  
 ----
  2  
@@ -107,13 +93,13 @@ DECLARE
 -- skip TOKEN3 in this session
 
 -- a new retrieve session
-3R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE 10 FROM "@TOKEN1";
-ERROR:  Endpoint token_id1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
+3R: @in_sh 'sub_endpoint_name @ENDPOINT1' : RETRIEVE 10 FROM ENDPOINT "@ENDPOINT1";
+ERROR:  Endpoint endpoint_id1_1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'CHECK PARALLEL RETRIEVE CURSOR'
-3R: @in_sh 'sub @TOKEN2 $TOKEN2' : RETRIEVE all FROM "@TOKEN2";
-ERROR:  Endpoint token_id2 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
+3R: @in_sh 'sub_endpoint_name @ENDPOINT2' : RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  Endpoint endpoint_id1_1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'CHECK PARALLEL RETRIEVE CURSOR'
-3R: @in_sh ' echo "${RAW_STR}" | sed "s#@TOKEN3#${TOKEN3}#" ': RETRIEVE 10 FROM "@TOKEN3";
+3R: @in_sh 'sub_endpoint_name @ENDPOINT3' : RETRIEVE 10 FROM ENDPOINT "@ENDPOINT3";
  a  
 ----
  2  
@@ -132,13 +118,13 @@ DETAIL:  An endpoint can be attached by only one retrieving session for each 'CH
  cursorname | status 
 ------------+--------
  c1         | READY  
- c1         | READY  
- c1         | READY  
- c2         | FINISH 
- c2         | READY  
  c2         | READY  
  c3         | READY  
+ c1         | READY  
+ c2         | READY  
  c3         | READY  
+ c1         | READY  
+ c2         | READY  
  c3         | READY  
 (9 rows)
 -- verify some endpoints is gone
