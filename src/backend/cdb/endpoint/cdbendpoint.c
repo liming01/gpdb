@@ -83,7 +83,6 @@ static EndpointDesc *my_shared_endpoint = NULL;          /* Current EndpointDesc
 
 /* Init helper functions */
 static void init_shared_endpoints(void *address);
-static void endpoint_exit_callback(int code, Datum arg);
 
 /* QD utility functions */
 static bool call_endpoint_udf_on_qd(const struct Plan *planTree, const char *cursorName, char operator);
@@ -92,6 +91,7 @@ static const int8 * get_or_create_token_on_qd();
 /* sender(which is an endpoint) helper function */
 static void alloc_endpoint_for_cursor(const char *cursorName);
 static void create_and_connect_mq(TupleDesc tupleDesc);
+static void declare_parallel_retrieve_ready(void);
 static void wait_receiver(void);
 static void sender_finish(void);
 static void sender_close(void);
@@ -101,7 +101,8 @@ static void endpoint_abort(void);
 static void wait_parallel_retrieve_close(void);
 static void free_endpoint(EndpointDesc *endpointDesc);
 static void free_endpoint_by_cursor_name(const char *cursorName);
-static void register_endpoint_xact_callbacks(void);
+static void register_endpoint_callbacks(void);
+static void endpoint_exit_callback(int code, Datum arg);
 static void sender_xact_abort_callback(XactEvent ev, void *vp);
 static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 									SubTransactionId parentSubid, void *arg);
@@ -159,9 +160,6 @@ EndpointCTXShmemInit(void)
 	SharedSessionInfoHash =
 		ShmemInitHash(SHMEM_ENPOINTS_SESSION_INFO, MAX_ENDPOINT_SIZE,
 					  MAX_ENDPOINT_SIZE, &hctl, HASH_ELEM | HASH_FUNCTION);
-	/* Register endpoint_exit_callback only for QD/QE processes */
-	if (Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_EXECUTE)
-		before_shmem_exit(endpoint_exit_callback, (Datum) 0);
 }
 
 /*
@@ -184,20 +182,6 @@ init_shared_endpoints(void *address)
 		endpoints[i].empty = true;
 		InitSharedLatch(&endpoints[i].ack_done);
 	}
-}
-
-/*
- * Clean up before session exits.
- *
- * FIXME: if one QE get exited, we can not free the entry in shared hash table.
- * There still other cursor may running.
- */
-static void
-endpoint_exit_callback(int code, Datum arg)
-{
-	elog(DEBUG3, "CDB_ENDPOINT: endpoint_exit_callback.");
-	/* Remove session info entry */
-	hash_search(SharedSessionInfoHash, &gp_session_id, HASH_REMOVE, NULL);
 }
 
 /*
@@ -417,7 +401,7 @@ DestReceiver *
 CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName)
 {
 	// Register callback to deal with proc exit.
-	register_endpoint_xact_callbacks();
+	register_endpoint_callbacks();
 	alloc_endpoint_for_cursor(cursorName);
 	check_endpoint_allocated();
 
@@ -429,6 +413,7 @@ CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName)
 	currentMQEntry->retrieve_ts = NULL;
 	currentMQEntry->tq_reader = NULL;
 	create_and_connect_mq(tupleDesc);
+	declare_parallel_retrieve_ready();
 	return CreateTupleQueueDestReceiver(currentMQEntry->mq_handle);
 }
 
@@ -476,8 +461,6 @@ alloc_endpoint_for_cursor(const char *cursorName)
 {
 	int i;
 	int found_idx = -1;
-	SessionInfoEntry *info_entry = NULL;
-	Latch *latch = NULL;
 
 	Assert(SharedEndpoints);
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
@@ -547,22 +530,9 @@ alloc_endpoint_for_cursor(const char *cursorName)
 	OwnLatch(&SharedEndpoints[i].ack_done);
 	my_shared_endpoint				 = &SharedEndpoints[i];
 
-	info_entry = (SessionInfoEntry *) hash_search(
-		SharedSessionInfoHash, &gp_session_id, HASH_FIND, NULL);
-
-	/* The write gang is waiting on the latch. */
-	if (info_entry && info_entry->init_wait_proc)
-	{
-		latch = &info_entry->init_wait_proc->procLatch;
-		info_entry->init_wait_proc = NULL;
-	}
-
 	LWLockRelease(ParallelCursorEndpointLock);
-
-	if (latch)
-	{
-		SetLatch(latch);
-	}
+	/* track current session id for endpoint_exit_callback  */
+	EndpointCtl.session_id = gp_session_id;
 }
 
 /*
@@ -640,6 +610,25 @@ create_and_connect_mq(TupleDesc tupleDesc)
 	currentMQEntry->mq_handle = shm_mq_attach(mq, dsm_seg, NULL);
 	set_attach_status(Status_Prepared);
 	currentMQEntry->mq_seg = dsm_seg;
+}
+
+static void declare_parallel_retrieve_ready(void)
+{
+	SessionInfoEntry *info_entry = NULL;
+	Latch *latch = NULL;
+	info_entry = (SessionInfoEntry *) hash_search(
+		SharedSessionInfoHash, &gp_session_id, HASH_FIND, NULL);
+
+	/* The write gang is waiting on the latch. */
+	if (info_entry && info_entry->init_wait_proc)
+	{
+		latch = &info_entry->init_wait_proc->procLatch;
+		info_entry->init_wait_proc = NULL;
+	}
+	if (latch)
+	{
+		SetLatch(latch);
+	}
 }
 
 /*
@@ -869,17 +858,57 @@ free_endpoint(EndpointDesc *endpointDesc)
  * Register callback for endpoint/sender to deal with xact abort.
  */
 static void
-register_endpoint_xact_callbacks(void)
+register_endpoint_callbacks(void)
 {
 	static bool is_registered = false;
 
 	if (!is_registered)
 	{
+		/* Register endpoint_exit_callback only for QD/QE processes */
+		before_shmem_exit(endpoint_exit_callback, (Datum) 0);
 		// Register callback to deal with proc endpoint xact abort.
 		RegisterSubXactCallback(sender_subxact_callback, NULL);
 		RegisterXactCallback(sender_xact_abort_callback, NULL);
 		is_registered = true;
 	}
+}
+
+/*
+ * endpoint_exit_callback - callback when endpoint backend process exit
+ *
+ * When an endpoint backend process exit, we need to clean "session - token" mapping
+ * entry in shared memory if there's no endpoint in current entry.
+ * Cause when session id wrapped, we don't want old token exists in shared memory
+ * for same session id(which is actually a new session id). Cause this may lead to
+ * use old token to auth for new session.
+ */
+static void
+endpoint_exit_callback(int code, Datum arg)
+{
+	if (!(Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_EXECUTE))
+		return;
+	bool endpoint_exists = false;
+	elog(DEBUG3, "CDB_ENDPOINT: endpoint_exit_callback session %d.", EndpointCtl.session_id);
+
+	/* Remove session info entry if current session don't have any exists EndpointDesc slot */
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+	for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
+	{
+		if (SharedEndpoints[i].session_id == EndpointCtl.session_id)
+		{
+			endpoint_exists = true;
+			break;
+		}
+	}
+	if (!endpoint_exists)
+	{
+		elog(LOG, "CDB_ENDPOINT: endpoint_exit_callback clean token for session %d", EndpointCtl.session_id);
+		SessionInfoEntry *entry;
+		entry = hash_search(SharedSessionInfoHash, &EndpointCtl.session_id, HASH_REMOVE, NULL);
+		if (!entry)
+			elog(LOG, "CDB_ENDPOINT: endpoint_exit_callback no entry exists for session %d", EndpointCtl.session_id);
+	}
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*
@@ -1205,14 +1234,19 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 	if (!found)
 	{
 		info_entry->init_wait_proc = NULL;
-		ParseToken(info_entry->token, tokenStr);
 	}
+	/* Overwrite exists token in case the wrapped session id entry not get removed
+	 * For example, 1 hours ago, a session 7 exists and have entry with token 123.
+	 * And for some reason the entry not get remove by endpoint_exit_callback.
+	 * Now current session is session 7 again. Here need to overwrite the old token. */
+	ParseToken(info_entry->token, tokenStr);
+	elog(DEBUG3, "CDB_ENDPOINT: set new token %s, for session %d", tokenStr, gp_session_id);
 
 	desc = find_endpoint_by_cursor_name(cursorName, false);
-	/* If the endpoints have been created, just return.
+	/* If the endpoints have been created and attach status is prepared, just return.
 	 * Otherwise, set the init_wait_proc for current session and wait on the
 	 * latch.*/
-	if (!desc)
+	if (!desc || desc->attach_status != Status_Prepared)
 	{
 		info_entry->init_wait_proc = MyProc;
 		latch					   = &MyProc->procLatch;

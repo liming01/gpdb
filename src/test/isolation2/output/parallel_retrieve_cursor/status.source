@@ -1183,6 +1183,11 @@ DECLARE
  95 
  98 
 (37 rows)
+2R: @in_sh 'sub @TOKEN7 $TOKEN7': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
+ ?column? | ?column? | status 
+----------+----------+--------
+ t        | f        | READY  
+(1 row)
 -- run 'kill -s QUIT QDPid' to cancel the endpoint execution backend, retrieve session still can work
 -- here need to sleep sometime to wait for endpoint QE backend to detect QD connection lost.
 0R: @in_sh 'kill -s QUIT ${PID71}&& sleep 2 && echo "${RAW_STR}" ': SELECT 1;
