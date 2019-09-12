@@ -1477,8 +1477,6 @@ void generate_endpoint_name(char *name,
 EndpointDesc * find_endpoint_by_cursor_name(const char *cursor_name, bool with_lock)
 {
 	EndpointDesc *res = NULL;
-	char *endpoint_name = palloc(ENDPOINT_NAME_LEN);
-	generate_endpoint_name(endpoint_name, cursor_name, gp_session_id, GpIdentity.segindex);
 
 	if (with_lock)
 		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
@@ -1486,7 +1484,7 @@ EndpointDesc * find_endpoint_by_cursor_name(const char *cursor_name, bool with_l
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (!SharedEndpoints[i].empty && SharedEndpoints[i].session_id == gp_session_id &&
-			strncmp(SharedEndpoints[i].name, endpoint_name, ENDPOINT_NAME_LEN) == 0)
+			strncmp(SharedEndpoints[i].cursor_name, cursor_name, NAMEDATALEN) == 0)
 		{
 
 			res = &SharedEndpoints[i];
@@ -1497,7 +1495,6 @@ EndpointDesc * find_endpoint_by_cursor_name(const char *cursor_name, bool with_l
 	if (with_lock)
 		LWLockRelease(ParallelCursorEndpointLock);
 
-	pfree(endpoint_name);
 	return res;
 }
 
@@ -1519,11 +1516,7 @@ find_endpoint(const char *endpointName, int sessionID)
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		// FIXME: This is a temporary implementation based on the assumption that
-		// endpoint_name is unique across sessions. But it is not right, we need
-		// to find the endpoint created by in the session with the given
-		// session_id.
-		if (!SharedEndpoints[i].empty && /*SharedEndpoints[i].session_id == session_id &&*/
+		if (!SharedEndpoints[i].empty && SharedEndpoints[i].session_id == sessionID &&
 			strncmp(SharedEndpoints[i].name, endpointName, ENDPOINT_NAME_LEN) == 0)
 		{
 			res = &SharedEndpoints[i];
