@@ -352,6 +352,8 @@ call_endpoint_udf_on_qd(const struct Plan *planTree, const char *cursorName, cha
 				break;
 			}
 		}
+
+		cdbdisp_clearCdbPgResults(&cdb_pgresults);
 	}
 	if (operator == 'w') {
 		pfree(token_str);
@@ -1165,10 +1167,28 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 /*
  * Check if the endpoint has finished retrieving data
  *
- * cursorName: specify the cursor this endpoint belongs to.
- * isWait: wait until finished or not
+ * This func is called in UDF in the write gang. 
+ * 
+ * In NOWAIT mode, this func should not report any error about the endpoint info or endpoint QE 
+ * execute error, because if the write gang error, it need time to handle cancel, and report error 
+ * to QD, when next statement comes, it will report error at this time, it make the error message 
+ * misunderstanding (User may think that the endpoint backend of the latter cursor issues error). 
+ * Also it also issues 2 error messages (one is from endpoint backend, the other is from the 
+ * related write gang process). So we need to check query dispatcher (which dispatch the
+ * orginal query of the parallel retrieve cursor) in addition in case of any error issues.
+ * 
+ * In WAIT mode, we cannot use the same way as NOWAIT mode, because if one of the endpoint backend reports
+ * error, then the query dispacher (which dispatch this UDF) will not return because other endpoints still
+ * waiting for retrieving session. So just report error in this func, although still 2 error messages issues,
+ * but the error is regarded as this statement's error (because there is no other statement running at the 
+ * same session)
+ * 
+ * Parameters:
+ * - cursorName: specify the cursor this endpoint belongs to.
+ * - isWait: wait until finished or not
  *
- * Return Value: whether this endpoint finished or not.
+ * Return Value: 
+ *   whether this endpoint finished or not.
  */
 bool
 check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
@@ -1178,7 +1198,12 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 
 	if (endpointDesc == NULL)
 	{
-		elog(ERROR, "Endpoint doesn't exist.");
+	    if(isWait){
+            elog(ERROR, "Endpoint doesn't exist.");
+	    }else{
+            /* if no endpoint found, it maybe something wrong, just return false, i.e. not finished successfully. */
+            return false;
+	    }
 	}
 
 	isFinished = endpointDesc->attach_status == Status_Finished;
@@ -1202,13 +1227,53 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 			}
 			break;
 		}
-		if (endpointDesc->empty)
-			elog(ERROR, "Endpoint for '%s' get aborted.", cursorName);
+		if (endpointDesc->empty){
+            /* if the endpoint backend has something wrong, report error because in wait mode, otherwise it 
+			 * will hang at this UDF query dispatch.
+			 */
+            elog(ERROR, "Endpoint for '%s' get aborted.", cursorName);
+            return false;
+		}
 		isFinished = endpointDesc->attach_status == Status_Finished;
 	}
 	return isFinished;
 }
 
+/**
+ * Check the PARALLEL RETRIEVE CURSOR execution status, if get error, then rethrow the error
+ *
+ * @param isWait:  support 2 modes: WAIT/NOWAIT
+ * @return true if the PARALLEL RETRIEVE CURSOR Execution Finished
+ */
+bool
+CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait)
+{
+    EState	   *estate;
+    bool       isParallelRetrCursorFinished = false;
+
+    /* caller must have switched into per-query memory context already */
+    estate = queryDesc->estate;
+    /*
+     * If QD, wait for QEs to finish and check their results.
+     */
+    if (estate->dispatcherState && estate->dispatcherState->primaryResults)
+    {
+        ErrorData *qeError = NULL;
+
+        CdbDispatcherState *ds = estate->dispatcherState;
+        DispatchWaitMode waitMode = isWait ? DISPATCH_WAIT_NONE : DISPATCH_WAIT_CHECK;
+        cdbdisp_checkDispatchResult(ds, waitMode);
+        cdbdisp_getDispatchResults(ds, &qeError);
+        if (qeError)
+        {
+            estate->dispatcherState = NULL;
+            cdbdisp_destroyDispatcherState(ds);
+            ReThrowError(qeError);
+        }
+        isParallelRetrCursorFinished = cdbdisp_isDispatchFinished(ds);
+    }
+    return isParallelRetrCursorFinished;
+}
 /*
  * Waits until the QE is ready -- the dest receiver will be ready after this
  * function returns successfully.
@@ -1324,8 +1389,18 @@ check_parallel_retrieve_cursor(const char *cursorName, bool isWait)
 					errmsg("This UDF only works for PARALLEL RETRIEVE CURSOR.")));
 		return false;
 	}
+
+	/** See commens at check_endpoint_finished_by_cursor_name()
+	 *  
+	 * In NOWAIT mode, need to check the query dispatcher for the orginal query of the parallel 
+	 * retrieve cursor, because the UDF will not report error.
+	 * 
+	 * In WAIT mode, the UDF will report error, don't need to check the query dispatcher.
+	 */
 	PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 	ret_val = call_endpoint_udf_on_qd(stmt->planTree, cursorName, isWait ? 'h' : 'c');
 
+	if(!isWait && !ret_val)
+        CheckParallelCursorErrors(portal->queryDesc, false);
 	return ret_val;
 }

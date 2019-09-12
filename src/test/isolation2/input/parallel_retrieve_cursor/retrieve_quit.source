@@ -30,8 +30,12 @@ insert into t1 select generate_series(1,100);
 -- quit the first retrieve session
 0Rq:
 -- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
-1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
+-- wait for sometime so that the cancel signal can have time to be handled
+1: SELECT pg_sleep(0.5);
+-- make sure no error at c2
 1: SELECT * FROM gp_check_parallel_retrieve_cursor('c2');
+-- make sure error at c1
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
 4: SELECT cursorname, status FROM gp_endpoints_info(true);
 
 -- verify some endpoints is gone

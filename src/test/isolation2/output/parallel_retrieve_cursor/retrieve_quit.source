@@ -97,7 +97,7 @@ DECLARE
 ERROR:  Endpoint endpoint_id1_1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'CHECK PARALLEL RETRIEVE CURSOR'
 3R: @in_sh 'sub_endpoint_name @ENDPOINT2' : RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
-ERROR:  Endpoint endpoint_id1_1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
+ERROR:  Endpoint endpoint_id2_1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
 DETAIL:  An endpoint can be attached by only one retrieving session for each 'CHECK PARALLEL RETRIEVE CURSOR'
 3R: @in_sh 'sub_endpoint_name @ENDPOINT3' : RETRIEVE 10 FROM ENDPOINT "@ENDPOINT3";
  a  
@@ -118,7 +118,7 @@ DETAIL:  An endpoint can be attached by only one retrieving session for each 'CH
  cursorname | status 
 ------------+--------
  c1         | READY  
- c2         | READY  
+ c2         | FINISH 
  c3         | READY  
  c1         | READY  
  c2         | READY  
@@ -138,21 +138,25 @@ DETAIL:  An endpoint can be attached by only one retrieving session for each 'CH
 -- quit the first retrieve session
 0Rq: ... <quitting>
 -- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
-1<:  <... completed>
-ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished endpoint backends will be cancelled"  (seg0 10.34.58.39:25432 pid=50053)
+-- wait for sometime so that the cancel signal can have time to be handled
+1: SELECT pg_sleep(0.5);
+ pg_sleep 
+----------
+          
+(1 row)
+-- make sure no error at c2
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c2');
+ finished 
+----------
+ f        
+(1 row)
+-- make sure error at c1
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
+ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished endpoint backends will be cancelled"  (seg0 10.34.49.193:25432 pid=27439)
 4: SELECT cursorname, status FROM gp_endpoints_info(true);
- cursorname | status   
-------------+----------
- c1         | RELEASED 
- c1         | RELEASED 
- c1         | RELEASED 
- c2         | FINISH   
- c2         | READY    
- c2         | READY    
- c3         | READY    
- c3         | READY    
- c3         | READY    
-(9 rows)
+ cursorname | status 
+------------+--------
+(0 rows)
 
 -- verify some endpoints is gone
 3R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
