@@ -161,23 +161,6 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 			portal->cursorOptions |= CURSOR_OPT_NO_SCROLL;
 	}
 #endif
-	/*
-	 * Generate a token for PARALLEL RETRIEVE CURSOR, and add it into
-	 * shared memory
-	 */
-	if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
-	{
-		PlannedStmt *stmt = (PlannedStmt *) linitial(portal->stmts);
-		List        *cids;
-		enum EndPointExecPosition endPointExecPosition;
-
-		cids = ChooseEndpointContentIDForParallelCursor(
-			stmt->planTree, &endPointExecPosition);
-
-		/*Alloc token and add PARALLEL RETRIEVE CURSOR*/
-		AddParallelCursorToken(portal->name, gp_session_id, GetUserId(),
-							   endPointExecPosition, cids);
-	}
 
 	/*
 	 * Start execution, inserting parameters if any.
@@ -357,12 +340,6 @@ PortalCleanup(Portal portal)
 		 * in such a case.
 		 */
 		portal->queryDesc = NULL;
-
-		/* Destruction for PARALLEL RETRIEVE CURSOR */
-		if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
-		{
-			DestroyParallelCursor(portal->name);
-		}
 
 		if (portal->status != PORTAL_FAILED)
 		{

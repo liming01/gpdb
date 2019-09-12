@@ -13,6 +13,7 @@
 
 #include "postgres.h"
 #include "cdb/cdbendpoint.h"
+#include "cdbendpointinternal.h"
 #include "cdb/cdbvars.h"
 #include "funcapi.h"
 #include "cdb/cdbdisp_query.h"
@@ -22,9 +23,6 @@
 #include "utils/builtins.h"
 
 #define GP_ENDPOINTS_INFO_ATTRNUM       9
-#define BITS_PER_BITMAPWORD             32
-#define WORDNUM(x)                      ((x) / BITS_PER_BITMAPWORD)
-#define BITNUM(x)                       ((x) % BITS_PER_BITMAPWORD)
 
 /*
  * EndpointStatus, EndpointsInfo and EndpointsStatusInfo structures are used
@@ -58,79 +56,14 @@ typedef struct
 	int current_idx;              /* current index of EndpointDesc in the list */
 } EndpointsStatusInfo;
 
-/*
- * Used for bigmap
- */
-static const uint8 rightmost_one_pos[256] = {
-	0, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	7, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0
-};
-
-extern bool token_equals(const int8 *token1, const int8 *token2);
-extern bool endpoint_name_equals(const char *name1, const char *name2);
-extern uint64 create_magic_num_for_endpoint(const EndpointDesc *desc);
+/* Used in UDFs */
+static char *status_enum_to_string(enum AttachStatus status);
+static enum AttachStatus status_string_to_enum(char *status);
+static char *endpoint_status_enum_to_string(EndpointStatus *ep_status);
 
 struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
-	{0}, PRCER_NONE, {0}, -1
+	PRCER_NONE, {0}, -1
 };
-
-/*
- * Returns true is the static GP_token is valid.
- */
-bool
-IsGpTokenValid(void)
-{
-	return IsEndpointTokenValid(EndpointCtl.Gp_token);
-}
-
-/*
- * FIXME: Check if we can switch to check_endpoint_name()
- */
-void
-CheckTokenValid(void)
-{
-	if (Gp_role == GP_ROLE_EXECUTE && !IsEndpointTokenValid(EndpointCtl.Gp_token))
-		elog(ERROR, "invalid endpoint token");
-}
-
-/*
- * Set the variable Gp_token
- */
-void
-SetGpToken(const int8 *token)
-{
-//	if (IsEndpointTokenValid(EndpointCtl.Gp_token))
-//		elog(ERROR, "endpoint token %s is already set", PrintToken(EndpointCtl.Gp_token));
-
-	memcpy(EndpointCtl.Gp_token, token, ENDPOINT_TOKEN_LEN);
-}
-
-/*
- * Clear the variable Gp_token
- */
-void
-ClearGpToken(void)
-{
-	InvalidateEndpointToken(EndpointCtl.Gp_token);
-
-	// FIXME: since the token will get eliminated, we can refactor
-	// the endpoint name logic then.
-	memset(EndpointCtl.cursor_name, 0, NAMEDATALEN);
-}
 
 /*
  * Convert the string tk0123456789 to int 0123456789 and save it into
@@ -165,7 +98,7 @@ ParseToken(int8 *token /*out*/, const char *tokenStr)
 char *
 PrintToken(const int8 *token)
 {
-	Insist(IsEndpointTokenValid(token));
+	Insist(is_endpoint_token_valid(token));
 	const size_t len = ENDPOINT_TOKEN_STR_LEN + 1; /* 2('tk') + HEX string length + 1('\0') */
 	char *res = palloc(len);
 	res[0] = 't';
@@ -184,9 +117,9 @@ SetParallelCursorExecRole(enum ParallelRetrCursorExecRole role)
 {
 	if (EndpointCtl.Gp_prce_role != PRCER_NONE)
 		elog(ERROR, "endpoint role %s is already set",
-			 EndpointRoleToString(EndpointCtl.Gp_prce_role));
+			 endpoint_role_to_string(EndpointCtl.Gp_prce_role));
 
-	elog(DEBUG3, "CDB_ENDPOINT: set endpoint role to %s", EndpointRoleToString(role));
+	elog(DEBUG3, "CDB_ENDPOINT: set endpoint role to %s", endpoint_role_to_string(role));
 
 	EndpointCtl.Gp_prce_role = role;
 }
@@ -197,9 +130,10 @@ SetParallelCursorExecRole(enum ParallelRetrCursorExecRole role)
 void
 ClearParallelCursorExecRole(void)
 {
-	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint role %s", EndpointRoleToString(EndpointCtl.Gp_prce_role));
+	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint role %s", endpoint_role_to_string(EndpointCtl.Gp_prce_role));
 
 	EndpointCtl.Gp_prce_role = PRCER_NONE;
+	memset(EndpointCtl.cursor_name, '\0', NAMEDATALEN);
 }
 
 /*
@@ -211,7 +145,7 @@ enum ParallelRetrCursorExecRole GetParallelCursorExecRole(void)
 }
 
 const char *
-EndpointRoleToString(enum ParallelRetrCursorExecRole role)
+endpoint_role_to_string(enum ParallelRetrCursorExecRole role)
 {
 	switch (role)
 	{
@@ -230,174 +164,55 @@ EndpointRoleToString(enum ParallelRetrCursorExecRole role)
 	}
 }
 
-static char *status_enum_to_string(enum AttachStatus status)
-{
-	char *result = NULL;
-
-	switch (status)
-	{
-		case Status_NotAttached:
-			result = GP_ENDPOINT_STATUS_INIT;
-			break;
-		case Status_Prepared:
-			result = GP_ENDPOINT_STATUS_READY;
-			break;
-		case Status_Attached:
-			result = GP_ENDPOINT_STATUS_RETRIEVING;
-			break;
-		case Status_Finished:
-			result = GP_ENDPOINT_STATUS_FINISH;
-			break;
-		default:
-			elog(ERROR, "unknown end point status %d", status);
-			break;
-	}
-	return result;
-}
-
-static enum AttachStatus status_string_to_enum(char *status)
-{
-	Assert(status);
-	if (strcmp(status, GP_ENDPOINT_STATUS_INIT) == 0)
-	{
-		return Status_NotAttached;
-	}
-	else if (strcmp(status, GP_ENDPOINT_STATUS_READY) == 0)
-	{
-		return Status_Prepared;
-	}
-	else if (strcmp(status, GP_ENDPOINT_STATUS_RETRIEVING) == 0)
-	{
-		return Status_Attached;
-	}
-	else if (strcmp(status, GP_ENDPOINT_STATUS_FINISH) == 0)
-	{
-		return Status_Finished;
-	}
-	else
-	{
-		elog(ERROR, "unknown end point status %s", status);
-		return Status_NotAttached;
-	}
-}
-
-static char *endpoint_status_enum_to_string(EndpointStatus *ep_status)
-{
-	if (ep_status != NULL)
-	{
-		return status_enum_to_string(ep_status->attach_status);
-	} else
-	{
-		/* called on QD, if endpoint status is null, and token info is not release*/
-		return GP_ENDPOINT_STATUS_RELEASED;
-	}
-}
-
-/*
- * Return true if this end-point exists on QD.
- */
-bool endpoint_on_entry_db(ParaCursorToken paraCursorToken)
-{
-	return (paraCursorToken->endpoint_cnt == 1) && (paraCursorToken->endPointExecPosition == ENDPOINT_ON_Entry_DB);
-}
-
-/*
- * End-points with same token can exist in some or all segments.
- * This function is to determine if the end-point exists in the segment(dbid).
- */
 bool
-seg_dbid_has_token(ParaCursorToken paraCursorToken, int16 dbid)
-{
-	if (paraCursorToken->endPointExecPosition == ENDPOINT_ON_ALL_QE)
-		return true;
-
-	return dbid_in_bitmap(paraCursorToken->dbIds, dbid);
-}
-
-/*
- * This function is to determine if the end-point exists on the master(dbid).
- */
-bool
-master_dbid_has_token(ParaCursorToken paraCursorToken, int16 dbid)
-{
-	if (paraCursorToken->endPointExecPosition == ENDPOINT_ON_Entry_DB)
-		return dbid_in_bitmap(paraCursorToken->dbIds, dbid);
-
+is_endpoint_token_valid(const int8 *token) {
+	Assert(token);
+	for (int i = 0; i < ENDPOINT_TOKEN_LEN; ++i)
+	{
+		if (token[i]) return true;
+	}
 	return false;
 }
 
-/*
- * If the dbid is in this bitmap.
- */
-bool dbid_in_bitmap(int32 *bitmap, int16 dbid)
+void
+invalidate_endpoint_name(char *endpointName /*out*/)
 {
-	if (dbid < 0 || dbid >= sizeof(int32) * 8 * MAX_NWORDS)
-		elog(ERROR, "invalid dbid");
-	if (bitmap == NULL)
-		elog(ERROR, "invalid dbid bitmap");
-
-	if ((bitmap[WORDNUM(dbid)] & ((uint32) 1 << BITNUM(dbid))) != 0)
-		return true;
-	return false;
+	Assert(endpointName);
+	memset(endpointName, '\0', ENDPOINT_NAME_LEN);
 }
 
 /*
- * Add a dbid into bitmap.
+ * Returns true if the two given endpoint tokens are equal.
  */
-void add_dbid_into_bitmap(int32 *bitmap, int16 dbid)
+bool
+token_equals(const int8* token1, const int8* token2)
 {
-	if (dbid < 0 || dbid >= sizeof(int32) * 8 * MAX_NWORDS)
-		elog(ERROR, "invalid dbid");
-	if (bitmap == NULL)
-		elog(ERROR, "invalid dbid bitmap");
+	Assert(token1);
+	Assert(token2);
+	/* memcmp should be good enough. Timing attack would not be a concern here. */
+	return memcmp(token1, token2, ENDPOINT_TOKEN_LEN) == 0;
+}
 
-	bitmap[WORDNUM(dbid)] |= ((uint32) 1 << BITNUM(dbid));
+bool
+endpoint_name_equals(const char *name1, const char *name2)
+{
+	return strncmp(name1, name2, ENDPOINT_NAME_LEN) == 0;
 }
 
 /*
- * Get the next dbid from bitmap.
- *	The typical pattern is to iterate the dbid bitmap
- *
- *		x = -1;
- *		while ((x = get_next_dbid_from_bitmap(bitmap, x)) >= 0)
- *			process member x;
- *	This implementation is copied from bitmapset.c
+ * Create a magic number from a given token for DSM TOC usage.
+ * The same tokens will eventually generate the same magic number.
  */
-int get_next_dbid_from_bitmap(int32 *bitmap, int prevbit)
+uint64
+create_magic_num_for_endpoint(const EndpointDesc *desc)
 {
-	int wordnum;
-	uint32 mask;
-
-	if (bitmap == NULL)
-		elog(ERROR, "invalid dbid bitmap");
-
-	prevbit++;
-	mask = (~(uint32) 0) << BITNUM(prevbit);
-	for (wordnum = WORDNUM(prevbit); wordnum < MAX_NWORDS; wordnum++)
+	uint64 magic = 0;
+	Assert(desc);
+	for (int i = 0; i < 8; i++)
 	{
-		uint32 w = bitmap[wordnum];
-
-		/* ignore bits before prevbit */
-		w &= mask;
-
-		if (w != 0)
-		{
-			int result;
-
-			result = wordnum * BITS_PER_BITMAPWORD;
-			while ((w & 255) == 0)
-			{
-				w >>= 8;
-				result += 8;
-			}
-			result += rightmost_one_pos[w & 255];
-			return result;
-		}
-
-		/* in subsequent words, consider all bits */
-		mask = (~(bitmapword) 0);
+		magic |= ((uint64)desc->name[i]) << i * 8;
 	}
-	return -2;
+	return magic;
 }
 
 /*
@@ -516,9 +331,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 		int cnt = 0;
 
-		for (int i = 0; i < MAX_ENDPOINT_SIZE && SharedEndpoints != NULL; i++)
+		for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
 		{
-			Endpoint entry = &SharedEndpoints[i];
+			const EndpointDesc* entry = get_endpointdesc_by_index(i);
 
 			if (!entry->empty)
 				cnt++;
@@ -538,9 +353,9 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 			}
 			int idx = 0;
 
-			for (int i = 0; i < MAX_ENDPOINT_SIZE && SharedEndpoints != NULL; i++)
+			for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
 			{
-				Endpoint entry = &SharedEndpoints[i];
+				const EndpointDesc* entry = get_endpointdesc_by_index(i);
 
 				if (!entry->empty)
 				{
@@ -692,13 +507,13 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	mystatus = funcctx->user_fctx;
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-	while (mystatus->current_idx < mystatus->endpoints_num && SharedEndpoints != NULL)
+	while (mystatus->current_idx < mystatus->endpoints_num)
 	{
 		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
 		Datum result;
 
-		Endpoint entry = &SharedEndpoints[mystatus->current_idx];
+		const EndpointDesc* entry = get_endpointdesc_by_index(mystatus->current_idx);
 
 		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
 		{
@@ -739,66 +554,68 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	SRF_RETURN_DONE(funcctx);
 }
 
-/*
- * Create a magic number from a given token for DSM TOC usage.
- * The same tokens will eventually generate the same magic number.
- */
-uint64 create_magic_num_for_endpoint(const EndpointDesc *desc)
+char *
+status_enum_to_string(enum AttachStatus status)
 {
-	uint64 magic = 0;
-	Assert(desc);
-	for (int i = 0; i < 8; i++)
+	char *result = NULL;
+
+	switch (status)
 	{
-		magic |= ((uint64)desc->name[i]) << i * 8;
+		case Status_NotAttached:
+			result = GP_ENDPOINT_STATUS_INIT;
+			break;
+		case Status_Prepared:
+			result = GP_ENDPOINT_STATUS_READY;
+			break;
+		case Status_Attached:
+			result = GP_ENDPOINT_STATUS_RETRIEVING;
+			break;
+		case Status_Finished:
+			result = GP_ENDPOINT_STATUS_FINISH;
+			break;
+		default:
+			elog(ERROR, "unknown end point status %d", status);
+			break;
 	}
-	return magic;
+	return result;
 }
 
-/*
- * Returns true if the two given endpoint tokens are equal.
- */
-bool
-token_equals(const int8* token1, const int8* token2)
+enum AttachStatus
+status_string_to_enum(char *status)
 {
-	Assert(token1);
-	Assert(token2);
-	/* memcmp should be good enough. Timing attack would not be a concern here. */
-	return memcmp(token1, token2, ENDPOINT_TOKEN_LEN) == 0;
-}
-
-bool
-endpoint_name_equals(const char *name1, const char *name2)
-{
-	return strncmp(name1, name2, ENDPOINT_NAME_LEN) == 0;
-}
-
-void
-InvalidateEndpointToken(int8* token /*out*/)
-{
-	Assert(token);
-	memset(token, 0, ENDPOINT_TOKEN_LEN);
-}
-
-bool
-IsEndpointTokenValid(const int8* token) {
-	Assert(token);
-	for (int i = 0; i < ENDPOINT_TOKEN_LEN; ++i)
+	Assert(status);
+	if (strcmp(status, GP_ENDPOINT_STATUS_INIT) == 0)
 	{
-		if (token[i]) return true;
+		return Status_NotAttached;
 	}
-	return false;
+	else if (strcmp(status, GP_ENDPOINT_STATUS_READY) == 0)
+	{
+		return Status_Prepared;
+	}
+	else if (strcmp(status, GP_ENDPOINT_STATUS_RETRIEVING) == 0)
+	{
+		return Status_Attached;
+	}
+	else if (strcmp(status, GP_ENDPOINT_STATUS_FINISH) == 0)
+	{
+		return Status_Finished;
+	}
+	else
+	{
+		elog(ERROR, "unknown end point status %s", status);
+		return Status_NotAttached;
+	}
 }
 
-bool IsEndpointNameValid(const char *endpointName)
+char *
+endpoint_status_enum_to_string(EndpointStatus *ep_status)
 {
-	Assert(endpointName);
-	if (endpointName[0])
-		return true;
-	return false;
-}
-
-void InvalidateEndpointName(char *endpointName /*out*/)
-{
-	Assert(endpointName);
-	memset(endpointName, '\0', ENDPOINT_NAME_LEN);
+	if (ep_status != NULL)
+	{
+		return status_enum_to_string(ep_status->attach_status);
+	} else
+	{
+		/* called on QD, if endpoint status is null, and token info is not release*/
+		return GP_ENDPOINT_STATUS_RELEASED;
+	}
 }

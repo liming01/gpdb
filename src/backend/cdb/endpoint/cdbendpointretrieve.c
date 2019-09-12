@@ -19,6 +19,7 @@
 #include "postgres.h"
 
 #include "cdb/cdbendpoint.h"
+#include "cdbendpointinternal.h"
 #include "access/xact.h"
 #include "cdb/cdbsrlz.h"
 #include "storage/ipc.h"
@@ -37,24 +38,27 @@ EndpointDesc *my_shared_endpoint = NULL;
 
 /* receiver which is a backend connected by retrieve mode */
 static void init_conn_for_receiver(void);
+static void receiver_mq_close(void);
 static TupleDesc read_tuple_desc_info(shm_toc *toc);
 static TupleTableSlot *receive_tuple_slot(void);
 static void receiver_finish(void);
-static void receiver_mq_close(void);
+static void detach_endpoint(bool resetPID);
 static void retrieve_cancel_action(const char *endpointName, char *msg);
 static void retrieve_exit_callback(int code, Datum arg);
 static void retrieve_xact_abort_callback(XactEvent ev, void *vp);
 static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 									  SubTransactionId parentSubid, void *arg);
+
+/* utility */
 static void check_endpoint_name(const char *name);
-extern bool endpoint_name_equals(const char *name1, const char *name2);
-extern uint64 create_magic_num_for_endpoint(const EndpointDesc *endpoint);
 
 /*
  * FindEndpointTokenByUser - authenticate for retrieve role connection.
  *
  * Return true if the user has PARALLEL RETRIEVE CURSOR/endpoint of the token
  * Used by retrieve role authentication
+ *
+ * FIXME: user is needed for checking privilege?
  */
 bool
 FindEndpointTokenByUser(Oid userID, const char *tokenStr)
@@ -82,7 +86,6 @@ FindEndpointTokenByUser(Oid userID, const char *tokenStr)
 void
 AttachEndpoint(const char *endpointName)
 {
-	int i;
 	bool isFound = false;
 	bool already_attached = false;        /* now is attached? */
 	bool is_self_pid = false;             /* indicate this process has been
@@ -94,7 +97,7 @@ AttachEndpoint(const char *endpointName)
 	pid_t attached_pid = InvalidPid;
 
 	if (EndpointCtl.Gp_prce_role != PRCER_RECEIVER)
-		elog(ERROR, "%s could not attach endpoint", EndpointRoleToString(EndpointCtl.Gp_prce_role));
+		elog(ERROR, "%s could not attach endpoint", endpoint_role_to_string(EndpointCtl.Gp_prce_role));
 
 	if (my_shared_endpoint)
 		elog(ERROR, "endpoint is already attached");
@@ -102,60 +105,56 @@ AttachEndpoint(const char *endpointName)
 	check_endpoint_name(endpointName);
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
-
-	for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
+	do
 	{
-		if (SharedEndpoints[i].database_id == MyDatabaseId &&
-			endpoint_name_equals(SharedEndpoints[i].name, endpointName) &&
-			!SharedEndpoints[i].empty &&
-			SharedEndpoints[i].session_id == EndpointCtl.session_id)
+		Endpoint endpointDesc = find_endpoint(endpointName, EndpointCtl.session_id);
+		if (!endpointDesc)
+			break;
+		if (endpointDesc->user_id != GetUserId())
 		{
-			if (SharedEndpoints[i].user_id != GetUserId())
-			{
-				has_privilege = false;
-				break;
-			}
-			if (SharedEndpoints[i].sender_pid == InvalidPid &&
-				SharedEndpoints[i].attach_status != Status_Finished)
-			{
-				is_invalid_sendpid = true;
-				break;
-			}
-
-			if (SharedEndpoints[i].attach_status == Status_Attached)
-			{
-				already_attached = true;
-				attached_pid = SharedEndpoints[i].receiver_pid;
-				break;
-			}
-
-			if (SharedEndpoints[i].receiver_pid == MyProcPid)
-			{
-				/* already attached by this process before */
-				is_self_pid = true;
-			}
-			else if (SharedEndpoints[i].receiver_pid != InvalidPid &&
-					SharedEndpoints[i].receiver_pid != MyProcPid)
-			{
-				/* already attached by other process before */
-				is_other_pid = true;
-				attached_pid = SharedEndpoints[i].receiver_pid;
-				break;
-			}
-			else
-			{
-				SharedEndpoints[i].receiver_pid = MyProcPid;
-			}
-
-			/* Not set if Status_Finished */
-			if (SharedEndpoints[i].attach_status == Status_Prepared)
-			{
-				SharedEndpoints[i].attach_status = Status_Attached;
-			}
-			my_shared_endpoint = &SharedEndpoints[i];
+			has_privilege = false;
 			break;
 		}
-	}
+
+		if (endpointDesc->sender_pid == InvalidPid &&
+			endpointDesc->attach_status != Status_Finished)
+		{
+			is_invalid_sendpid = true;
+			break;
+		}
+
+		if (endpointDesc->attach_status == Status_Attached)
+		{
+			already_attached = true;
+			attached_pid = endpointDesc->receiver_pid;
+			break;
+		}
+
+		if (endpointDesc->receiver_pid == MyProcPid)
+		{
+			/* already attached by this process before */
+			is_self_pid = true;
+		}
+		else if (endpointDesc->receiver_pid != InvalidPid &&
+				 endpointDesc->receiver_pid != MyProcPid)
+		{
+			/* already attached by other process before */
+			is_other_pid = true;
+			attached_pid = endpointDesc->receiver_pid;
+			break;
+		}
+		else
+		{
+			endpointDesc->receiver_pid = MyProcPid;
+		}
+
+		/* Not set if Status_Finished */
+		if (endpointDesc->attach_status == Status_Prepared)
+		{
+			endpointDesc->attach_status = Status_Attached;
+		}
+		my_shared_endpoint = endpointDesc;
+	} while (false);
 
 	LWLockRelease(ParallelCursorEndpointLock);
 
@@ -250,6 +249,33 @@ init_conn_for_receiver(void)
 	shm_mq_set_receiver(mq, MyProc);
 	currentMQEntry->mq_handle = shm_mq_attach(mq, dsm_seg, NULL);
 	currentMQEntry->mq_seg = dsm_seg;
+}
+
+/*
+ * Detach shared memory message queue and clean current receiver status.
+ */
+static void
+receiver_mq_close(void)
+{
+	bool found;
+
+	elog(DEBUG3, "CDB_ENDPOINTS: receiver message queue close");
+	// If error happened, currentMQEntry could be none.
+	if (currentMQEntry != NULL && currentMQEntry->mq_seg != NULL)
+	{
+		dsm_detach(currentMQEntry->mq_seg);
+		currentMQEntry->mq_seg = NULL;
+		currentMQEntry->mq_handle = NULL;
+		currentMQEntry->retrieve_status = RETRIEVE_STATUS_INVALID;
+		if (currentMQEntry->retrieve_ts != NULL)
+			ExecDropSingleTupleTableSlot(currentMQEntry->retrieve_ts);
+		currentMQEntry->retrieve_ts = NULL;
+		currentMQEntry = (MsgQueueStatusEntry *) hash_search(
+			MsgQueueHTB, &currentMQEntry->endpoint_name, HASH_REMOVE, &found);
+		if (!currentMQEntry)
+			elog(ERROR, "CDB_ENDPOINT: Message queue status element destroy failed.");
+		currentMQEntry = NULL;
+	}
 }
 
 /*
@@ -364,7 +390,7 @@ RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
 		receiver_finish();
 	}
 
-	DetachEndpoint(false);
+	detach_endpoint(false);
 	ClearParallelCursorExecRole();
 }
 
@@ -447,33 +473,6 @@ receiver_finish(void)
 }
 
 /*
- * Detach shared memory message queue and clean current receiver status.
- */
-static void
-receiver_mq_close(void)
-{
-	bool found;
-
-	elog(DEBUG3, "CDB_ENDPOINTS: receiver message queue close");
-	// If error happened, currentMQEntry could be none.
-	if (currentMQEntry != NULL && currentMQEntry->mq_seg != NULL)
-	{
-		dsm_detach(currentMQEntry->mq_seg);
-		currentMQEntry->mq_seg = NULL;
-		currentMQEntry->mq_handle = NULL;
-		currentMQEntry->retrieve_status = RETRIEVE_STATUS_INVALID;
-		if (currentMQEntry->retrieve_ts != NULL)
-			ExecDropSingleTupleTableSlot(currentMQEntry->retrieve_ts);
-		currentMQEntry->retrieve_ts = NULL;
-		currentMQEntry = (MsgQueueStatusEntry *) hash_search(
-			MsgQueueHTB, &currentMQEntry->endpoint_name, HASH_REMOVE, &found);
-		if (!currentMQEntry)
-			elog(ERROR, "CDB_ENDPOINT: Message queue status element destroy failed.");
-		currentMQEntry = NULL;
-	}
-}
-
-/*
  * DetachEndpoint - Retrieve role detaches endpoint.
  *
  * When detach endpoint, if this process have not yet finish this mq reading,
@@ -484,7 +483,7 @@ receiver_mq_close(void)
  * Errors in these function is not expect to be raised.
  */
 void
-DetachEndpoint(bool resetPID)
+detach_endpoint(bool resetPID)
 {
 	if (!my_shared_endpoint) {
 		return;
@@ -607,7 +606,7 @@ static void retrieve_exit_callback(int code, Datum arg)
 		retrieve_cancel_action(entry->endpoint_name, "Endpoint retrieve session quit, "
 													  "all unfinished endpoint backends will be cancelled");
 	}
-	DetachEndpoint(true);
+	detach_endpoint(true);
 
 	ClearParallelCursorExecRole();
 
@@ -644,7 +643,7 @@ static void retrieve_xact_abort_callback(XactEvent ev, void *vp)
             EndpointCtl.session_id != InvalidSession)
 		{
 			retrieve_cancel_action(currentMQEntry->endpoint_name, "Endpoint retrieve statement aborted");
-			DetachEndpoint(true);
+			detach_endpoint(true);
 		}
 		ClearParallelCursorExecRole();
 	}
@@ -665,7 +664,7 @@ static void retrieve_subxact_callback(SubXactEvent event, SubTransactionId mySub
 static void
 check_endpoint_name(const char *name)
 {
-	if (!IsEndpointNameValid(name)) {
+	Assert(name);
+	if (!name[0])
 		ereport(ERROR, (errcode(ERRCODE_INVALID_NAME), "Invalid endpoint name"));
-	}
 }
