@@ -58,20 +58,32 @@ static void check_endpoint_name(const char *name);
  * Return true if the user has PARALLEL RETRIEVE CURSOR/endpoint of the token
  * Used by retrieve role authentication
  *
- * FIXME: user is needed for checking privilege?
  */
 bool
 FindEndpointTokenByUser(Oid userID, const char *tokenStr)
 {
 	bool isFound = false;
+	bool parseError = false;
 	int8 token[ENDPOINT_TOKEN_LEN] = {0};
 
 	before_shmem_exit(retrieve_exit_callback, (Datum) 0);
 	RegisterSubXactCallback(retrieve_subxact_callback, NULL);
 	RegisterXactCallback(retrieve_xact_abort_callback, NULL);
 
-	ParseToken(token, tokenStr);
-	EndpointCtl.session_id = get_session_id_by_token(token);
+	PG_TRY();
+	{
+		ParseToken(token, tokenStr);
+	}
+	PG_CATCH();
+	{
+		parseError = true;
+	}
+	PG_END_TRY();
+
+	if (parseError)
+		return isFound;
+
+	EndpointCtl.session_id = get_session_id_for_auth(userID, token);
 	if (EndpointCtl.session_id != InvalidSession)
 		isFound = true;
 

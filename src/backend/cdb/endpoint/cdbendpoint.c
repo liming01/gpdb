@@ -60,9 +60,15 @@
 #define SHMEM_ENDPOINTS_ENTRIES         "SharedMemoryEndpointDescEntries"
 #define SHMEM_ENPOINTS_SESSION_INFO     "EndpointsSessionInfosHashtable"
 
+typedef struct SessionTokenTag
+{
+	int sessionID;
+	Oid userID;
+} SessionTokenTag;
+
 typedef struct SessionInfoEntry
 {
-	int session_id;
+	SessionTokenTag tag;
 	/* Write Gang will set this if needed and wait for the procLatch. When sender
 	 * sees a non-null value, it should set the procLatch to notify the write
 	 * gang. */
@@ -154,9 +160,9 @@ EndpointCTXShmemInit(void)
 	}
 
 	memset(&hctl, 0, sizeof(hctl));
-	hctl.keysize = sizeof(gp_session_id);
+	hctl.keysize = sizeof(SessionTokenTag);
 	hctl.entrysize = sizeof(SessionInfoEntry);
-	hctl.hash = int32_hash;
+	hctl.hash = tag_hash;
 	SharedSessionInfoHash =
 		ShmemInitHash(SHMEM_ENPOINTS_SESSION_INFO, MAX_ENDPOINT_SIZE,
 					  MAX_ENDPOINT_SIZE, &hctl, HASH_ELEM | HASH_FUNCTION);
@@ -618,8 +624,13 @@ static void declare_parallel_retrieve_ready(void)
 {
 	SessionInfoEntry *info_entry = NULL;
 	Latch *latch = NULL;
+	SessionTokenTag tag;
+
+	tag.sessionID = gp_session_id;
+	tag.userID = GetUserId();
+
 	info_entry = (SessionInfoEntry *) hash_search(
-		SharedSessionInfoHash, &gp_session_id, HASH_FIND, NULL);
+		SharedSessionInfoHash, &tag, HASH_FIND, NULL);
 
 	/* The write gang is waiting on the latch. */
 	if (info_entry && info_entry->init_wait_proc)
@@ -906,9 +917,14 @@ endpoint_exit_callback(int code, Datum arg)
 	{
 		elog(LOG, "CDB_ENDPOINT: endpoint_exit_callback clean token for session %d", EndpointCtl.session_id);
 		SessionInfoEntry *entry;
-		entry = hash_search(SharedSessionInfoHash, &EndpointCtl.session_id, HASH_REMOVE, NULL);
+		SessionTokenTag tag;
+
+		tag.sessionID = EndpointCtl.session_id;
+		tag.userID = GetUserId();
+		entry = hash_search(SharedSessionInfoHash, &tag, HASH_REMOVE, NULL);
 		if (!entry)
-			elog(LOG, "CDB_ENDPOINT: endpoint_exit_callback no entry exists for session %d", EndpointCtl.session_id);
+			elog(LOG, "CDB_ENDPOINT: endpoint_exit_callback no entry exists for user id: %d, session: %d",
+				 tag.userID, EndpointCtl.session_id);
 	}
 	LWLockRelease(ParallelCursorEndpointLock);
 }
@@ -997,11 +1013,17 @@ const int8 *
 get_token_by_session_id(int sessionId)
 {
 	SessionInfoEntry *info_entry = NULL;
+	SessionTokenTag tag;
+
+	tag.sessionID = sessionId;
+	tag.userID = GetUserId();
+
 	info_entry = (SessionInfoEntry *) hash_search(
-		SharedSessionInfoHash, &sessionId, HASH_FIND, NULL);
+		SharedSessionInfoHash, &tag, HASH_FIND, NULL);
 	if (info_entry == NULL)
 	{
-		elog(ERROR, "Token for session %d doesn't exist", sessionId);
+		elog(ERROR, "Token for user id: %d, session: %d doesn't exist",
+			 tag.userID, sessionId);
 	}
 	return info_entry->token;
 }
@@ -1010,7 +1032,7 @@ get_token_by_session_id(int sessionId)
  * Find the corresponding session id by the given token.
  */
 int
-get_session_id_by_token(const int8 *token)
+get_session_id_for_auth(Oid userID, const int8 *token)
 {
 	int session_id = InvalidSession;
 	SessionInfoEntry *info_entry = NULL;
@@ -1019,9 +1041,9 @@ get_session_id_by_token(const int8 *token)
 	hash_seq_init(&status, SharedSessionInfoHash);
 	while ((info_entry = (SessionInfoEntry *) hash_seq_search(&status)) != NULL)
 	{
-		if (token_equals(info_entry->token, token))
+		if (token_equals(info_entry->token, token) && userID == info_entry->tag.userID)
 		{
-			session_id = info_entry->session_id;
+			session_id = info_entry->tag.sessionID;
 			hash_seq_term(&status);
 			break;
 		}
@@ -1286,11 +1308,15 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 	bool found					 = false;
 	Latch *latch				 = NULL;
 	int wr						 = 0;
+	SessionTokenTag   tag;
+
+	tag.sessionID = gp_session_id;
+	tag.userID = GetUserId();
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	info_entry = (SessionInfoEntry *) hash_search(
-		SharedSessionInfoHash, &gp_session_id, HASH_ENTER, &found);
+		SharedSessionInfoHash, &tag, HASH_ENTER, &found);
 
 	elog(DEBUG3, "CDB_ENDPOINT: Finish endpoint init. Found SessionInfoEntry: %d",
 		 found);

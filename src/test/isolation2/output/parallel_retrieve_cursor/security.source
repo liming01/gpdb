@@ -10,6 +10,27 @@ INSERT 100
 CREATE OR REPLACE FUNCTION myappend(anyarray, anyelement) RETURNS anyarray AS $$ SELECT $1 || $2 $$ LANGUAGE SQL;
 CREATE
 
+-- Test: Retrieve login without valid token.
+1: @in_sh 'export RETRIEVE_TOKEN="123" ; echo $RAW_STR' : SELECT 1;
+ ?column? 
+----------
+ 1        
+(1 row)
+0R: SELECT 1;
+#0retrieve> FATAL:  Retrieve auth token is invalid
+
+
+-- Test: Declare a cursor
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+DECLARE
+1: @out_sh 'parse_endpoint 1 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
+(3 rows)
+
 -- Test: Should not change gp_session_role and gp_role in retrieve mode
 0R: set gp_session_role to 'utility';
 ERROR:  parameter "gp_session_role" cannot be set after connection start
@@ -68,13 +89,60 @@ ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve
 
 -- Test: Different illegal tokens always lead to a same general message
 ---- Illegal tokens
-1R: RETRIEVE ALL from abc;
-ERROR:  Invalid token "abc" (cdbendpointutils.c:145)
-1R: RETRIEVE ALL from 123;
+1R: RETRIEVE ALL FROM ENDPOINT abc;
+ERROR:  failed to attach non-existing endpoint abc (cdbendpointretrieve.c:LINENO)
+1R: RETRIEVE ALL FROM ENDPOINT 123;
 ERROR:  syntax error at or near "123"
-LINE 1: RETRIEVE ALL from 123;
-                          ^
-1R: RETRIEVE ALL from tk1122;
-ERROR:  Invalid token "tk1122" (cdbendpointutils.c:145)
-1R: RETRIEVE ALL from tktt223344556677889900112233445566;
-ERROR:  Invalid token "tktt223344556677889900112233445566" (cdbendpointutils.c:141)
+LINE 1: RETRIEVE ALL FROM ENDPOINT 123;
+                                   ^
+1R: RETRIEVE ALL FROM ENDPOINT tk1122;
+ERROR:  failed to attach non-existing endpoint tk1122 (cdbendpointretrieve.c:LINENO)
+1R: RETRIEVE ALL FROM ENDPOINT tktt223344556677889900112233445566;
+ERROR:  failed to attach non-existing endpoint tktt223344556677889900112233445566 (cdbendpointretrieve.c:LINENO)
+
+-- Retrieve data.
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT1";
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
+
+ a  
+----
+ 16 
+ 18 
+ 19 
+ 2  
+ 22 
+ 24 
+ 3  
+ 4  
+ 7  
+ 8  
+(10 rows)
+
+ a  
+----
+ 1  
+ 12 
+ 15 
+ 20 
+ 23 
+ 26 
+ 30 
+ 31 
+ 35 
+ 36 
+(10 rows)
+
+ a  
+----
+ 10 
+ 11 
+ 13 
+ 14 
+ 17 
+ 21 
+ 25 
+ 5  
+ 6  
+ 9  
+(10 rows)

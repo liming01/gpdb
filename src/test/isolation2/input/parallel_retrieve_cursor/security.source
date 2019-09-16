@@ -8,6 +8,15 @@ CREATE OR REPLACE FUNCTION myappend(anyarray, anyelement) RETURNS anyarray AS $$
 SELECT $1 || $2
 $$ LANGUAGE SQL;
 
+-- Test: Retrieve login without valid token.
+1: @in_sh 'export RETRIEVE_TOKEN="123" ; echo $RAW_STR' : SELECT 1;
+0R: SELECT 1;
+
+-- Test: Declare a cursor
+1: BEGIN;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: @out_sh 'parse_endpoint 1 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+
 -- Test: Should not change gp_session_role and gp_role in retrieve mode
 0R: set gp_session_role to 'utility';
 0R: set gp_role to 'utility';
@@ -44,7 +53,10 @@ $$ LANGUAGE SQL;
 
 -- Test: Different illegal tokens always lead to a same general message
 ---- Illegal tokens
-1R: RETRIEVE ALL from abc;
-1R: RETRIEVE ALL from 123;
-1R: RETRIEVE ALL from tk1122;
-1R: RETRIEVE ALL from tktt223344556677889900112233445566;
+1R: RETRIEVE ALL FROM ENDPOINT abc;
+1R: RETRIEVE ALL FROM ENDPOINT 123;
+1R: RETRIEVE ALL FROM ENDPOINT tk1122;
+1R: RETRIEVE ALL FROM ENDPOINT tktt223344556677889900112233445566;
+
+-- Retrieve data.
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT1";

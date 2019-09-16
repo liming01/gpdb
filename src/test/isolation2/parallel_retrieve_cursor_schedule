@@ -6,6 +6,6 @@ test: parallel_retrieve_cursor/status
 test: parallel_retrieve_cursor/syntax
 test: parallel_retrieve_cursor/retrieve_quit
 #test: parallel_retrieve_cursor/fault_inject
+test: parallel_retrieve_cursor/security
 # FIXME: Below tests were disabled since the token authentication behaviour changed. Needs to be modified and re-enabled.
-#test: parallel_retrieve_cursor/security
 #test: parallel_retrieve_cursor/privilege

@@ -112,7 +112,7 @@ extern EndpointControl EndpointCtl;            /* Endpoint ctrl */
 extern EndpointDesc* get_endpointdesc_by_index(int index);
 extern EndpointDesc *find_endpoint(const char *endpointName, int sessionID);
 extern const int8 *get_token_by_session_id(int sessionId);
-extern int get_session_id_by_token(const int8 *token);
+extern int get_session_id_for_auth(Oid userID, const int8 *token);
 
 /* utility functions in "cdbendpointutilities.c" */
 extern const char *endpoint_role_to_string(enum ParallelRetrCursorExecRole role);
