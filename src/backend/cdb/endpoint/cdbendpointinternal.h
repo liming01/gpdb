@@ -43,7 +43,8 @@ enum AttachStatus
 	Status_NotAttached = 0,
 	Status_Prepared,
 	Status_Attached,
-	Status_Finished
+	Status_Finished,
+	Status_Released
 } AttachStatus;
 
 /*

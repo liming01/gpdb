@@ -571,7 +571,7 @@ retrieve_cancel_action(const char *endpointName, char *msg)
 		&& endpointDesc->attach_status != Status_Finished)
 	{
 		endpointDesc->receiver_pid = InvalidPid;
-		endpointDesc->attach_status = Status_NotAttached;
+		endpointDesc->attach_status = Status_Released;
 		elog(DEBUG3, "CDB_ENDPOINT: signal sender to abort");
 		pg_signal_backend(endpointDesc->sender_pid, SIGINT, msg);
 	}

@@ -59,7 +59,6 @@ typedef struct
 /* Used in UDFs */
 static char *status_enum_to_string(enum AttachStatus status);
 static enum AttachStatus status_string_to_enum(char *status);
-static char *endpoint_status_enum_to_string(EndpointStatus *ep_status);
 
 struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
 	PRCER_NONE, {0}, -1
@@ -417,7 +416,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		 * find out the status of end-point
 		 */
 		values[7] =
-			CStringGetTextDatum(endpoint_status_enum_to_string(qe_status));
+			CStringGetTextDatum(status_enum_to_string(qe_status->attach_status));
 		nulls[7] = false;
 
 		if (qe_status)
@@ -573,6 +572,9 @@ status_enum_to_string(enum AttachStatus status)
 		case Status_Finished:
 			result = GP_ENDPOINT_STATUS_FINISH;
 			break;
+		case Status_Released:
+			result = GP_ENDPOINT_STATUS_RELEASED;
+			break;
 		default:
 			elog(ERROR, "unknown end point status %d", status);
 			break;
@@ -600,6 +602,10 @@ status_string_to_enum(char *status)
 	{
 		return Status_Finished;
 	}
+	else if (strcmp(status, GP_ENDPOINT_STATUS_RELEASED) == 0)
+	{
+		return Status_Released;
+	}
 	else
 	{
 		elog(ERROR, "unknown end point status %s", status);
@@ -607,15 +613,3 @@ status_string_to_enum(char *status)
 	}
 }
 
-char *
-endpoint_status_enum_to_string(EndpointStatus *ep_status)
-{
-	if (ep_status != NULL)
-	{
-		return status_enum_to_string(ep_status->attach_status);
-	} else
-	{
-		/* called on QD, if endpoint status is null, and token info is not release*/
-		return GP_ENDPOINT_STATUS_RELEASED;
-	}
-}

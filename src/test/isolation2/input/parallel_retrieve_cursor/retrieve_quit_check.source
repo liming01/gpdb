@@ -1,5 +1,6 @@
 -- @Description Tests retrieve quit
--- 
+-- Test quitting retrieve sessions interfering with multiple endpoints when calling
+-- gp_check_parallel_retrieve_cursor.
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (a INT) DISTRIBUTED by (a);
 insert into t1 select generate_series(1,100);
