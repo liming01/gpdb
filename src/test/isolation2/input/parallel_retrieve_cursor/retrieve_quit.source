@@ -12,54 +12,49 @@ insert into t1 select generate_series(1,100);
 1: @out_sh 'parse_endpoint 1 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: @out_sh 'parse_endpoint 2 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
 1: @out_sh 'parse_endpoint 3 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
--- 3&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c3');
 
 -- in one retrieve session, retrieve mutiple tokens (begin retrieving, finished retrieving, not yet retrieve)
 0R: @in_sh 'sub_endpoint_name @ENDPOINT1' : RETRIEVE 10 FROM ENDPOINT "@ENDPOINT1";
 0R: @in_sh 'sub_endpoint_name @ENDPOINT2' : RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 -- skip TOKEN3 in this session
 
--- a new retrieve session
+-- a new retrieve session. c1 & c2 cannot be retrieved since an existing retrieve session has
+-- retrieved them at least once.
 3R: @in_sh 'sub_endpoint_name @ENDPOINT1' : RETRIEVE 10 FROM ENDPOINT "@ENDPOINT1";
 3R: @in_sh 'sub_endpoint_name @ENDPOINT2' : RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 3R: @in_sh 'sub_endpoint_name @ENDPOINT3' : RETRIEVE 10 FROM ENDPOINT "@ENDPOINT3";
 
-4: SELECT cursorname, status FROM gp_endpoints_info(true);
--- verify some endpoints is gone
-0R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
+2: SELECT cursorname, status FROM gp_endpoints_info(true);
+-- verify endpoints on seg0 for c2 has been finishied
+0R: SELECT cursorname,senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
 -- quit the first retrieve session
 0Rq:
--- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
--- wait for sometime so that the cancel signal can have time to be handled
-1: SELECT pg_sleep(0.5);
--- make sure no error at c2
+
+-- Check quiting retrieve session won't impact on finished endpoint.
+-- Now the interrupt is checked using WaitLatch() for time: WAIT_NORMAL_TIMEOUT,
+-- so here the sleep time should be greater than WAIT_NORMAL_TIMEOUT.
+1: SELECT pg_sleep(0.4);
+-- make sure no error for c2
 1: SELECT * FROM gp_check_parallel_retrieve_cursor('c2');
--- make sure error at c1
+-- The endpoint on seg0 for c1 should be removed since the retrieve session was terminated when
+-- the endpoint has not been fully retrieved.
+2: SELECT cursorname, status FROM gp_endpoints_info(true);
+
+-- verify endpoints for c1 is gone
+3R: SELECT cursorname, senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
+
+-- Now check on c1 will trigger the error, all endpoints should be aborted since the transaction
+-- will be terminated.
 1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
-4: SELECT cursorname, status FROM gp_endpoints_info(true);
-
--- verify some endpoints is gone
-3R: SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO();
--- quit the second retrieve session
-3Rq:
--- check it can cancel the "CHECK PARALLEL RETRIEVE CURSOR"
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c2');
 1: SELECT * FROM gp_check_parallel_retrieve_cursor('c3');
-4: SELECT cursorname, status FROM gp_endpoints_info(true);
-
-*R: @in_sh 'sub_endpoint_name @ENDPOINT2' : RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
-4: SELECT cursorname, status FROM gp_endpoints_info(true);
-
-1: CLOSE c2;
-4: SELECT cursorname, status FROM gp_endpoints_info(true);
+2: SELECT cursorname, status FROM gp_endpoints_info(true);
 
 1: END;
-4: SELECT cursorname, status FROM gp_endpoints_info(true);
 
-1q:
-4: SELECT cursorname, status FROM gp_endpoints_info(true);
+2: SELECT cursorname, status FROM gp_endpoints_info(true);
 
 -- quit all sessions
-4q:
-0Rq:
-1Rq:
-2Rq:
+1q:
+2q:
+3Rq:

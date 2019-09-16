@@ -441,6 +441,14 @@ receive_tuple_slot(void)
 		Assert(!tup);
 		DestroyTupleQueueReader(currentMQEntry->tq_reader);
 		currentMQEntry->tq_reader = NULL;
+		/* dsm_detach will send SIGUSR1 to sender which may interrupt the
+		 * procLatch. But sender will wait on procLatch after finishing sending.
+		 * So dsm_detach has to be called earlier to ensure the SIGUSR1 is coming
+		 * from the CLOSE CURSOR.
+		 */
+		Assert(currentMQEntry->mq_seg);
+		dsm_detach(currentMQEntry->mq_seg);
+		currentMQEntry->mq_seg = NULL;
 		/* when finish retrieving data, tell sender not to wait at sender_finish()*/
 		elog(DEBUG3, "CDB_ENDPOINT: receiver set latch in receive_tuple_slot() when finish retrieving data");
 		SetLatch(&my_shared_endpoint->ack_done);
@@ -599,6 +607,12 @@ static void retrieve_exit_callback(int code, Datum arg)
 	MsgQueueStatusEntry *entry;
 
 	elog(DEBUG3, "CDB_ENDPOINTS: retrieve exit callback");
+
+	ClearParallelCursorExecRole();
+	/* Nothing to do if hashtable not set up */
+	if (MsgQueueHTB == NULL)
+		return;
+
 	/* Cancel all partially retrieved endpoints in this retrieve session */
 	hash_seq_init(&status, MsgQueueHTB);
 	while ((entry = (MsgQueueStatusEntry *) hash_seq_search(&status)) != NULL)
@@ -608,17 +622,15 @@ static void retrieve_exit_callback(int code, Datum arg)
 	}
 	detach_endpoint(true);
 
-	ClearParallelCursorExecRole();
-
-	/* Nothing to do if hashtable not set up */
-	if (MsgQueueHTB == NULL)
-		return;
 	/* Detach all msg queue dsm*/
 	hash_seq_init(&status, MsgQueueHTB);
 	while ((entry = (MsgQueueStatusEntry *) hash_seq_search(&status)) != NULL)
 	{
 		elog(DEBUG3, "CDB_ENDPOINT: detach queue receiver");
-		dsm_detach(entry->mq_seg);
+		if (entry->mq_seg) {
+			/* It could have been detached already when finish. */
+			dsm_detach(entry->mq_seg);
+		}
 	}
 	hash_destroy(MsgQueueHTB);
 	MsgQueueHTB = NULL;
