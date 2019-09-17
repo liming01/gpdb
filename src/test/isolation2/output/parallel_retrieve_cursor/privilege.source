@@ -6,13 +6,15 @@ DROP USER IF EXISTS adminuser;
 DROP
 DROP USER IF EXISTS u1;
 DROP
+DROP USER IF EXISTS uu1;
+DROP
 DROP USER IF EXISTS u2;
 DROP
 CREATE USER adminuser;
 CREATE
 ALTER USER adminuser WITH SUPERUSER;
 ALTER
-CREATE USER u1;
+CREATE USER u1 with CREATEROLE;
 CREATE
 CREATE USER u2;
 CREATE
@@ -21,164 +23,183 @@ SET SESSION AUTHORIZATION u1;
 SET
 CREATE TABLE t1 (a INT) DISTRIBUTED by (a);
 CREATE
+insert into t1 select generate_series(1,10);
+INSERT 10
+CREATE USER uu1;
+CREATE
+GRANT ALL PRIVILEGES ON t1 TO uu1;
+GRANT
+GRANT uu1 TO u1;
+GRANT
 RESET SESSION AUTHORIZATION;
 RESET
 
 
---------- Test1: Admin should be able to see other user's endpoint
+--------- Test1: Admin should be able to see other user's endpoint, retrieve role auth should check token and user
+2: @out_sh 'get_cell ADMIN_ID 3 1 && match_sub_tt admin_id $ADMIN_ID': SELECT usesysid FROM pg_user WHERE usename = 'adminuser';
+ usesysid
+----------
+ admin_id
+(1 row)
 2: @out_sh 'get_cell U1_ID 3 1 && match_sub_tt u1_id $U1_ID': SELECT usesysid FROM pg_user WHERE usename = 'u1';
  usesysid
 ----------
  u1_id
 (1 row)
---- c1 is declared by u1
-1: SET SESSION AUTHORIZATION u1;
+--- c1 is declared by superuser
+1: SET SESSION AUTHORIZATION adminuser;
 SET
+1: SELECT SESSION_USER, CURRENT_USER;
+ session_user | current_user 
+--------------+--------------
+ adminuser    | adminuser    
+(1 row)
 1: BEGIN;
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
+1: @out_sh 'parse_endpoint 1 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
+(3 rows)
+1: SET SESSION AUTHORIZATION u1;
+SET
+1: SELECT SESSION_USER, CURRENT_USER;
+ session_user | current_user 
+--------------+--------------
+ u1           | u1           
+(1 row)
+--- c2 is declared by u1
+1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+DECLARE
 
---- adminuser should be able to see all the endpoints declared by u1 with status INIT
+--- adminuser should be able to see all the endpoints declared by u1 with status READY
 2: SET SESSION AUTHORIZATION adminuser;
 SET
-2: SELECT current_user;
- current_user 
---------------
- adminuser    
+2: SELECT SESSION_USER, CURRENT_USER;
+ session_user | current_user 
+--------------+--------------
+ adminuser    | adminuser    
 (1 row)
-2: @out_sh 'get_cell TOKEN1 3 1 && match_sub token_id1 $TOKEN1': SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
- token                              | usename | status
-------------------------------------+---------+--------
- token_id1 | u1      | INIT
- token_id1 | u1      | INIT
- token_id1 | u1      | INIT
+2: @out_sh 'parse_endpoint 2 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
+ endpoint_id2_1 | token_id | host_id | port_id | READY
+ endpoint_id2_2 | token_id | host_id | port_id | READY
+ endpoint_id2_3 | token_id | host_id | port_id | READY
 (3 rows)
-
---- execute the cursor by u1
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
 
 --- adminuser should be able to see the cursor status change to READY
 2: SELECT token, usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
- token                              | usename | status 
-------------------------------------+---------+--------
- token_id1 | u1      | READY  
- token_id1 | u1      | READY  
- token_id1 | u1      | READY  
-(3 rows)
+ token                              | usename   | status 
+------------------------------------+-----------+--------
+ token_id | adminuser | READY  
+ token_id | adminuser | READY  
+ token_id | adminuser | READY  
+ token_id | u1        | READY  
+ token_id | u1        | READY  
+ token_id | u1        | READY  
+(6 rows)
 
 --- adminuser should be able to see all endpoints declared by u1 in retrieved mode
-*R: SET SESSION AUTHORIZATION adminuser;
-SET
-
-SET
-
-SET
-
-SET
-*R: SELECT current_user;
- current_user 
---------------
- adminuser    
+3: @in_sh 'export RETRIEVE_USER="adminuser"; echo $RAW_STR ' : SELECT 1;
+ ?column? 
+----------
+ 1        
 (1 row)
-
- current_user 
---------------
- adminuser    
+0R: SELECT SESSION_USER, CURRENT_USER;
+ session_user | current_user 
+--------------+--------------
+ adminuser    | adminuser    
 (1 row)
-
- current_user 
---------------
- adminuser    
-(1 row)
-
- current_user 
---------------
- adminuser    
-(1 row)
-*R: SELECT token, userid FROM gp_endpoints_status_info();
- token | userid 
--------+--------
-(0 rows)
-
+0R: SELECT token, userid FROM gp_endpoints_status_info();
  token                              | userid 
 ------------------------------------+--------
- token_id1 | u1_id
-(1 row)
-
- token                              | userid 
-------------------------------------+--------
- token_id1 | u1_id
-(1 row)
-
- token                              | userid 
-------------------------------------+--------
- token_id1 | u1_id
-(1 row)
---- Switch back to u1 and retrieve all to finish the test
-*R: SET SESSION AUTHORIZATION u1;
-SET
-
-SET
-
-SET
-
-SET
-*R: @in_sh 'sub @TOKEN1 $TOKEN1': RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:214)
-
+ token_id | admin_id
+ token_id | u1_id
+(2 rows)
+0R: @in_sh 'sub_endpoint_name @ENDPOINT1': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT1";
  a 
 ---
-(0 rows)
-
+ 2 
+ 3 
+ 4 
+ 7 
+ 8 
+(5 rows)
+0Rq: ... <quitting>
+3: @in_sh 'export RETRIEVE_USER="u1"; echo $RAW_STR ' : SELECT 1;
+ ?column? 
+----------
+ 1        
+(1 row)
+--- Login as u1 and retrieve all to finish the test
+0R: SELECT SESSION_USER, CURRENT_USER;
+ session_user | current_user 
+--------------+--------------
+ u1           | u1           
+(1 row)
+0R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE 1 FROM ENDPOINT "@ENDPOINT2";
  a 
 ---
-(0 rows)
+ 2 
+(1 row)
+0Rq: ... <quitting>
 
- a 
----
-(0 rows)
-
-1<:  <... completed>
-EXECUTE
-1: CLOSE c1;
-CLOSE
-1: END;
-END
-
-
---------- Test2: Admin should NOT be able to execute other user's PARALLEL RETRIEVE CURSOR
---- c1 is declared by u1
-1: SET SESSION AUTHORIZATION u1;
+1: SET ROLE uu1;
 SET
-1: BEGIN;
-BEGIN
-1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: SELECT SESSION_USER, CURRENT_USER;
+ session_user | current_user 
+--------------+--------------
+ u1           | uu1          
+(1 row)
+1: DECLARE c3 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-
---- adminuser should NOT be able to execute the PARALLEL RETRIEVE CURSOR
-1: SET SESSION AUTHORIZATION adminuser;
-SET
-1: SELECT current_user;
- current_user 
---------------
- adminuser    
-(1 row)
-1: CHECK PARALLEL RETRIEVE CURSOR c1;
-ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
-HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to execute.
-2: SELECT usename, status FROM gp_endpoints_info(true) endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
- usename | status   
----------+----------
- u1      | RELEASED 
- u1      | RELEASED 
- u1      | RELEASED 
+2: @out_sh 'parse_endpoint 3 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c3';
+ endpoint_id3_1 | token_id | host_id | port_id | READY
+ endpoint_id3_2 | token_id | host_id | port_id | READY
+ endpoint_id3_3 | token_id | host_id | port_id | READY
 (3 rows)
+
+3: @in_sh 'export RETRIEVE_USER="uu1"; echo $RAW_STR ' : SELECT 1;
+ ?column? 
+----------
+ 1        
+(1 row)
+--- Login as uu1 and retrieve all to finish the test
+0R: SELECT SESSION_USER, CURRENT_USER;
+ session_user | current_user 
+--------------+--------------
+ uu1          | uu1          
+(1 row)
+0R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
+ a 
+---
+ 2 
+ 3 
+ 4 
+ 7 
+ 8 
+(5 rows)
+
+--- Retrieve c2(which belone to u1) but current user is uu1.
+0R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
+0Rq: ... <quitting>
+1<:  <... completed>
+FAILED:  Execution failed
 1: END;
 END
+2q: ... <quitting>
+3: @in_sh 'unset RETRIEVE_USER; echo $RAW_STR ' : SELECT 1;
+ ?column? 
+----------
+ 1        
+(1 row)
+3q: ... <quitting>
 
 
---------- Test3: Admin should NOT be able to retrieve from other's PARALLEL RETRIEVE CURSOR
+--------- Test2: Admin should NOT be able to retrieve from other's PARALLEL RETRIEVE CURSOR
 --- c1 is declared and executed by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
@@ -186,47 +207,50 @@ SET
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-2: @out_sh 'get_cell TOKEN3 3 1 && match_sub token_id3 $TOKEN3': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
- token                              | usename | status
-------------------------------------+---------+--------
- token_id3 | u1      | READY
- token_id3 | u1      | READY
- token_id3 | u1      | READY
+2: @out_sh 'parse_endpoint 4 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
 
 --- adminuser should NOT be able to retrieve from other's PARALLEL RETRIEVE CURSOR
+3: @in_sh 'export RETRIEVE_USER="adminuser"; echo $RAW_STR ' : SELECT 1;
+ ?column? 
+----------
+ 1        
+(1 row)
 *R: SET SESSION AUTHORIZATION adminuser;
-SET
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
 SET
 
 SET
 
 SET
-*R: SELECT current_user;
- current_user 
---------------
- adminuser    
+*R: SELECT SESSION_USER, CURRENT_USER;
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
+
+ session_user | current_user 
+--------------+--------------
+ adminuser    | adminuser    
 (1 row)
 
- current_user 
---------------
- adminuser    
+ session_user | current_user 
+--------------+--------------
+ adminuser    | adminuser    
 (1 row)
 
- current_user 
---------------
- adminuser    
+ session_user | current_user 
+--------------+--------------
+ adminuser    | adminuser    
 (1 row)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
+#-1retrieve> FATAL:  Retrieve auth token is invalid
 
- current_user 
---------------
- adminuser    
-(1 row)
-*R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
-ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpointretrieve.c:214)
 
 ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
 HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
@@ -239,37 +263,56 @@ HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
-SET
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
 SET
 
 SET
 
 SET
-*R: @in_sh 'sub @TOKEN3 $TOKEN3': RETRIEVE ALL FROM "@TOKEN3";
-ERROR:  failed to attach non-existing endpoint of token token_id3 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  a 
 ---
-(0 rows)
+ 2 
+ 3 
+ 4 
+ 7 
+ 8 
+(5 rows)
 
  a 
 ---
-(0 rows)
+ 1 
+(1 row)
 
- a 
----
-(0 rows)
+ a  
+----
+ 10 
+ 5  
+ 6  
+ 9  
+(4 rows)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 1: CLOSE c1;
 CLOSE
 1: END;
 END
+3q: ... <quitting>
+0Rq: ... <quitting>
+1Rq: ... <quitting>
+2Rq: ... <quitting>
 
 
---------- Test4: Admin should be able to close PARALLEL RETRIEVE CURSOR
+--------- Test3: Admin should be able to close PARALLEL RETRIEVE CURSOR
 --- c1 is declared and executed by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
@@ -286,7 +329,7 @@ CLOSE
 END
 
 
---------- Test5: u2 should NOT be able to see or retrieve from u1's endpoints
+--------- Test4: u2 should NOT be able to see or retrieve from u1's endpoints
 --- c1 is declared and executed by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
@@ -294,30 +337,29 @@ SET
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_cell TOKEN5 3 1 && match_sub token_id5 $TOKEN5': SELECT token, usename, status FROM gp_endpoints_info(true) as endpoints, pg_user WHERE endpoints.userid = pg_user.usesysid;
- token                              | usename | status
-------------------------------------+---------+--------
- token_id5 | u1      | INIT
- token_id5 | u1      | INIT
- token_id5 | u1      | INIT
+1: @out_sh 'parse_endpoint 5 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
 
 --- u2 is not able to see u1's endpoints on master
 1: SET SESSION AUTHORIZATION u2;
 SET
 1: SELECT * from gp_endpoints_info(true);
- token | cursorname | sessionid | hostname | port | dbid | userid | status 
--------+------------+-----------+----------+------+------+--------+--------
+ token | cursorname | sessionid | hostname | port | dbid | userid | status | endpointname 
+-------+------------+-----------+----------+------+------+--------+--------+--------------
 (0 rows)
 
 --- execute the cursor by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
 --- u2 is not able to see u1's endpoints in RETRIEVE mode
 *R: SET SESSION AUTHORIZATION u2;
-SET
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
 SET
 
@@ -325,25 +367,25 @@ SET
 
 SET
 *R: SELECT * FROM gp_endpoints_status_info();
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
+
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
-(0 rows)
-
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
 --- u2 is not able to retrieve from u1's endpoints in RETRIEVE mode
-*R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
-ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
 ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
 HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
@@ -356,37 +398,54 @@ HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 
 --- Switch back to u1 and retrieve all to finish the test
 *R: SET SESSION AUTHORIZATION u1;
-SET
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
 SET
 
 SET
 
 SET
-*R: @in_sh 'sub @TOKEN5 $TOKEN5': RETRIEVE ALL FROM "@TOKEN5";
-ERROR:  failed to attach non-existing endpoint of token token_id5 (cdbendpointretrieve.c:214)
+*R: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";
+#-1retrieve> FATAL:  Retrieve auth token is invalid
+
 
  a 
 ---
-(0 rows)
+ 2 
+ 3 
+ 4 
+ 7 
+ 8 
+(5 rows)
 
  a 
 ---
-(0 rows)
+ 1 
+(1 row)
 
- a 
----
-(0 rows)
+ a  
+----
+ 10 
+ 5  
+ 6  
+ 9  
+(4 rows)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 1: CLOSE c1;
 CLOSE
 1: END;
 END
+0Rq: ... <quitting>
+1Rq: ... <quitting>
+2Rq: ... <quitting>
 
-
---------- Test6: u2 should NOT be able to execute other u1's PARALLEL RETRIEVE CURSOR if it cannot access t1
+--------- Test5: u2 should NOT be able to check other u1's PARALLEL RETRIEVE CURSOR if it cannot access t1
 --- c1 is declared by u1
 1: SET SESSION AUTHORIZATION u1;
 SET
@@ -398,14 +457,14 @@ DECLARE
 --- u2 cannot execute u1's cursor if it cannot access t1
 1: SET SESSION AUTHORIZATION u2;
 SET
-1: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
 ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
-HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to execute.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator.
 
 1: END;
 END
 
---------- Test7: u2 should NOT be able to execute other u1's PARALLEL RETRIEVE CURSOR even when it can access t1
+--------- Test6: u2 should NOT be able to execute other u1's PARALLEL RETRIEVE CURSOR even when it can access t1
 1: SET SESSION AUTHORIZATION u1;
 SET
 1: BEGIN;
@@ -420,21 +479,9 @@ SET
 GRANT
 1: SET SESSION AUTHORIZATION u2;
 SET
-1: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
 ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
-HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to execute.
+HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator.
 
-1: END;
-END
-
---------- Test8: u2 should NOT be able to CHECK PARALLEL RETRIEVE CURSOR for table t2 since it cannot access t2
-1: SET SESSION AUTHORIZATION u2;
-SET
-1: BEGIN;
-BEGIN
-1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-DECLARE
-1: CHECK PARALLEL RETRIEVE CURSOR c1;
-ERROR:  permission denied for relation t1
 1: END;
 END

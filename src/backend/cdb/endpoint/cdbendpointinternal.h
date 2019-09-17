@@ -112,7 +112,7 @@ extern EndpointControl EndpointCtl;            /* Endpoint ctrl */
 /* Endpoint shared memory utility functions in "cdbendpoint.c" */
 extern EndpointDesc* get_endpointdesc_by_index(int index);
 extern EndpointDesc *find_endpoint(const char *endpointName, int sessionID);
-extern const int8 *get_token_by_session_id(int sessionId);
+extern const int8 *get_token_by_session_id(int sessionId, Oid userID);
 extern int get_session_id_for_auth(Oid userID, const int8 *token);
 
 /* utility functions in "cdbendpointutilities.c" */

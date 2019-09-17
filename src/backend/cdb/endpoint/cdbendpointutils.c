@@ -349,7 +349,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					EndpointStatus* status = &mystatus->status[mystatus->status_num - cnt + idx];
 					strncpy(mystatus->status[idx].name, entry->name, ENDPOINT_NAME_LEN);
 					strncpy(mystatus->status[idx].cursor_name, entry->cursor_name, NAMEDATALEN);
-					memcpy(status->token, get_token_by_session_id(entry->session_id), ENDPOINT_TOKEN_LEN);
+					memcpy(status->token, get_token_by_session_id(entry->session_id, entry->user_id), ENDPOINT_TOKEN_LEN);
 					status->dbid = contentid_get_dbid(MASTER_CONTENT_ID, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
 					status->attach_status = entry->attach_status;
 					status->sender_pid = entry->sender_pid;
@@ -505,7 +505,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
 		{
 			char *status = NULL;
-			char *token = print_token(get_token_by_session_id(entry->session_id));
+			char *token = print_token(get_token_by_session_id(entry->session_id, entry->user_id));
 
 			values[0] = CStringGetTextDatum(token);
 			nulls[0] = false;

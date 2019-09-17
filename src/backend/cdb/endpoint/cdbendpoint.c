@@ -1006,13 +1006,13 @@ find_endpoint(const char *endpointName, int sessionID)
 }
 
 const int8 *
-get_token_by_session_id(int sessionId)
+get_token_by_session_id(int sessionId, Oid userID)
 {
 	SessionInfoEntry *info_entry = NULL;
 	SessionTokenTag tag;
 
 	tag.sessionID = sessionId;
-	tag.userID = GetUserId();
+	tag.userID = userID;
 
 	info_entry = (SessionInfoEntry *) hash_search(
 		SharedSessionInfoHash, &tag, HASH_FIND, NULL);
@@ -1224,6 +1224,13 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 	    }
 	}
 
+	if (endpointDesc->user_id != GetUserId())
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					errmsg("The PARALLEL RETRIEVE CURSOR was created by a different user."),
+					errhint("Using the same user as the PARALLEL RETRIEVE CURSOR creator.")));
+	}
 	isFinished = endpointDesc->attach_status == Status_Finished;
 	if(isWait && !isFinished){
 		elog(LOG, "CDB_ENDPOINT: WaitLatch on endpointDesc->check_wait_latch by pid: %d", MyProcPid);
