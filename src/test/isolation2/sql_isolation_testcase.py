@@ -263,11 +263,12 @@ class SQLIsolationExecutor(object):
             self.mode = mode
 
     class SQLConnection(object):
-        def __init__(self, out_file, name, mode, dbname, passwd = None):
+        def __init__(self, out_file, name, mode, dbname, user = None, passwd = None):
             self.name = name
             self.mode = mode
             self.out_file = out_file
             self.dbname = dbname
+            self.user = user
             self.passwd = passwd
 
             parent_conn, child_conn = multiprocessing.Pipe(True)
@@ -284,7 +285,7 @@ class SQLIsolationExecutor(object):
 
         def session_process(self, pipe):
             sp = SQLIsolationExecutor.SQLSessionProcess(self.name, 
-                self.mode, pipe, self.dbname, passwd=self.passwd)
+                self.mode, pipe, self.dbname, user=self.user, passwd=self.passwd)
             sp.do()
 
         def query(self, command, out_sh_cmd, in_sh_cmd, global_sh_executor):
@@ -356,7 +357,7 @@ class SQLIsolationExecutor(object):
             self.p.terminate()
 
     class SQLSessionProcess(object):
-        def __init__(self, name, mode, pipe, dbname, passwd = None):
+        def __init__(self, name, mode, pipe, dbname, user = None, passwd = None):
             """
                 Constructor
             """
@@ -365,6 +366,7 @@ class SQLIsolationExecutor(object):
             self.pipe = pipe
             self.dbname = dbname
             self.passwd = passwd
+            self.user = user
             # If there is an exception thrown when creating session, save it and send
             # it to pipe when we get the first execute_command call.
             self.create_exception = None
@@ -374,6 +376,7 @@ class SQLIsolationExecutor(object):
                                           given_host=hostname,
                                           given_port=port,
                                           given_opt="-c gp_session_role=utility",
+                                          given_user=user,
                                           given_passwd=passwd)
             elif self.mode == "standby":
                 # Connect to standby even when it's role is recorded
@@ -384,6 +387,7 @@ class SQLIsolationExecutor(object):
                 self.con = self.connectdb(given_dbname=self.dbname,
                                           given_host=hostname,
                                           given_port=port,
+                                          given_user=user,
                                           given_passwd=passwd)
             elif self.mode == "retrieve":
                 (hostname, port) = ConnectionInfo.get_hostname_port(name, 'p')
@@ -391,6 +395,7 @@ class SQLIsolationExecutor(object):
                                           given_host=hostname,
                                           given_port=port,
                                           given_opt="-c gp_session_role=retrieve",
+                                          given_user=user,
                                           given_passwd=passwd)
             else:
                 self.con = self.connectdb(self.dbname)
@@ -420,7 +425,7 @@ class SQLIsolationExecutor(object):
                         retry > 1):
                         retry -= 1
                         time.sleep(0.1)
-                    if self.mode == "retrieve" and "auth token is invalid" in str(e):
+                    if self.mode == "retrieve" and ("auth token is invalid" in str(e) or "does not exist" in str(e)):
                         self.create_exception = e
                         break
                     else:
@@ -530,7 +535,7 @@ class SQLIsolationExecutor(object):
                 (c, wait) = self.pipe.recv()
 
 
-    def get_process(self, out_file, name, mode="", dbname="", passwd=None):
+    def get_process(self, out_file, name, mode="", dbname="", user=None, passwd=None):
         """
             Gets or creates the process by the given name
         """
@@ -542,7 +547,7 @@ class SQLIsolationExecutor(object):
         if not (name, mode) in self.processes:
             if not dbname:
                 dbname = self.dbname
-            self.processes[(name, mode)] = SQLIsolationExecutor.SQLConnection(out_file, name, mode, dbname, passwd)
+            self.processes[(name, mode)] = SQLIsolationExecutor.SQLConnection(out_file, name, mode, dbname, user, passwd)
         return self.processes[(name, mode)]
 
     def quit_process(self, out_file, name, mode="", dbname=""):
@@ -586,6 +591,7 @@ class SQLIsolationExecutor(object):
         con_mode = ""
         dbname = ""
         retrieve_token = None
+        retrieve_user = None
         in_sh_cmd = None
         out_sh_cmd = None
         m = self.command_pattern.match(command)
@@ -630,6 +636,9 @@ class SQLIsolationExecutor(object):
                 out = global_sh_executor.exec_global_shell("echo ${RETRIEVE_TOKEN}", True)
                 if (len(out) > 0):
                     retrieve_token = out[0]
+                out = global_sh_executor.exec_global_shell("echo ${RETRIEVE_USER}", True)
+                if (len(out) > 0):
+                    retrieve_user = out[0]
 
         if not flag:
             if sql.startswith('!'):
@@ -708,7 +717,7 @@ class SQLIsolationExecutor(object):
 
             for name in process_names:
                 try:
-                    self.get_process(output_file, name, con_mode, dbname=dbname, passwd=retrieve_token).query(sql.strip(), out_sh_cmd, in_sh_cmd, global_sh_executor)
+                    self.get_process(output_file, name, con_mode, dbname=dbname, user=retrieve_user, passwd=retrieve_token).query(sql.strip(), out_sh_cmd, in_sh_cmd, global_sh_executor)
                 except SQLIsolationExecutor.SessionError as e:
                     print >>output_file, str(e)
                     self.processes[(e.name, e.mode)].terminate()
@@ -903,11 +912,14 @@ class SQLIsolationTestCase:
 
         There are some helper functions which will be sourced automatically to make above
         cases easier. See global_sh_executor.sh for more information.
-        $RETRIEVE_TOKEN is a special environment var which will be read by python to use
-        it as the password for retrieve mode session. `None` will be used if the value has
-        not been set when start retrieve mode session. $RETRIEVE_TOKEN can be set through
-        helper function get_token_cell() in previous @out_sh, overwrite it directly through
-        @in_sh for the current statement.
+        $RETRIEVE_TOKEN and $RETRIEVE_USER are a special environment vars which will be read
+        by python to use them as the username and password for retrieve mode session. `None`
+        will be used if the value has not been set when start retrieve mode session.
+        $RETRIEVE_TOKEN can be set through helper function get_token_cell() in previous @out_sh,
+        overwrite it directly through @in_sh for the current statement.
+        NOTICE: There is a known issue when setting $RETRIEVE_TOKEN and $RETRIEVE_USER with
+        @in_sh -- The changes won't be see in current statement following the @in_sh. Instead,
+        they will take effect at the next statement.
 
         Catalog Modification:
 
