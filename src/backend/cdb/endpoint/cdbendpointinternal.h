@@ -122,5 +122,7 @@ extern void invalidate_endpoint_name(char *endpointName /*out*/);
 extern bool token_equals(const int8 *token1, const int8 *token2);
 extern bool endpoint_name_equals(const char *name1, const char *name2);
 extern uint64 create_magic_num_for_endpoint(const EndpointDesc *desc);
+extern void parse_token(int8 *token /*out*/, const char *tokenStr);
+extern char *print_token(const int8 *token); /* Need to pfree() the result */
 
 #endif   /* CDBENDPOINTINTERNAL_H */

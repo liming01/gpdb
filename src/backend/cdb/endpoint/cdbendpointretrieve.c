@@ -72,7 +72,7 @@ FindEndpointTokenByUser(Oid userID, const char *tokenStr)
 
 	PG_TRY();
 	{
-		ParseToken(token, tokenStr);
+		parse_token(token, tokenStr);
 	}
 	PG_CATCH();
 	{

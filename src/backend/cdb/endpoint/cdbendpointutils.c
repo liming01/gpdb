@@ -69,7 +69,7 @@ struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
  * the given token pointer.
  */
 void
-ParseToken(int8 *token /*out*/, const char *tokenStr)
+parse_token(int8 *token /*out*/, const char *tokenStr)
 {
 	static const char *fmt = "Invalid token \"%s\"";
 	if (tokenStr[0] == 't' && tokenStr[1] == 'k' &&
@@ -95,7 +95,7 @@ ParseToken(int8 *token /*out*/, const char *tokenStr)
  * Note: need to pfree() the result
  */
 char *
-PrintToken(const int8 *token)
+print_token(const int8 *token)
 {
 	Insist(is_endpoint_token_valid(token));
 	const size_t len = ENDPOINT_TOKEN_STR_LEN + 1; /* 2('tk') + HEX string length + 1('\0') */
@@ -315,7 +315,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 				{
 					strncpy(mystatus->status[idx].name, PQgetvalue(result, j, 0), ENDPOINT_NAME_LEN);
 					strncpy(mystatus->status[idx].cursor_name, PQgetvalue(result, j, 1), NAMEDATALEN);
-					ParseToken(mystatus->status[idx].token, PQgetvalue(result, j, 2));
+					parse_token(mystatus->status[idx].token, PQgetvalue(result, j, 2));
 					mystatus->status[idx].dbid = atoi(PQgetvalue(result, j, 3));
 					mystatus->status[idx].attach_status = status_string_to_enum(PQgetvalue(result, j, 4));
 					mystatus->status[idx].sender_pid = atoi(PQgetvalue(result, j, 5));
@@ -395,7 +395,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
 
-		char *token = PrintToken(qe_status->token);
+		char *token = print_token(qe_status->token);
 		values[0]   = CStringGetTextDatum(token);
 		pfree(token);
 		nulls[0] = false;
@@ -517,7 +517,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
 		{
 			char *status = NULL;
-			char *token = PrintToken(get_token_by_session_id(entry->session_id));
+			char *token = print_token(get_token_by_session_id(entry->session_id));
 
 			values[0] = CStringGetTextDatum(token);
 			nulls[0] = false;

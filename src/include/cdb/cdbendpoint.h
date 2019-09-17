@@ -107,8 +107,6 @@ extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
 
 /* cdbendpointutils.c */
 /* Utility functions */
-extern void ParseToken(int8 *token /*out*/, const char *tokenStr);
-extern char *PrintToken(const int8 *token); /* Need to pfree() the result */
 extern void SetParallelCursorExecRole(enum ParallelRetrCursorExecRole role);
 extern void ClearParallelCursorExecRole(void);
 extern enum ParallelRetrCursorExecRole GetParallelCursorExecRole(void);

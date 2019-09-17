@@ -288,7 +288,7 @@ call_endpoint_udf_on_qd(const struct Plan *planTree, const char *cursorName, cha
 	char *token_str = "";
 
 	if (operator == 'w') {
-		token_str = PrintToken(get_or_create_token_on_qd());
+		token_str = print_token(get_or_create_token_on_qd());
 	}
 
 	cids = ChooseEndpointContentIDForParallelCursor(
@@ -1326,7 +1326,7 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 	 * For example, 1 hours ago, a session 7 exists and have entry with token 123.
 	 * And for some reason the entry not get remove by endpoint_exit_callback.
 	 * Now current session is session 7 again. Here need to overwrite the old token. */
-	ParseToken(info_entry->token, tokenStr);
+	parse_token(info_entry->token, tokenStr);
 	elog(DEBUG3, "CDB_ENDPOINT: set new token %s, for session %d", tokenStr, gp_session_id);
 
 	desc = find_endpoint_by_cursor_name(cursorName, false);
