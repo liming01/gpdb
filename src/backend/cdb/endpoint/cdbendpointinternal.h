@@ -117,7 +117,6 @@ extern int get_session_id_for_auth(Oid userID, const int8 *token);
 
 /* utility functions in "cdbendpointutilities.c" */
 extern const char *endpoint_role_to_string(enum ParallelRetrCursorExecRole role);
-extern bool is_endpoint_token_valid(const int8 *token);
 extern void invalidate_endpoint_name(char *endpointName /*out*/);
 extern bool token_equals(const int8 *token1, const int8 *token2);
 extern bool endpoint_name_equals(const char *name1, const char *name2);

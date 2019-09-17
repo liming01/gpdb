@@ -97,7 +97,6 @@ parse_token(int8 *token /*out*/, const char *tokenStr)
 char *
 print_token(const int8 *token)
 {
-	Insist(is_endpoint_token_valid(token));
 	const size_t len = ENDPOINT_TOKEN_STR_LEN + 1; /* 2('tk') + HEX string length + 1('\0') */
 	char *res = palloc(len);
 	res[0] = 't';
@@ -163,16 +162,6 @@ endpoint_role_to_string(enum ParallelRetrCursorExecRole role)
 	}
 }
 
-bool
-is_endpoint_token_valid(const int8 *token) {
-	Assert(token);
-	for (int i = 0; i < ENDPOINT_TOKEN_LEN; ++i)
-	{
-		if (token[i]) return true;
-	}
-	return false;
-}
-
 void
 invalidate_endpoint_name(char *endpointName /*out*/)
 {
@@ -199,8 +188,7 @@ endpoint_name_equals(const char *name1, const char *name2)
 }
 
 /*
- * Create a magic number from a given token for DSM TOC usage.
- * The same tokens will eventually generate the same magic number.
+ * Create a magic number from a given endpoint for DSM TOC usage.
  */
 uint64
 create_magic_num_for_endpoint(const EndpointDesc *desc)
