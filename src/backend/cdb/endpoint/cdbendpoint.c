@@ -80,10 +80,6 @@ typedef struct SessionInfoEntry
 EndpointDesc *SharedEndpoints = NULL;                    /* Point to EndpointDesc entries in shared memory */
 HTAB *SharedSessionInfoHash = NULL;	                     /* Shared hash table for session infos */
 
-#ifdef FAULT_INJECTOR
-static int8 dummyToken[ENDPOINT_TOKEN_LEN] = {0xef};
-#endif
-
 static MsgQueueStatusEntry *currentMQEntry = NULL;       /* Current message queue entry */
 static EndpointDesc *my_shared_endpoint = NULL;          /* Current EndpointDesc entry */
 
@@ -92,7 +88,7 @@ static void init_shared_endpoints(void *address);
 
 /* QD utility functions */
 static bool call_endpoint_udf_on_qd(const struct Plan *planTree, const char *cursorName, char operator);
-static const int8 * get_or_create_token_on_qd();
+static const int8 * get_or_create_token_on_qd(void);
 
 /* sender(which is an endpoint) helper function */
 static void alloc_endpoint_for_cursor(const char *cursorName);
@@ -373,7 +369,7 @@ call_endpoint_udf_on_qd(const struct Plan *planTree, const char *cursorName, cha
  * id as a part of the token. And same session will have the same token. Thus the
  * retriever will know which session to attach when doing authentication.
  */
-static const int8 *
+const int8 *
 get_or_create_token_on_qd()
 {
 #ifdef HAVE_STRONG_RANDOM
