@@ -123,14 +123,36 @@ sub() {
     echo "${RAW_STR}"
 }
 
-# for @out_sh
-# parse_endpoint <postfix> <endpoint_col> <token_col> <host_col> <port_col>
-# OUTPUT (environment variables):
+# Parse the endpoint status info output and save them into environment variables for @out_sh.
+# Usage: parse_endpoint <postfix> <endpoint_col> <token_col> <host_col> <port_col>
+# Output(environment variables):
 #   "TOKEN$postfix"
 #   "ENDPOINT_NAME$postfix[]"
 #   "ENDPOINT_TOKEN$postfix[]"
 #   "ENDPOINT_HOST$postfix[]"
 #   "ENDPOINT_PORT$postfix[]"
+# e.g.:
+# For the given SQL result:
+#      endpointname     |               token                |  hostname | port  | status
+# ----------------------+------------------------------------+-------------+-------+--------
+#  c1_00001507_00000000 | tk071500004015dc6da471b20417afed65 | host_1111 | 25432 | READY
+#  c1_00001507_00000001 | tk071500004015dc6da471b20417afed65 | host_1112 | 25433 | READY
+#  c1_00001507_00000002 | tk071500004015dc6da471b20417afed65 | host_1113 | 25434 | READY
+# (3 rows)
+# parse_endpoint 1 1 2 3 4 will setup below variables:
+# TOEKN1='tk071500004015dc6da471b20417afed65'
+# ENDPOINT_NAME1[0]='c1_00001507_00000000'
+# ENDPOINT_TOKEN1[0]='tk071500004015dc6da471b20417afed65'
+# ENDPOINT_HOST1[0]='host_1111'
+# ENDPOINT_PORT1[0]='25432'
+# ENDPOINT_NAME1[1]='c1_00001507_00000001'
+# ENDPOINT_TOKEN1[1]='tk071500004015dc6da471b20417afed65'
+# ENDPOINT_HOST1[1]='host_1112'
+# ENDPOINT_PORT1[1]='25433'
+# ENDPOINT_NAME1[2]='c1_00001507_00000002'
+# ENDPOINT_TOKEN1[2]='tk071500004015dc6da471b20417afed65'
+# ENDPOINT_HOST1[2]='host_1113'
+# ENDPOINT_PORT1[2]='25434'
 parse_endpoint() {
     local postfix=$1
     local endpoint_name_col=$2
@@ -172,9 +194,15 @@ parse_endpoint() {
     echo "${RAW_STR}" | sed '1,2d'
 }
 
-# Substitute endpoint name by the saved
+# Find the corresponding endpoint in the environment variables saved by previous
+# parse_endpoint call, and substitute in the SQL. Used by @in_sh.
+# The finding process relies on the $GP_HOSTNAME and $GP_PORT to be set to the
+# current postgres connection.
+# Usage: sub_endpoint_name <ENDPOINT_STR><postfix>
 # e.g.:
 # sub_endpoint_name "@ENDPOINT1"
+# This will replace "@ENDPOINT1" in the SQL statement with the corresponding endpoint name
+# with postfix "1".
 sub_endpoint_name() {
     local postfix=""
     postfix="$(echo "$1" | sed 's/@ENDPOINT//')"
