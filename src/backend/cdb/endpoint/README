@@ -1,0 +1,390 @@
+src/backend/cdb/endpoint/README
+
+With the segment number increasing, the performance bottleneck on the
+master node becomes more and more obvious.
+
+The parallel cursor feature is designed to reduce the heavy burdens of
+the master node. If possible it will not gather the result to the master
+and redirect the result to segments. When it is executed, user can setup
+retrieve mode connection to segments for retrieving result data in
+parallel.
+
+
+Parallel Retrieve Cursor
+========================
+
+Like a normal cursor, user can declare a parallel retrieve cursor on
+master, then retrieve the query results on each segment directly.
+
+Parallel Retrieve Cursor has similar declaration and close syntax as
+normal cursor does. But other cursor operations are not supported
+(e.g.: MOVE).
+
+
+Endpoint
+========
+
+Once a parallel retrieve cursor has been declared on QD, a corresponding
+endpoint will be created on each QE which contains the query result.
+Then, those endpoints can be used as the retrieving source to do
+retrieve in parallel on each QE.
+
+
+Declare Parallel Retrieve Cursor
+================================
+
+Before parallel retrieving in parallel, a parallel retrieve cursor
+variable needs to be created alongside with the query statement.
+
+Syntax:
+DECLARE cursor_name PARALLEL RETRIEVE CURSOR FOR query;
+
+The cursor_name needs to be unique in current transaction.
+
+Examples:
+
+postgres=# BEGIN;
+BEGIN
+postgres=# DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+DECLARE
+
+
+List Parallel Retrieve Cursors and their endpoints
+==================================================
+
+To retrieve the query results of a parallel retrieve cursor, the related
+endpoint information is needed to start a retrieve session on QEs. UDF
+gp_endpoints_info(boolean) can be used to list parallel
+retrieve cursors and their endpoints information.
+
+Syntax:
+gp_endpoints_info(all_session)
+
+When all_session is false, only parallel retrieve cursors created in
+current session will be listed. Otherwise, all parallel retrieve
+cursors will be listed.
+
+gp_endpoints_info Columns:
+|-------------+-----------+------------------------------------------|
+| Column Name | Data Type | Description                              |
+|-------------+-----------+------------------------------------------|
+| token       | text      | Retrieve session authentication token    |
+|-------------+-----------+------------------------------------------|
+| cursorname  | text      | Parallel retrieve cursor name            |
+|-------------+-----------+------------------------------------------|
+| sessionid   | integer   | The session where the cursor created in  |
+|-------------+-----------+------------------------------------------|
+| hostname    | text      | The host to retrieve from                |
+|-------------+-----------+------------------------------------------|
+| port        | integer   | The port number to start the retrieve    |
+|             |           | session                                  |
+|-------------+-----------+------------------------------------------|
+| dbid        | integer   | The QE's segment id                      |
+|-------------+-----------+------------------------------------------|
+| usreid      | oid       | The user who created this endpoint       |
+|-------------+-----------+------------------------------------------|
+| status      | text      | One of the following status for this     |
+|             |           | endpoint:                                |
+|             |           | READY:                                   |
+|             |           | The endpoint is ready to be retrieved    |
+|             |           | RETRIEVING:                              |
+|             |           | The endpoint is being retrieved          |
+|             |           | FINISHED:                                |
+|             |           | The endpoint has been fully retrieved    |
+|             |           | RELEASED:                                |
+|             |           | Due to errors, this endpoint has been    |
+|             |           | released and cannot be connected anymore |
+|-------------+-----------+------------------------------------------|
+| endpoint    | text      | The identification of this endpoint      |
+|-------------+-----------+------------------------------------------|
+
+Examples:
+
+postgres=# SELECT * from gp_endpoints_info(false);
+               token                | cursorname | sessionid | hostname | port  | dbid | userid | status |     endpointname
+------------------------------------+------------+-----------+----------+-------+------+--------+--------+----------------------
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25432 |    2 |     10 | READY  | c1_00001507_00000000
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25433 |    3 |     10 | READY  | c1_00001507_00000001
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25434 |    4 |     10 | READY  | c1_00001507_00000002
+(3 rows)
+
+For convenience, a view named GP_ENDPOINTS can also be used to list endpoints in current session, which is equivalence to gp_endpoints_info(false).
+
+Examples:
+
+postgres=# SELECT * from GP_ENDPOINTS;
+               token                | cursorname | sessionid | hostname | port  | dbid | userid | status |     endpointname
+------------------------------------+------------+-----------+----------+-------+------+--------+--------+----------------------
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25432 |    2 |     10 | READY  | c1_00001507_00000000
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25433 |    3 |     10 | READY  | c1_00001507_00000001
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25434 |    4 |     10 | READY  | c1_00001507_00000002
+(3 rows)
+
+
+Start A Retrieve Session
+========================
+
+Once a parallel retrieve cursor has been declared, retrieve sessions can
+be started on each endpoint's host by using the endpoint's token as the
+session authentication password. Runtime parameter
+"gp_session_rol=retrieve" needs to be provided to start retrieve
+session.
+
+Examples:
+
+$> postgres -c gp_session_rol=retrieve -h mdw -p 25432
+Password: tk071500004015dc6da471b20417afed65
+postgres=#
+
+Here the "tk071500004015dc6da471b20417afed65", "mdw" and "25432" are the
+endpoint "c1_00001507_00000000"'s token, hostname and port.
+
+Multi parallel cursors can be retrieved from the same retrieve session
+as long as their token is the same.
+
+
+Retrieve From Endpoint
+======================
+
+In each retrieve session, the query result on that segment can be
+retrieved by using statement "RETRIEVE" and its corresponding endpoint
+name.
+
+Syntax:
+RETRIEVE { ALL | count } FROM ENDPOINT endpoint_name;
+
+Parameter "ALL" means to retrieve all the results from the endpoint.
+Otherwise, a positive integer value needs to be provided as the "count"
+to specify how many rows to retrieve.
+An empty set will be returned if no more tuples for the endpoint.
+
+Examples:
+
+postgres=# RETRIEVE ALL FROM ENDPOINT c1_00001507_00000000;
+ col1 | col2
+------+------
+ 0    | 0
+ 1    | 1
+(2 rows)
+
+
+List Endpoints In Retrieve Session
+==================================
+
+It is possible to list all endpoints status in current retrieve session
+by using UDF "gp_endpoints_status_info()".
+
+Syntax:
+gp_endpoints_status_info()
+
+gp_endpoints_status_info Columns:
+|--------------+-----------+------------------------------------------|
+| Column Name  | Data Type | Description                              |
+|--------------+-----------+------------------------------------------|
+| token        | text      | Retrieve session authentication token    |
+|--------------+-----------+------------------------------------------|
+| databaseid   | integer   | The database where the cursor is created |
+|--------------+-----------+------------------------------------------|
+|              |           | on                                       |
+|--------------+-----------+------------------------------------------|
+| senderpid    | integer   | The processs where the query results are |
+|              |           | sending from                             |
+|--------------+-----------+------------------------------------------|
+| receiverpid  | integer   | The process where the results are being  |
+|              |           | received on                              |
+|--------------+-----------+------------------------------------------|
+| status       | text      | The status for the endpoint              |
+|              |           | See gp_endpoints_info for more details   |
+|--------------+-----------+------------------------------------------|
+| dbid         | integer   | The QE's segment id                      |
+|--------------+-----------+------------------------------------------|
+| sessionid    | integer   | The session where the cursor created in  |
+|--------------+-----------+------------------------------------------|
+| usreid       | oid       | The user who created this endpoint       |
+|--------------+-----------+------------------------------------------|
+| endpointname | text      | The identification of this endpoint      |
+|--------------+-----------+------------------------------------------|
+| cursorname   | text      | Parallel retrieve cursor name            |
+|--------------+-----------+------------------------------------------|
+
+Examples:
+
+postgres=# select * from gp_endpoints_status_info();
+               token                | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid |     endpointname     | cursorname
+------------------------------------+------------+-----------+-------------+--------+------+-----------+--------+----------------------+------------
+ tk071500004015dc6da471b20417afed65 |      16532 |    736783 |          -1 | READY  |    2 |      5383 |     10 | c2_00001507_00000000 | c2
+(1 row)
+
+
+Check Parallel Retrieve Cursor Retrieving Status
+================================================
+
+UDF gp_check_parallel_retrieve_cursor(text) is designed for checking if
+all endpoints have been fully retrieved for the given parallel cursor.
+It will abort the current transaction if any error happens in the
+retrieving sessions. If error happens, the parallel retrieve cursor will
+be closed and all related endpoints will be freed.
+
+Syntax:
+gp_check_parallel_retrieve_cursor(cursor_name)
+
+cursor_name is the parallel retrieve cursor name to be checked.
+It returns true if all endpoints have been fully retrieved. If any
+endpoint for the cursor has data remained, it returns false. It throws
+error message if any error happens during retrieving on segments.
+
+Examples:
+
+postgres=# SELECT gp_check_parallel_retrieve_cursor('c2');
+ gp_check_parallel_retrieve_cursor
+-----------------------------------
+ t
+(1 row)
+
+
+Wait Parallel Retrieve Cursor To Be Fully Retrieved
+===================================================
+
+UDF gp_wait_parallel_retrieve_cursor(text) is designed to block until
+all the endpoints have been fully retrieved for the given parallel
+retrieve cursor. It will block the master session until all the relevant
+endpoints are fully retrieved or any error happens in the retrieving
+sessions. When error happens, the current transaction will be aborted,
+all parallel retrieve cursors and their endpoints in current transaction
+will be freed. If it is interrupted by signals, the transaction will be
+aborted as well.
+
+Syntax:
+gp_wait_parallel_retrieve_cursor(cursor_name)
+
+It will only return true if all endpoints fully retrieved. In any other
+cases, an error message will be thrown.
+
+Examples:
+
+postgres=# SELECT gp_wait_parallel_retrieve_cursor('c2'); <waiting...>
+ gp_wait_parallel_retrieve_cursor
+-----------------------------------
+ t
+(1 row)
+
+
+Close Parallel Retrieve Cursor
+==============================
+
+Use "CLOSE" statement to close the parallel retrieve cursor and release
+its endpoints.
+
+Syntax:
+CLOSE cursor_name;
+
+Examples:
+
+postgres=# CLOSE C1
+CLOSE
+
+
+Walk-Through Example
+====================
+
+Assumes we have a table named "t1" with an integer column "id", and its
+data distributed as following:
+
+| id | location |
+| 0  | segment0 |
+| 1  | segment0 |
+| 2  | segment0 |
+| 3  | segment1 |
+| 4  | segment1 |
+| 5  | segment1 |
+
+To declare a parallel retrieve cursor on master in order to select all
+tuples from t1:
+
+-- Begin transaction first
+master=# BEGIN;
+BEGIN
+-- Create the parallel retrieve cursor for the intent query
+master=# DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+DECLARE
+-- List endpoints to get the needed information to start retrieving
+-- sessions on segments
+master=# SELECT * FROM GP_ENDPOINTS;
+               token                | cursorname | sessionid | hostname | port  | dbid | userid | status |     endpointname
+------------------------------------+------------+-----------+----------+-------+------+--------+--------+----------------------
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25432 |    2 |     10 | READY  | c1_00001507_00000000
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25433 |    3 |     10 | READY  | c1_00001507_00000001
+(2 rows)
+
+Now start a retrieve session on mdw:25432:
+
+# gp_session_rol=retrieve is needed as the runtime parameter
+$> postgres -c gp_session_rol=retrieve -h mdw -p 25432
+Password: tk071500004015dc6da471b20417afed65
+
+-- Retrieve all rows on this endpoint
+seg0=# RETRIEVE ALL FROM ENDPOINT c1_00001507_00000000;
+ id
+----
+ 0
+ 1
+ 2
+(3 rows)
+
+Now the status of endpoint "c1_00001507_00000000" should become
+"FINISHED" since all results on seg0 have been retrieved.
+
+-- List endpoints on master to check
+master=# SELECT * FROM GP_ENDPOINTS;
+               token                | cursorname | sessionid | hostname | port  | dbid | userid | status   |     endpointname
+------------------------------------+------------+-----------+----------+-------+------+--------+----------+----------------------
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25432 |    2 |     10 | FINISHED | c1_00001507_00000000
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25433 |    3 |     10 | READY    | c1_00001507_00000001
+(2 rows)
+
+
+Start another retrieve session on mdw:25433
+
+$> postgres -c gp_session_rol=retrieve -h mdw -p 25433
+Password: tk071500004015dc6da471b20417afed65
+
+-- Retrieve 1 row on this endpoint
+seg1=# RETRIEVE 1 FROM ENDPOINT c1_00001507_00000001;
+ id
+----
+ 4
+(1 row)
+
+Now the status of endpoint "c1_00001507_00000001" becomes "RETRIEVING"
+since there is a retrieve session retrieved once from the endpoint but
+hasn't finished retrieving.
+
+-- List endpoints on master to check
+master=# SELECT * FROM GP_ENDPOINTS;
+               token                | cursorname | sessionid | hostname | port  | dbid | userid | status     |     endpointname
+------------------------------------+------------+-----------+----------+-------+------+--------+------------+----------------------
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25432 |    2 |     10 | FINISHED   | c1_00001507_00000000
+ tk071500004015dc6da471b20417afed65 | c1         |      5383 | mdw      | 25433 |    3 |     10 | RETRIEVING | c1_00001507_00000001
+(2 rows)
+-- To check if the retrieving finished
+master=# select gp_check_parallel_retrieve_cursor('c2');
+ gp_check_parallel_retrieve_cursor
+-----------------------------------
+ f
+(1 row)
+
+
+We can just close the cursor now if we decide to not retrieve the
+remaining query results:
+
+master=# CLOSE c1;
+CLOSE
+-- All endpoints are gone
+master=# SELECT * FROM GP_ENDPOINTS;
+ token | cursorname | sessionid | hostname | port | dbid | userid | status | endpointname
+-------+------------+-----------+----------+------+------+--------+--------+--------------
+(0 rows)
+-- End the transaction
+master=# END;
+END
+
