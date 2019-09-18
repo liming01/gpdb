@@ -47,9 +47,9 @@
 #include "libpq/libpq.h"
 #include "storage/latch.h"
 #include "storage/ipc.h"
-#include "utils/builtins.h"
 #include "utils/elog.h"
 #include "utils/faultinjector.h"
+#include "utils/backend_cancel.h"
 #include "storage/procsignal.h"
 
 /* The timeout before returns failure for endpoints initialization. */
@@ -588,7 +588,7 @@ create_and_connect_mq(TupleDesc tupleDesc)
 	toc_size = shm_toc_estimate(&toc_est);
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
-	dsm_seg = dsm_create(toc_size);
+	dsm_seg = dsm_create(toc_size, 0);
 	if (dsm_seg == NULL)
 	{
 		LWLockRelease(ParallelCursorEndpointLock);
@@ -775,7 +775,8 @@ signal_receiver_abort(volatile EndpointDesc *endPointDesc)
 	is_attached = endPointDesc->attach_status == Status_Attached;
 	if (receiver_pid != InvalidPid && is_attached && receiver_pid != MyProcPid)
 	{
-		pg_signal_backend(receiver_pid, SIGINT, "Signal the receiver to abort.");
+		SetBackendCancelMessage(receiver_pid, "Signal the receiver to abort.");
+		kill(receiver_pid, SIGINT);
 	}
 
 	LWLockRelease(ParallelCursorEndpointLock);

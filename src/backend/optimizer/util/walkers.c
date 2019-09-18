@@ -238,6 +238,7 @@ plan_tree_walker(Node *node,
 			return walk_scan_node_fields((Scan *) node, walker, context);
 
 		case T_SeqScan:
+		case T_SampleScan:
 		case T_DynamicSeqScan:
 		case T_ExternalScan:
 		case T_BitmapHeapScan:
@@ -470,6 +471,11 @@ plan_tree_walker(Node *node,
 				return true;
 			if (walker((Node *) ((ModifyTable *) node)->withCheckOptionLists, context))
 				return true;
+			if (walker((Node *) ((ModifyTable *) node)->onConflictSet, context))
+				return true;
+			if (walker((Node *) ((ModifyTable *) node)->onConflictWhere, context))
+				return true;
+
 			break;
 
 		case T_LockRows:
@@ -649,27 +655,24 @@ extract_nodes_walker(Node *node, extract_context *context)
 		SubPlan	   *subplan = (SubPlan *) node;
 
 		/*
-		 * SubPlan has both of expressions and subquery.
-		 * In case the caller wants non-subquery version,
-		 * still we need to walk through its expressions.
+		 * SubPlan has both of expressions and subquery.  In case the caller wants
+		 * non-subquery version, still we need to walk through its expressions.
+		 * NB: Since we're not going to descend into SUBPLANs anyway (see below),
+		 * look at the SUBPLAN node here, even if descendIntoSubqueries is false
+		 * lest we miss some nodes there.
 		 */
-		if (!context->descendIntoSubqueries)
-		{
-			if (extract_nodes_walker((Node *) subplan->testexpr,
-									 context))
-				return true;
-			if (expression_tree_walker((Node *) subplan->args,
-									   extract_nodes_walker, context))
-				return true;
+		if (extract_nodes_walker((Node *) subplan->testexpr,
+								 context))
+			return true;
+		if (expression_tree_walker((Node *) subplan->args,
+								   extract_nodes_walker, context))
+			return true;
 
-			/* Do not descend into subplans */
-			return false;
-		}
 		/*
-		 * Although the flag indicates the caller wants to
-		 * descend into subqueries, SubPlan seems special;
-		 * Some partitioning code assumes this should return
-		 * immediately without descending.  See MPP-17168.
+		 * Do not descend into subplans.
+		 * Even if descendIntoSubqueries indicates the caller wants to descend into
+		 * subqueries, SubPlan seems special; Some partitioning code assumes this
+		 * should return immediately without descending.  See MPP-17168.
 		 */
 		return false;
 	}
@@ -881,7 +884,6 @@ check_collation_walker(Node *node, check_collation_context *context)
 		case T_RowCompareExpr:
 		case T_FieldSelect:
 		case T_FieldStore:
-		case T_GroupId:
 		case T_CoerceToDomainValue:
 		case T_CurrentOfExpr:
 		case T_NamedArgExpr:
@@ -895,7 +897,6 @@ check_collation_walker(Node *node, check_collation_context *context)
 		case T_SubPlan:
 		case T_AlternativeSubPlan:
 		case T_GroupingFunc:
-		case T_Grouping:
 		case T_DMLActionExpr:
 		case T_PartBoundExpr:
 			collation = exprCollation(node);

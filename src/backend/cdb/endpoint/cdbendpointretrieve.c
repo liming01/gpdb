@@ -23,10 +23,10 @@
 #include "access/xact.h"
 #include "cdb/cdbsrlz.h"
 #include "storage/ipc.h"
-#include "utils/builtins.h"
 #include "utils/elog.h"
 #include "utils/faultinjector.h"
 #include "utils/dynahash.h"
+#include "utils/backend_cancel.h"
 
 /* Hash table to cache tuple descriptors for all endpoint_names which have been retrieved
  * in this retrieve session */
@@ -573,7 +573,8 @@ retrieve_cancel_action(const char *endpointName, char *msg)
 		endpointDesc->receiver_pid = InvalidPid;
 		endpointDesc->attach_status = Status_Released;
 		elog(DEBUG3, "CDB_ENDPOINT: signal sender to abort");
-		pg_signal_backend(endpointDesc->sender_pid, SIGINT, msg);
+		SetBackendCancelMessage(endpointDesc->sender_pid, msg);
+		kill(endpointDesc->sender_pid, SIGINT);
 	}
 
 	LWLockRelease(ParallelCursorEndpointLock);

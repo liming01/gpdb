@@ -189,7 +189,7 @@ HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 1<:  <... completed>
 FAILED:  Execution failed
 1: END;
-END
+ERROR:  canceling MPP operation: "Endpoint retrieve session quit, all unfinished endpoint backends will be cancelled"
 2q: ... <quitting>
 3: @in_sh 'unset RETRIEVE_USER; echo $RAW_STR ' : SELECT 1;
  ?column? 

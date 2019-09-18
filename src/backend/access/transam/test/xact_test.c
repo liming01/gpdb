@@ -144,14 +144,14 @@ helper_ExpectLWLock()
 	expect_any(LWLockAcquire, l);
 	expect_value(LWLockAcquire, mode, LW_SHARED);
 	will_return(LWLockAcquire, true);
-	expect_any(LWLockRelease, l);
+	expect_any(LWLockRelease, lock);
 	will_be_called(LWLockRelease);
 }
 
 static void
 test_IsCurrentTransactionIdForReader(void **state)
 {
-	PGPROC testProc = {0};
+	PGPROC testProc = {{0}};
 	PGXACT testXAct = {0};
 	LWLock localslotLock;
 

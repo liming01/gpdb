@@ -1288,6 +1288,10 @@ def impl(context, filename):
                     raise Exception("failed to parse pg_hba.conf line '%s'" % contents)
                 hostname = tokens[3]
                 if hostname.__contains__("/"):
+                    # Exempt localhost. They are part of the stock config and harmless
+                    net = hostname.split("/")[0]
+                    if net == "127.0.0.1" or net == "::1":
+                        continue
                     raise Exception("'%s' is not valid FQDN" % hostname)
 
 
@@ -2105,7 +2109,7 @@ def _create_working_directory(context, working_directory, mode=''):
         os.mkdir(context.working_directory)
 
 
-def _create_cluster(context, master_host, segment_host_list, with_mirrors=False, mirroring_configuration='group'):
+def _create_cluster(context, master_host, segment_host_list, hba_hostnames='0', with_mirrors=False, mirroring_configuration='group'):
     if segment_host_list == "":
         segment_host_list = []
     else:
@@ -2126,7 +2130,7 @@ def _create_cluster(context, master_host, segment_host_list, with_mirrors=False,
     except:
         pass
 
-    testcluster = TestCluster(hosts=[master_host]+segment_host_list, base_dir=context.working_directory)
+    testcluster = TestCluster(hosts=[master_host]+segment_host_list, base_dir=context.working_directory,hba_hostnames=hba_hostnames)
     testcluster.reset_cluster()
     testcluster.create_cluster(with_mirrors=with_mirrors, mirroring_configuration=mirroring_configuration)
     context.gpexpand_mirrors_enabled = with_mirrors
@@ -2135,6 +2139,10 @@ def _create_cluster(context, master_host, segment_host_list, with_mirrors=False,
 @given('a cluster is created with no mirrors on "{master_host}" and "{segment_host_list}"')
 def impl(context, master_host, segment_host_list):
     _create_cluster(context, master_host, segment_host_list, with_mirrors=False)
+
+@given('with HBA_HOSTNAMES "{hba_hostnames}" a cluster is created with no mirrors on "{master_host}" and "{segment_host_list}"')
+def impl(context, master_host, segment_host_list, hba_hostnames):
+    _create_cluster(context, master_host, segment_host_list, hba_hostnames, with_mirrors=False)
 
 @given('a cluster is created with mirrors on "{master_host}" and "{segment_host_list}"')
 def impl(context, master_host, segment_host_list):
