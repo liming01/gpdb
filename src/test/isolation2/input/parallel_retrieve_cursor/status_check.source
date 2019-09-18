@@ -155,7 +155,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 ---------- Test6: Cancel (using signal INT) the process of 'CHECK PARALLEL RETRIEVE CURSOR'
 -- faul injection on QD
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'reset', 1); 
-1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'interrupt', 1);
+1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'sleep', '', '', '', 1, 1, 1, 1::smallint);
 1: BEGIN;
 1: DECLARE c6 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 1: @out_sh 'parse_endpoint 6 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c6';
@@ -164,8 +164,12 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 0R: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT6";
 1R: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";
--- fault injection interrupt to cancel the endpoint execution backend, retrieve session still can work
-1: SELECT * FROM gp_check_parallel_retrieve_cursor('c6');
+-- run 'kill -s INT QDPid' to cancel the endpoint execution backend, retrieve session still can work
+-- fault injection sleep to wait for canceling the endpoint execution backend, retrieve session still can work
+1&: SELECT * FROM gp_check_parallel_retrieve_cursor('c6');
+0R: @in_sh 'kill -s INT ${PID61} && echo "${RAW_STR}" ': SELECT 1;
+-- check it can cancel the "gp_check_parallel_retrieve_cursor"
+1<:
 -- check no endpoint info left
 2: @in_sh 'sub @TOKEN6 $TOKEN6': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c6' AND token='@TOKEN6';
 *R: @in_sh 'sub @TOKEN6 $TOKEN6': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
@@ -179,7 +183,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 ---------- Test6.1: Cancel (using signal INT) the process of 'CHECK PARALLEL RETRIEVE CURSOR' without rollback
 -- faul injection on QD
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'reset', 1); 
-1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'interrupt', 1);
+1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'sleep', '', '', '', 1, 1, 1, 1::smallint);
 1: BEGIN;
 1: DECLARE c61 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 1: @out_sh 'parse_endpoint 61 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c61';
@@ -188,8 +192,12 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
 0R: @in_sh 'sub_endpoint_name @ENDPOINT61': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT61";
 1R: @in_sh 'sub_endpoint_name @ENDPOINT61': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT61";
--- fault injection interrupt to cancel the endpoint execution backend, retrieve session still can work
-1: SELECT * FROM gp_check_parallel_retrieve_cursor('c61');
+-- run 'kill -s INT QDPid' to cancel the endpoint execution backend, retrieve session still can work
+-- fault injection sleep to wait for canceling the endpoint execution backend, retrieve session still can work
+1&: SELECT * FROM gp_check_parallel_retrieve_cursor('c61');
+0R: @in_sh 'kill -s INT ${PID611} && echo "${RAW_STR}" ': SELECT 1;
+-- check it can cancel the "gp_check_parallel_retrieve_cursor"
+1<:
 -- check no endpoint info left
 2: @in_sh 'sub @TOKEN61 $TOKEN61': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c61' AND token='@TOKEN61';
 *R: @in_sh 'sub @TOKEN61 $TOKEN61': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN61';
@@ -204,7 +212,7 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 
 ---------- Test7: terminate (using signal QUIT) the process of 'CHECK PARALLEL RETRIEVE CURSOR'
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'reset', 1); 
-1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'sleep', '', '', '', 1, 1, 1, 2::smallint);
+1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'sleep', '', '', '', 1, 1, 1, 1::smallint);
 1: BEGIN;
 1: DECLARE c7 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 1: @out_sh 'parse_endpoint 7 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c7';
