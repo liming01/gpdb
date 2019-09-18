@@ -318,6 +318,7 @@ call_endpoint_udf_on_qd(const struct Plan *planTree, const char *cursorName, cha
 		else
 		{
 			CdbDispatchCommandToSegments(cmd, DF_CANCEL_ON_ERROR, cids, &cdb_pgresults);
+			list_free(cids);
 		}
 
 		for (int i = 0; i < cdb_pgresults.numResults; i++)
