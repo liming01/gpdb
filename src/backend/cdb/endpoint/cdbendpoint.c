@@ -1382,6 +1382,12 @@ check_parallel_retrieve_cursor(const char *cursorName, bool isWait)
 	PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
 	ret_val = call_endpoint_udf_on_qd(stmt->planTree, cursorName, isWait ? 'h' : 'c');
 
+#ifdef FAULT_INJECTOR
+	HOLD_INTERRUPTS();
+	SIMPLE_FAULT_INJECTOR("check_parallel_retrieve_cursor_after_udf");
+	RESUME_INTERRUPTS();
+#endif
+
 	if(!isWait && !ret_val)
 		check_parallel_cursor_errors(portal->queryDesc);
 	return ret_val;

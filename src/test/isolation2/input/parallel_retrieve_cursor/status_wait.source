@@ -1,4 +1,4 @@
--- @Description Tests the status for pg_endpoints AND GP_ENDPOINTS_STATUS_INFO()
+-- @Description Tests the status for pg_endpoints AND GP_ENDPOINTS_STATUS_INFO(), focus in wait mode
 -- 
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (a INT) DISTRIBUTED by (a);
