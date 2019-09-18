@@ -60,6 +60,10 @@
 #define SHMEM_ENDPOINTS_ENTRIES         "SharedMemoryEndpointDescEntries"
 #define SHMEM_ENPOINTS_SESSION_INFO     "EndpointsSessionInfosHashtable"
 
+#ifdef FAULT_INJECTOR
+#define DUMMY_ENDPOINT_NAME "DUMMYENDPOINTNAME"
+#endif
+
 typedef struct SessionTokenTag
 {
 	int sessionID;
@@ -101,7 +105,6 @@ static void unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc);
 static void signal_receiver_abort(volatile EndpointDesc *endPointDesc);
 static void endpoint_abort(void);
 static void wait_parallel_retrieve_close(void);
-static void free_endpoint(EndpointDesc *endpointDesc);
 static void free_endpoint_by_cursor_name(const char *cursorName);
 static void register_endpoint_callbacks(void);
 static void endpoint_exit_callback(int code, Datum arg);
@@ -121,6 +124,7 @@ static void check_dispatch_connection(void);
 static bool check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait);
 static void wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr);
 static bool check_parallel_retrieve_cursor(const char *cursorName, bool isWait);
+static bool check_parallel_cursor_errors(QueryDesc *queryDesc);
 
 /*
  * Endpoint_ShmemSize - Calculate the shared memory size for PARALLEL RETRIEVE CURSOR execute.
@@ -377,7 +381,6 @@ get_or_create_token_on_qd()
 	static int8 current_token[ENDPOINT_TOKEN_LEN] = {0};
 	static int session_id_len					  = sizeof(session_id);
 
-	// FIXME: Needed? Will a process be reused for different sessions?
 	if (session_id != gp_session_id)
 	{
 		session_id = gp_session_id;
@@ -469,7 +472,7 @@ alloc_endpoint_for_cursor(const char *cursorName)
 	Assert(SharedEndpoints);
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
-#if 0//def FAULT_INJECTOR
+#ifdef FAULT_INJECTOR
 	/* inject fault "skip" to set end-point shared memory slot full */
 	FaultInjectorType_e typeE = SIMPLE_FAULT_INJECTOR("endpoint_shared_memory_slot_full");
 
@@ -477,10 +480,10 @@ alloc_endpoint_for_cursor(const char *cursorName)
 	{
 		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 		{
-			// FIXME: Fix this. token has been removed.
-			// if (!IsEndpointTokenValid(SharedEndpoints[i].token))
+			if (SharedEndpoints[i].empty)
 			{
 				/* pretend to set a valid token */
+				snprintf(SharedEndpoints[i].name, ENDPOINT_NAME_LEN, "%s", DUMMY_ENDPOINT_NAME);
 				SharedEndpoints[i].database_id = MyDatabaseId;
 				SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
 				SharedEndpoints[i].session_id = gp_session_id;
@@ -496,8 +499,7 @@ alloc_endpoint_for_cursor(const char *cursorName)
 	{
 		for (i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 		{
-			// FIXME: Fix this. token has been removed.
-			//if (token_equals(SharedEndpoints[i].token, dummyToken))
+			if (endpoint_name_equals(SharedEndpoints[i].name, DUMMY_ENDPOINT_NAME))
 			{
 				SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
 				SharedEndpoints[i].empty = true;
@@ -834,21 +836,8 @@ free_endpoint_by_cursor_name(const char *cursorName)
 {
 	EndpointDesc *endpointDesc = find_endpoint_by_cursor_name(cursorName, true);
 
-	// FIXME: Log error instead?
-	if (endpointDesc) {
-		free_endpoint(endpointDesc);
-	}
-}
-
-/*
- * Free the given EndpointDesc entry.
- */
-void
-free_endpoint(EndpointDesc *endpointDesc)
-{
-	if (!endpointDesc && !endpointDesc->empty)
-		elog(ERROR, "not an valid endpoint");
-
+	if (!endpointDesc || endpointDesc->empty)
+		elog(ERROR, "Can not find endpoint for parallel retrieve cursor: %s", cursorName);
 	elog(DEBUG3, "CDB_ENDPOINTS: Free endpoint '%s'.", endpointDesc->name);
 
 	unset_endpoint_sender_pid(endpointDesc);
@@ -1145,7 +1134,6 @@ check_dispatch_connection(void)
  * We dispatch this UDF by "CdbDispatchCommandToSegments" and "CdbDispatchCommand",
  * It'll always dispatch to writer gang, which is the gang that allocate endpoints on.
  * Since we always allocate endpoints on the top most slice gang.
- * FIXME: refactor to make wait and free work on endpoint QE/entry QD
  */
 Datum
 gp_operate_endpoints_token(PG_FUNCTION_ARGS)
@@ -1264,41 +1252,6 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 	return isFinished;
 }
 
-/**
- * Check the PARALLEL RETRIEVE CURSOR execution status, if get error, then rethrow the error
- *
- * @param isWait:  support 2 modes: WAIT/NOWAIT
- * @return true if the PARALLEL RETRIEVE CURSOR Execution Finished
- */
-bool
-CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait)
-{
-    EState	   *estate;
-    bool       isParallelRetrCursorFinished = false;
-
-    /* caller must have switched into per-query memory context already */
-    estate = queryDesc->estate;
-    /*
-     * If QD, wait for QEs to finish and check their results.
-     */
-    if (estate->dispatcherState && estate->dispatcherState->primaryResults)
-    {
-        ErrorData *qeError = NULL;
-
-        CdbDispatcherState *ds = estate->dispatcherState;
-        DispatchWaitMode waitMode = isWait ? DISPATCH_WAIT_NONE : DISPATCH_WAIT_CHECK;
-        cdbdisp_checkDispatchResult(ds, waitMode);
-        cdbdisp_getDispatchResults(ds, &qeError);
-        if (qeError)
-        {
-            estate->dispatcherState = NULL;
-            cdbdisp_destroyDispatcherState(ds);
-            ReThrowError(qeError);
-        }
-        isParallelRetrCursorFinished = cdbdisp_isDispatchFinished(ds);
-    }
-    return isParallelRetrCursorFinished;
-}
 /*
  * Waits until the QE is ready -- the dest receiver will be ready after this
  * function returns successfully.
@@ -1430,6 +1383,41 @@ check_parallel_retrieve_cursor(const char *cursorName, bool isWait)
 	ret_val = call_endpoint_udf_on_qd(stmt->planTree, cursorName, isWait ? 'h' : 'c');
 
 	if(!isWait && !ret_val)
-        CheckParallelCursorErrors(portal->queryDesc, false);
+		check_parallel_cursor_errors(portal->queryDesc);
 	return ret_val;
+}
+
+/*
+ * Check the PARALLEL RETRIEVE CURSOR execution status, if get error, then rethrow the error
+ *
+ * isWait:  support 2 modes - WAIT/NOWAIT
+ * @return true if the PARALLEL RETRIEVE CURSOR Execution Finished
+ */
+bool
+check_parallel_cursor_errors(QueryDesc *queryDesc)
+{
+	EState	   *estate;
+	bool       isParallelRetrCursorFinished = false;
+
+	/* caller must have switched into per-query memory context already */
+	estate = queryDesc->estate;
+	/*
+	 * If QD, wait for QEs to finish and check their results.
+	 */
+	if (estate->dispatcherState && estate->dispatcherState->primaryResults)
+	{
+		CdbDispatcherState *ds = estate->dispatcherState;
+		if (cdbdisp_checkForCancel(ds))
+		{
+			ErrorData *qeError = NULL;
+			cdbdisp_getDispatchResults(ds, &qeError);
+			Assert(qeError);
+			estate->dispatcherState = NULL;
+			cdbdisp_cancelDispatch(ds);
+			cdbdisp_destroyDispatcherState(ds);
+			ReThrowError(qeError);
+		}
+		isParallelRetrCursorFinished = cdbdisp_isDispatchFinished(ds);
+	}
+	return isParallelRetrCursorFinished;
 }

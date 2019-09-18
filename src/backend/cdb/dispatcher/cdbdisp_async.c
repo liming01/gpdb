@@ -327,13 +327,10 @@ cdbdisp_checkDispatchResult_async(struct CdbDispatcherState *ds,
 	 * Don't overwrite DISPATCH_WAIT_CANCEL or DISPATCH_WAIT_FINISH with
 	 * DISPATCH_WAIT_NONE
 	 */
-	if (waitMode != DISPATCH_WAIT_NONE && waitMode != DISPATCH_WAIT_CHECK)
+	if (waitMode != DISPATCH_WAIT_NONE)
 		pParms->waitMode = waitMode;
 
-	if (waitMode == DISPATCH_WAIT_CHECK)
-		checkDispatchResult(ds, false);
-	else
-		checkDispatchResult(ds, true);
+	checkDispatchResult(ds, true);
 
 	/*
 	 * It looks like everything went fine, make sure we don't miss a user
@@ -341,7 +338,7 @@ cdbdisp_checkDispatchResult_async(struct CdbDispatcherState *ds,
 	 *
 	 * The waitMode argument is NONE when we are doing "normal work".
 	 */
-	if (waitMode == DISPATCH_WAIT_NONE || waitMode == DISPATCH_WAIT_FINISH || waitMode == DISPATCH_WAIT_CHECK)
+	if (waitMode == DISPATCH_WAIT_NONE || waitMode == DISPATCH_WAIT_FINISH)
 		CHECK_FOR_INTERRUPTS();
 }
 

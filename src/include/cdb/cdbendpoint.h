@@ -80,7 +80,6 @@ extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
 extern List *ChooseEndpointContentIDForParallelCursor(
 	const struct Plan *planTree, enum EndPointExecPosition *position);
 extern void WaitEndpointReady(const struct Plan *planTree, const char *cursorName);
-extern bool CheckParallelCursorErrors(QueryDesc *queryDesc, bool isWait);
 
 /*
  * Below functions should run on Endpoints(QE/Entry DB).

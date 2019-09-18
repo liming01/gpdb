@@ -33,8 +33,7 @@ typedef enum DispatchWaitMode
 {
 	DISPATCH_WAIT_NONE = 0,			/* wait until QE fully completes */
 	DISPATCH_WAIT_FINISH,			/* send query finish */
-	DISPATCH_WAIT_CANCEL,			/* send query cancel */
-	DISPATCH_WAIT_CHECK			    /* only check dispatch errors */
+	DISPATCH_WAIT_CANCEL			/* send query cancel */
 } DispatchWaitMode;
 
 typedef struct CdbDispatcherState
