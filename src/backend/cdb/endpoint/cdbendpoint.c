@@ -62,6 +62,7 @@
 
 #ifdef FAULT_INJECTOR
 #define DUMMY_ENDPOINT_NAME "DUMMYENDPOINTNAME"
+#define DUMMY_CURSOR_NAME   "DUMMYCURSORNAME"
 #endif
 
 typedef struct SessionTokenTag
@@ -485,6 +486,7 @@ alloc_endpoint_for_cursor(const char *cursorName)
 			{
 				/* pretend to set a valid token */
 				snprintf(SharedEndpoints[i].name, ENDPOINT_NAME_LEN, "%s", DUMMY_ENDPOINT_NAME);
+				snprintf(SharedEndpoints[i].cursor_name, NAMEDATALEN, "%s", DUMMY_CURSOR_NAME);
 				SharedEndpoints[i].database_id = MyDatabaseId;
 				SharedEndpoints[i].handle = DSM_HANDLE_INVALID;
 				SharedEndpoints[i].session_id = gp_session_id;
@@ -830,7 +832,7 @@ wait_parallel_retrieve_close(void)
 }
 
 /*
- *  Find and free the EndpointDesc entry by the cursor name.
+ * Find and free the EndpointDesc entry by the cursor name.
  */
 void
 free_endpoint_by_cursor_name(const char *cursorName)
@@ -838,7 +840,10 @@ free_endpoint_by_cursor_name(const char *cursorName)
 	EndpointDesc *endpointDesc = find_endpoint_by_cursor_name(cursorName, true);
 
 	if (!endpointDesc || endpointDesc->empty)
-		elog(ERROR, "Can not find endpoint for parallel retrieve cursor: %s", cursorName);
+	{
+		elog(LOG, "Can not find endpoint for parallel retrieve cursor: %s", cursorName);
+		return;
+	}
 	elog(DEBUG3, "CDB_ENDPOINTS: Free endpoint '%s'.", endpointDesc->name);
 
 	unset_endpoint_sender_pid(endpointDesc);

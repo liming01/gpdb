@@ -28,128 +28,95 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 --should work as normal
 1: BEGIN;
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: @out_sh 'parse_endpoint 1 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
-*R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or endpointname='DUMMYENDPOINTNAME';
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT1";
 
 1<:
 1: CLOSE c1;
 -- check no endpoint info
-1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1' or cursorname = 'FAULT_INJECTION_CURSOR';
+1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1' or endpointname='DUMMYENDPOINTNAME';
 -- check no token info on QE after close PARALLEL RETRIEVE CURSOR
-*R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or endpointname='DUMMYENDPOINTNAME';
 
 1: ROLLBACK;
 
---------- Test2: fault injection end-point shared memory slot full on QD
-2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 1);
-2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'full_memory_slot', 1);
-
-1: BEGIN;
--- should report error on QD
-1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-1: ROLLBACK;
--- test same error on another session
-3: BEGIN;
-3: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-3: ROLLBACK;
--- reset the fault injection
-2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 1);
-2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'revert_memory_slot', 1);
---should work as normal
-1: BEGIN;
-1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;
-
-*R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
-*R: @in_sh 'sub @TOKEN2 $TOKEN2' : RETRIEVE ALL FROM "@TOKEN2";
-
-1<:
-1: CLOSE c2;
--- check no endpoint info
-1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2' or cursorname = 'FAULT_INJECTION_CURSOR';
--- check no token info on QE after close PARALLEL RETRIEVE CURSOR
-*R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
-
-1: ROLLBACK;
-
---- Test3: fault inject while retrieving tuples from endpoint
+--- Test2: fault inject while retrieving tuples from endpoint
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', 2);
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: @out_sh 'parse_endpoint 2 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+0R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
+0R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 
 1<:
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
+1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+2R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
+2R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 
 1<:
 1: ROLLBACK;
 1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
 
--- Test4: fault inject at the 5th time while retrieving tuples from endpoint
+-- Test3: fault inject at the 5th time while retrieving tuples from endpoint
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', '', '', '', 5, 5, 0, 3::smallint);
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: @out_sh 'parse_endpoint 3 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub @TOKEN3 $TOKEN3' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
+1R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
 
 1<:
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+0R: @in_sh 'sub @TOKEN3 $TOKEN3' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
+0R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+2R: @in_sh 'sub @TOKEN3 $TOKEN3' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
+2R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
 
 1<:
 1: ROLLBACK;
 1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
 
--- Test5: error inject at the 5th time while retrieving tuples from endpoint
+-- Test4: error inject at the 5th time while retrieving tuples from endpoint
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'error', '', '', '', 5, 5, 0, 2::smallint);
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: @out_sh 'parse_endpoint 4 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub @TOKEN4 $TOKEN4' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
+1R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+0R: @in_sh 'sub @TOKEN4 $TOKEN4' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
+0R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
 
 1<:
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+2R: @in_sh 'sub @TOKEN4 $TOKEN4' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
+2R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
 
 1<:
 1: ROLLBACK;
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
 
--- Test6: error inject at the 5th time while retrieving tuples from endpoint. other retrieve session still retrieving.
+-- Test5: error inject at the 5th time while retrieving tuples from endpoint. other retrieve session still retrieving.
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 4);
@@ -159,17 +126,17 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: @out_sh 'parse_endpoint 5 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-0R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+0R: @in_sh 'sub @TOKEN5 $TOKEN5' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
+0R&: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-2R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+2R: @in_sh 'sub @TOKEN5 $TOKEN5' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
+2R&: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub @TOKEN5 $TOKEN5' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
+1R: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";
 
 1<:
 
@@ -183,23 +150,23 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 4);
 
 
--- Test7: error inject at the 5th time while retrieving tuples from endpoint. other retrieve session finished.
+-- Test6: error inject at the 1000th time while retrieving tuples from endpoint. other retrieve session finished.
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', '', '', '', 1000, 1000, 0, 3::smallint);
 
 1: BEGIN;
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t2;
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;
+1: @out_sh 'parse_endpoint 6 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-0R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+0R: @in_sh 'sub @TOKEN6 $TOKEN6' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
+0R&: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-2R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+2R: @in_sh 'sub @TOKEN6 $TOKEN6' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
+2R&: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub @TOKEN6 $TOKEN6' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
+1R: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";
 
 1<:
 

@@ -321,7 +321,18 @@ class SQLIsolationExecutor(object):
             else:
                 print >>self.out_file, r.rstrip()
 
-        def fork(self, command, blocking):
+        def fork(self, command, blocking, in_sh_cmd, global_sh_executor):
+            if in_sh_cmd != None:
+                (hostname, port) = ConnectionInfo.get_hostname_port(self.name, 'p')
+                # Inject the current hostname and port to the shell.
+                global_sh_executor.exec_global_shell("GP_HOSTNAME=%s" % hostname, True)
+                global_sh_executor.exec_global_shell("GP_PORT=%s" % port, True)
+                sqls = global_sh_executor.exec_global_shell_with_orig_str(command, in_sh_cmd, True)
+                if (len(sqls) != 1):
+                    raise Exception("Invalid shell commmand: %v", sqls)
+                else:
+                    command = sqls[0]
+
             print >>self.out_file, " <waiting ...>"
             self.pipe.send((command, True))
 
@@ -678,9 +689,9 @@ class SQLIsolationExecutor(object):
             else:
                 self.get_process(output_file, process_name, con_mode, dbname=dbname).query(sql.strip(), out_sh_cmd, in_sh_cmd, global_sh_executor)
         elif flag == "&":
-            self.get_process(output_file, process_name, con_mode, dbname=dbname).fork(sql.strip(), True)
+            self.get_process(output_file, process_name, con_mode, dbname=dbname).fork(sql.strip(), True, in_sh_cmd, global_sh_executor)
         elif flag == ">":
-            self.get_process(output_file, process_name, con_mode, dbname=dbname).fork(sql.strip(), False)
+            self.get_process(output_file, process_name, con_mode, dbname=dbname).fork(sql.strip(), False, in_sh_cmd, global_sh_executor)
         elif flag == "<":
             if len(sql) > 0:
                 raise Exception("No query should be given on join")
@@ -698,7 +709,7 @@ class SQLIsolationExecutor(object):
             for name in process_names:
                 self.get_process(output_file, name, con_mode, dbname=dbname).query(sql.strip(), out_sh_cmd, in_sh_cmd, global_sh_executor)
         elif flag == "U&":
-            self.get_process(output_file, process_name, con_mode, dbname=dbname).fork(sql.strip(), True)
+            self.get_process(output_file, process_name, con_mode, dbname=dbname).fork(sql.strip(), True, in_sh_cmd, global_sh_executor)
         elif flag == "U<":
             if len(sql) > 0:
                 raise Exception("No query should be given on join")
@@ -723,7 +734,7 @@ class SQLIsolationExecutor(object):
                     self.processes[(e.name, e.mode)].terminate()
                     del self.processes[(e.name, e.mode)]
         elif flag == "R&":
-            self.get_process(output_file, process_name, con_mode, dbname=dbname, passwd=retrieve_token).fork(sql.strip(), True)
+            self.get_process(output_file, process_name, con_mode, dbname=dbname, passwd=retrieve_token).fork(sql.strip(), True, in_sh_cmd, global_sh_executor)
         elif flag == "R<":
             if len(sql) > 0:
                 raise Exception("No query should be given on join")

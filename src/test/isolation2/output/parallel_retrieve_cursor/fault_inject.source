@@ -33,14 +33,16 @@ CREATE
 BEGIN
 -- should report error on seg0
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-ERROR:  failed to allocate endpoint (cdbendpoint.c:639)  (seg0 10.34.50.153:25432 pid=41153) (cdbendpoint.c:639)
+ERROR:  Creating endpoint timeout (cdbendpoint.c:LINENO)
+ERROR:  failed to allocate endpoint (cdbendpoint.c:LINENO)
 1: ROLLBACK;
 ROLLBACK
 -- test same error on another session
 3: BEGIN;
 BEGIN
 3: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-ERROR:  failed to allocate endpoint (cdbendpoint.c:639)  (seg0 10.34.50.153:25432 pid=41162) (cdbendpoint.c:639)
+ERROR:  Creating endpoint timeout (cdbendpoint.c:LINENO)
+ERROR:  failed to allocate endpoint (cdbendpoint.c:LINENO)
 3: ROLLBACK;
 ROLLBACK
 -- reset the fault injection
@@ -59,16 +61,14 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 1 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-*R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or endpointname='DUMMYENDPOINTNAME';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -86,7 +86,7 @@ DECLARE
 --------
  READY  
 (1 row)
-*R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+*R: @in_sh 'sub_endpoint_name @ENDPOINT1': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT1";
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
@@ -203,249 +203,38 @@ DECLARE
 (25 rows)
 
 1<:  <... completed>
-EXECUTE
+ finished 
+----------
+ t        
+(1 row)
 1: CLOSE c1;
 CLOSE
 -- check no endpoint info
-1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1' or cursorname = 'FAULT_INJECTION_CURSOR';
+1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1' or endpointname='DUMMYENDPOINTNAME';
  token | status 
 -------+--------
 (0 rows)
 -- check no token info on QE after close PARALLEL RETRIEVE CURSOR
-*R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or token='tk0000000000';
+*R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1' or endpointname='DUMMYENDPOINTNAME';
 #-1retrieve> FATAL:  Retrieve auth token is invalid
 
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
+ token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid | endpointname | cursorname 
+-------+------------+-----------+-------------+--------+------+-----------+--------+--------------+------------
 (0 rows)
 
 1: ROLLBACK;
 ROLLBACK
 
---------- Test2: fault injection end-point shared memory slot full on QD
-2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 1);
- gp_inject_fault 
------------------
- t               
-(1 row)
-2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'full_memory_slot', 1);
- gp_inject_fault 
------------------
- t               
-(1 row)
-
-1: BEGIN;
-BEGIN
--- should report error on QD
-1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-ERROR:  can't add a new token tk0615235783 into shared memory (cdbendpoint.c:217)
-1: ROLLBACK;
-ROLLBACK
--- test same error on another session
-3: BEGIN;
-BEGIN
-3: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-ERROR:  can't add a new token tk0615252590 into shared memory (cdbendpoint.c:217)
-3: ROLLBACK;
-ROLLBACK
--- reset the fault injection
-2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 1);
- gp_inject_fault 
------------------
- t               
-(1 row)
-2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'revert_memory_slot', 1);
- gp_inject_fault 
------------------
- t               
-(1 row)
---should work as normal
-1: BEGIN;
-BEGIN
-1: DECLARE c2 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-DECLARE
-1: @out_sh 'get_token_cell TOKEN2 3 1 ; match_sub token_id2 $TOKEN2' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2';
- token                              | status
-------------------------------------+--------
- token_id2 | INIT
- token_id2 | INIT
- token_id2 | INIT
-(3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c2;  <waiting ...>
-
-*R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
-#-1retrieve> FATAL:  Retrieve auth token is invalid
-
-
- status 
---------
- READY  
-(1 row)
-
- status 
---------
- READY  
-(1 row)
-
- status 
---------
- READY  
-(1 row)
-*R: @in_sh 'sub @TOKEN2 $TOKEN2' : RETRIEVE ALL FROM "@TOKEN2";
-#-1retrieve> FATAL:  Retrieve auth token is invalid
-
-
- a  
-----
- 2  
- 3  
- 4  
- 7  
- 8  
- 16 
- 18 
- 19 
- 22 
- 24 
- 27 
- 29 
- 34 
- 37 
- 39 
- 41 
- 42 
- 45 
- 51 
- 53 
- 54 
- 55 
- 59 
- 60 
- 65 
- 66 
- 70 
- 75 
- 77 
- 80 
- 81 
- 84 
- 90 
- 92 
- 93 
- 94 
- 97 
- 99 
-(38 rows)
-
- a  
-----
- 1  
- 12 
- 15 
- 20 
- 23 
- 26 
- 30 
- 31 
- 35 
- 36 
- 38 
- 40 
- 44 
- 46 
- 47 
- 48 
- 49 
- 50 
- 57 
- 61 
- 64 
- 68 
- 69 
- 71 
- 72 
- 74 
- 76 
- 78 
- 79 
- 83 
- 86 
- 87 
- 88 
- 89 
- 91 
- 95 
- 98 
-(37 rows)
-
- a   
------
- 5   
- 6   
- 9   
- 10  
- 11  
- 13  
- 14  
- 17  
- 21  
- 25  
- 28  
- 32  
- 33  
- 43  
- 52  
- 56  
- 58  
- 62  
- 63  
- 67  
- 73  
- 82  
- 85  
- 96  
- 100 
-(25 rows)
-
-1<:  <... completed>
-EXECUTE
-1: CLOSE c2;
-CLOSE
--- check no endpoint info
-1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c2' or cursorname = 'FAULT_INJECTION_CURSOR';
- token | status 
--------+--------
-(0 rows)
--- check no token info on QE after close PARALLEL RETRIEVE CURSOR
-*R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT * FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2' or token='tk0000000000';
-#-1retrieve> FATAL:  Retrieve auth token is invalid
-
-
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
-(0 rows)
-
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
-(0 rows)
-
- token | databaseid | senderpid | receiverpid | status | dbid | sessionid | userid 
--------+------------+-----------+-------------+--------+------+-----------+--------
-(0 rows)
-
-1: ROLLBACK;
-ROLLBACK
-
---- Test3: fault inject while retrieving tuples from endpoint
+--- Test2: fault inject while retrieving tuples from endpoint
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
  gp_inject_fault 
 -----------------
@@ -461,39 +250,38 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 2 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+0R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
  status 
 --------
  READY  
 (1 row)
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 ERROR:  canceling statement due to user request
 
 1<:  <... completed>
-ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"  (seg0 127.0.0.1:25432 pid=401)
+ERROR:  Endpoint for 'c1' get aborted. (cdbendpoint.c:LINENO)
+ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
  status 
 --------
 (0 rows)
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
+1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint endpoint_id1_2 (cdbendpointretrieve.c:LINENO)
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+2R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
  status 
 --------
 (0 rows)
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
+2R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+ERROR:  failed to attach non-existing endpoint endpoint_id1_3 (cdbendpointretrieve.c:LINENO)
 
 1<:  <... completed>
 FAILED:  Execution failed
@@ -509,7 +297,7 @@ ROLLBACK
  t               
 (1 row)
 
--- Test4: fault inject at the 5th time while retrieving tuples from endpoint
+-- Test3: fault inject at the 5th time while retrieving tuples from endpoint
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
  gp_inject_fault 
 -----------------
@@ -525,39 +313,38 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 3 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1R: @in_sh 'sub @TOKEN3 $TOKEN3' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
  status 
 --------
  READY  
 (1 row)
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
 ERROR:  canceling statement due to user request
 
 1<:  <... completed>
-ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"  (seg1 127.0.0.1:25433 pid=26515)
+ERROR:  Endpoint for 'c1' get aborted. (cdbendpoint.c:LINENO)
+ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+0R: @in_sh 'sub @TOKEN3 $TOKEN3' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
  status 
 --------
 (0 rows)
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
+0R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
+ERROR:  failed to attach non-existing endpoint endpoint_id1_1 (cdbendpointretrieve.c:LINENO)
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+2R: @in_sh 'sub @TOKEN3 $TOKEN3' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
  status 
 --------
 (0 rows)
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
+2R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
+ERROR:  failed to attach non-existing endpoint endpoint_id1_3 (cdbendpointretrieve.c:LINENO)
 
 1<:  <... completed>
 FAILED:  Execution failed
@@ -573,7 +360,7 @@ ROLLBACK
  t               
 (1 row)
 
--- Test5: error inject at the 5th time while retrieving tuples from endpoint
+-- Test4: error inject at the 5th time while retrieving tuples from endpoint
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'error', '', '', '', 5, 5, 0, 2::smallint);
  gp_inject_fault 
 -----------------
@@ -584,21 +371,19 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 4 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1R: @in_sh 'sub @TOKEN4 $TOKEN4' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
  status 
 --------
  READY  
 (1 row)
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
  a  
 ----
  1  
@@ -640,23 +425,24 @@ DECLARE
  98 
 (37 rows)
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+0R: @in_sh 'sub @TOKEN4 $TOKEN4' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
  status 
 --------
  READY  
 (1 row)
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+0R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
 ERROR:  fault triggered, fault name:'fetch_tuples_from_endpoint' fault type:'error'
 
 1<:  <... completed>
+ERROR:  Endpoint for 'c1' get aborted. (cdbendpoint.c:LINENO)
 ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"  (seg0 127.0.0.1:25432 pid=31406)
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+2R: @in_sh 'sub @TOKEN4 $TOKEN4' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN4';
  status 
 --------
 (0 rows)
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
-ERROR:  failed to attach non-existing endpoint of token token_id1 (cdbendpointretrieve.c:LINENO)
+2R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
+ERROR:  failed to attach non-existing endpoint endpoint_id1_3 (cdbendpointretrieve.c:LINENO)
 
 1<:  <... completed>
 FAILED:  Execution failed
@@ -668,7 +454,7 @@ ROLLBACK
  t               
 (1 row)
 
--- Test6: error inject at the 5th time while retrieving tuples from endpoint. other retrieve session still retrieving.
+-- Test5: error inject at the 5th time while retrieving tuples from endpoint. other retrieve session still retrieving.
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
  gp_inject_fault 
 -----------------
@@ -704,39 +490,38 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 5 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+0R: @in_sh 'sub @TOKEN5 $TOKEN5' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
  status 
 --------
  READY  
 (1 row)
-0R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";  <waiting ...>
+0R&: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";  <waiting ...>
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+2R: @in_sh 'sub @TOKEN5 $TOKEN5' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
  status 
 --------
  READY  
 (1 row)
-2R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";  <waiting ...>
+2R&: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";  <waiting ...>
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1R: @in_sh 'sub @TOKEN5 $TOKEN5' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN5';
  status 
 --------
  READY  
 (1 row)
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";
 ERROR:  canceling statement due to user request
 
 1<:  <... completed>
-ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"  (seg1 10.34.56.152:25433 pid=85866)
+ERROR:  Endpoint for 'c1' get aborted. (cdbendpoint.c:LINENO)
+ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"
 
 0R<:  <... completed>
 ERROR:  canceling statement due to user request: "Signal the receiver to abort."
@@ -764,7 +549,7 @@ ROLLBACK
 (1 row)
 
 
--- Test7: error inject at the 5th time while retrieving tuples from endpoint. other retrieve session finished.
+-- Test6: error inject at the 1000th time while retrieving tuples from endpoint. other retrieve session finished.
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
  gp_inject_fault 
 -----------------
@@ -780,39 +565,38 @@ ROLLBACK
 BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t2;
 DECLARE
-1: @out_sh 'get_token_cell TOKEN1 3 1 ; match_sub token_id1 $TOKEN1' : SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- token                              | status
-------------------------------------+--------
- token_id1 | INIT
- token_id1 | INIT
- token_id1 | INIT
+1: @out_sh 'parse_endpoint 6 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id1_1 | token_id | host_id | port_id | READY
+ endpoint_id1_2 | token_id | host_id | port_id | READY
+ endpoint_id1_3 | token_id | host_id | port_id | READY
 (3 rows)
-1&: CHECK PARALLEL RETRIEVE CURSOR c1;  <waiting ...>
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
-0R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+0R: @in_sh 'sub @TOKEN6 $TOKEN6' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
  status 
 --------
  READY  
 (1 row)
-0R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";  <waiting ...>
+0R&: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";  <waiting ...>
 
-2R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+2R: @in_sh 'sub @TOKEN6 $TOKEN6' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
  status 
 --------
  READY  
 (1 row)
-2R&: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";  <waiting ...>
+2R&: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";  <waiting ...>
 
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN1';
+1R: @in_sh 'sub @TOKEN6 $TOKEN6' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
  status 
 --------
  READY  
 (1 row)
-1R: @in_sh 'sub @TOKEN1 $TOKEN1' : RETRIEVE ALL FROM "@TOKEN1";
+1R: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";
 ERROR:  canceling statement due to user request
 
 1<:  <... completed>
-ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"  (seg1 10.152.10.183:25433 pid=8701)
+ERROR:  Endpoint for 'c1' get aborted. (cdbendpoint.c:LINENO)
+ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"
 
 0R<:  <... completed>
 ERROR:  canceling statement due to user request: "Signal the receiver to abort."
