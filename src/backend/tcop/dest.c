@@ -40,7 +40,6 @@
 #include "libpq/pqformat.h"
 #include "utils/portal.h"
 
-#include "cdb/cdbendpoint.h"
 #include "cdb/cdbvars.h"
 #include "utils/vmem_tracker.h"
 

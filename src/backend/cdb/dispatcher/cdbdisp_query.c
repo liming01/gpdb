@@ -27,7 +27,6 @@
 #include "cdb/cdbsrlz.h"
 #include "cdb/tupleremap.h"
 #include "nodes/execnodes.h"
-#include "tcop/pquery.h"
 #include "tcop/tcopprot.h"
 #include "utils/datum.h"
 #include "utils/guc.h"
@@ -45,7 +44,6 @@
 #include "cdb/cdbdisp_dtx.h"	/* for qdSerializeDtxContextInfo() */
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbcopy.h"
-#include "cdb/cdbendpoint.h"
 #include "executor/execUtils.h"
 
 #define QUERY_STRING_TRUNCATE_SIZE (1024)

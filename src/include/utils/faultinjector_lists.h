@@ -24,6 +24,7 @@
 
 /* there is deliberately not an #ifndef FAULTINJECTOR_LISTS_H here */
 
+
 /*
  * Fault types. These indicate the action to do when the fault injection
  * point is reached.

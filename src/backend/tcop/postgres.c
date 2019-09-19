@@ -37,7 +37,6 @@
 #endif
 
 #include <pthread.h>
-#include <string.h>
 
 #include "access/parallel.h"
 #include "access/printtup.h"
@@ -5151,7 +5150,6 @@ PostgresMain(int argc, char *argv[],
 					int serializedParamslen = 0;
 					int serializedQueryDispatchDesclen = 0;
 					int resgroupInfoLen = 0;
-
 					TimestampTz statementStart;
 					Oid suid;
 					Oid ouid;
@@ -5268,13 +5266,11 @@ PostgresMain(int argc, char *argv[],
 						}
 					}
 					else
-					{
 						exec_mpp_query(query_string,
 									   serializedQuerytree, serializedQuerytreelen,
 									   serializedPlantree, serializedPlantreelen,
 									   serializedParams, serializedParamslen,
 									   serializedQueryDispatchDesc, serializedQueryDispatchDesclen);
-					}
 
 					SetUserIdAndContext(GetOuterUserId(), false);
 

@@ -28,8 +28,6 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
-#include "cdb/cdbdisp_query.h"
-#include "cdb/cdbendpoint.h"
 #include "cdb/ml_ipc.h"
 #include "commands/createas.h"
 #include "commands/queue.h"

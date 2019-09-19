@@ -24,23 +24,18 @@
 #include "postgres.h"
 
 #include <limits.h>
-#include <poll.h>
-#include <unistd.h>
 
 #include "access/xact.h"
 #include "commands/portalcmds.h"
 #include "executor/executor.h"
 #include "executor/tstoreReceiver.h"
-#include "lib/stringinfo.h"
 #include "tcop/pquery.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
-#include "cdb/cdbdisp_query.h"
+#include "cdb/cdbendpoint.h"
 #include "cdb/cdbgang.h"
 #include "cdb/cdbvars.h"
-#include "cdb/cdbendpoint.h"
-#include "cdb/tupser.h"
 #include "postmaster/backoff.h"
 #include "utils/resscheduler.h"
 
@@ -167,6 +162,8 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 */
 	PortalStart(portal, params, 0, GetActiveSnapshot(), NULL);
 
+	Assert(portal->strategy == PORTAL_ONE_SELECT);
+
 	if (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
 	{
 		PlannedStmt* stmt = (PlannedStmt *) linitial(portal->stmts);
@@ -254,11 +251,9 @@ PerformPortalFetch(FetchStmt *stmt,
 
 	/* Return command status if wanted */
 	if (completionTag)
-	{
-			snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
-					 stmt->ismove ? "MOVE" : "FETCH",
-					 nprocessed);
-	}
+		snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s " UINT64_FORMAT,
+				 stmt->ismove ? "MOVE" : "FETCH",
+				 nprocessed);
 }
 
 /*

@@ -50,7 +50,6 @@
 #include "executor/execdesc.h"
 #include "utils/plancache.h"
 #include "utils/resowner.h"
-#include "cdb/cdbendpoint.h"
 
 /*
  * We have several execution strategies for Portals, depending on what
@@ -194,7 +193,6 @@ typedef struct PortalData
 
 	/* MPP: is this portal a CURSOR, or protocol level portal? */
 	bool		is_extended_query; /* simple or extended query protocol? */
-
 	/*
 	 * This field belongs with createSubid, but in pre-9.5 branches, add it
 	 * at the end to avoid creating an ABI break for extensions that examine
