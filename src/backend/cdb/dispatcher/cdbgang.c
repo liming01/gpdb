@@ -252,7 +252,7 @@ buildGangDefinition(List *segments, SegmentType segmentType)
 static void
 addOneOption(StringInfo string, struct config_generic *guc)
 {
-	Assert(guc && (guc->flags & GUC_GPDB_ADDOPT));
+	Assert(guc && (guc->flags & GUC_GPDB_NEED_SYNC));
 	switch (guc->vartype)
 	{
 		case PGC_BOOL:
@@ -349,7 +349,7 @@ makeOptions(void)
 	{
 		struct config_generic *guc = gucs[i];
 
-		if ((guc->flags & GUC_GPDB_ADDOPT) &&
+		if ((guc->flags & GUC_GPDB_NEED_SYNC) &&
 			(guc->context == PGC_USERSET ||
 			 guc->context == PGC_BACKEND ||
 			 IsAuthenticatedUserSuperUser()))
@@ -415,7 +415,7 @@ gpqeid_next_param(char **cpp, char **npp)
  * inherited from the postmaster; etc; so don't try to do too much in here.
  */
 void
-cdbgang_parse_gpqeid_params(struct Port *port __attribute__((unused)),
+cdbgang_parse_gpqeid_params(struct Port *port pg_attribute_unused(),
 							const char *gpqeid_value)
 {
 	char	   *gpqeid = pstrdup(gpqeid_value);

@@ -73,16 +73,16 @@ DELETE 100
 1: select gp_inject_fault_infinite('vacuum_relation_open_relation_during_drop_phase', 'suspend', 1);
  gp_inject_fault_infinite 
 --------------------------
- t                        
+ Success:                 
 (1 row)
 1&: vacuum ao_@orientation@_vacuum_cleanup3;  <waiting ...>
 
 -- Wait till compaction phase is completed and only then start the serializable
 -- transaction to ensure that only drop phase is skipped
-2: select wait_for_trigger_fault((select current_database()), 'vacuum_relation_open_relation_during_drop_phase', 1);
- wait_for_trigger_fault 
-------------------------
- t                      
+2: select gp_wait_until_triggered_fault('vacuum_relation_open_relation_during_drop_phase', 1, 1);
+ gp_wait_until_triggered_fault 
+-------------------------------
+ Success:                      
 (1 row)
 2: begin isolation level serializable;
 BEGIN
@@ -94,7 +94,7 @@ BEGIN
 2: select gp_inject_fault('vacuum_relation_open_relation_during_drop_phase', 'reset', 1);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 1<:  <... completed>

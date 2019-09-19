@@ -10,9 +10,6 @@ NAME = isolation2_regress
 OBJS = isolation2_regress.o
 include $(top_srcdir)/src/Makefile.shlib
 
-# where to find psql for testing an existing installation
-PSQLDIR = $(bindir)
-
 ifeq ($(PORTNAME), win32)
 LDLIBS += -lws2_32
 endif
@@ -20,7 +17,10 @@ endif
 override CPPFLAGS := -I$(srcdir) -I$(libpq_srcdir) -I$(srcdir)/../regress $(CPPFLAGS)
 override LDLIBS := $(libpq_pgport) $(LDLIBS)
 
-all: test_python pg_isolation2_regress$(X) all-lib
+all: test_python pg_isolation2_regress$(X) all-lib extended_protocol_test
+
+extended_protocol_test: extended_protocol_test.c
+	$(CC) $(CPPFLAGS) -I$(top_builddir)/src/interfaces/libpq -L$(GPHOME)/lib -L$(top_builddir)/src/interfaces/libpq  -o $@ $< -lpq
 
 test_python:
 	python helpers_test.py
@@ -56,10 +56,10 @@ clean distclean:
 install: all gpdiff.pl gpstringsubs.pl
 
 installcheck: install
-	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_isolation2 --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --ao-dir=uao --load-extension=gp_inject_fault --schedule=$(srcdir)/isolation2_schedule
+	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_isolation2 --bindir='$(bindir)' --inputdir=$(srcdir) --load-extension=gp_inject_fault --schedule=$(srcdir)/isolation2_schedule
 
 installcheck-resgroup: install
-	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_resgroup --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2resgrouptest --load-extension=gp_inject_fault --schedule=$(srcdir)/isolation2_resgroup_schedule
+	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_resgroup --bindir='$(bindir)' --inputdir=$(srcdir) --dbname=isolation2resgrouptest --load-extension=gp_inject_fault --schedule=$(srcdir)/isolation2_resgroup_schedule
 
 # PARALLEL RETRIEVE CURSOR related tests require 3 running segment. Some issues have been seen on CI that
 # one segment is not running during the test. Add check here to make it fails earlier.
@@ -91,7 +91,7 @@ installcheck-parallel-retrieve-cursor: install installcheck-parallel-retrieve-cu
 	gpconfig -c optimizer -v false && \
 	gpstop -u && \
 	gpconfig -s statement_timeout && \
-	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_retrieve_cursor --psqldir='$(PSQLDIR)' --inputdir=$(srcdir) --dbname=isolation2parallelretrcursor --schedule=$(srcdir)/parallel_retrieve_cursor_schedule ; \
+	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_retrieve_cursor --bindir='$(bindir)' --inputdir=$(srcdir) --dbname=isolation2parallelretrcursor --schedule=$(srcdir)/parallel_retrieve_cursor_schedule ; \
 	ret=$$? ; \
 	gpconfig -c optimizer -v $${default_optimizer} -m $${default_optimizer} && \
 	gpconfig -c statement_timeout -v $${default_segment_timeout} -m $${default_master_timeout} && \

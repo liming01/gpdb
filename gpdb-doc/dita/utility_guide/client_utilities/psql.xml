@@ -997,7 +997,7 @@ lo_import 152801</codeblock>
                   <codeph>unaligned</codeph>, <codeph>aligned</codeph>, <codeph>html</codeph>,
                   <codeph>latex</codeph> (uses <codeph>tabular</codeph>),
                   <codeph>latex-longtable</codeph>, <codeph>troff-ms</codeph>, or
-                  <codeph>wrapped</codeph>. Unique abbreviations, including one letter, are allowed.
+                  <codeph>wrapped</codeph>. Unique abbreviations are allowed.
                       <p><b><codeph>unaligned</codeph></b> format writes all columns of a row on one
                   line, separated by the currently active field separator. This is useful for
                   creating output that might be intended to be read in by other programs (for
@@ -1241,7 +1241,7 @@ testdb=> \setenv LESS -imx4F</codeblock></pd>
         quotes loses its special meaning and is matched literally.</p>
       <p>Advanced users can use regular-expression notations. All regular expression special
         characters work as specified in the <xref
-          href="https://www.postgresql.org/docs/8.3/functions-matching.html#FUNCTIONS-POSIX-REGEXP"
+          href="https://www.postgresql.org/docs/9.4/functions-matching.html#FUNCTIONS-POSIX-REGEXP"
           scope="external" format="html">PostgreSQL documentation on regular expressions</xref>,
         except for <codeph>.</codeph> which is taken as a separator as mentioned above,
           <codeph>*</codeph> which is translated to the regular-expression notation

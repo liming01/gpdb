@@ -82,7 +82,7 @@ ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve
 (1 row)
 -- Test: UDF can not be allowed
 0R: SELECT myappend(ARRAY[42,6], 21);
-ERROR:  Only builtin functions can be called for retrieve role (aclchk.c:5068)
+ERROR:  Only builtin functions can be called for retrieve role (aclchk.c:LINENO)
 -- Test: Create UDF can not allowed
 0R: CREATE OR REPLACE FUNCTION myappend1(anyarray, anyelement) RETURNS anyarray AS $$ SELECT $1 || $2 $$ LANGUAGE SQL;
 ERROR:  Only allow RETRIEVE, SELECT, transaction and GUC statements for retrieve role

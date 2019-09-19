@@ -5,6 +5,9 @@ set search_path to hashagg_spill;
 create language plpythonu;
 -- end_ignore
 
+-- force multistage to increase likelihood of spilling
+set optimizer_force_multistage_agg = on;
+
 -- set workfile is created to true if all segment did it.
 create or replace function hashagg_spill.is_workfile_created(explain_query text)
 returns setof int as
@@ -30,7 +33,7 @@ language plpythonu;
 
 create table testhagg (i1 int, i2 int, i3 int, i4 int);
 insert into testhagg select i,i,i,i from
-	(select generate_series(1, nsegments * 15000) as i from
+	(select generate_series(1, nsegments * 30000) as i from
 	(select count(*) as nsegments from gp_segment_configuration where role='p' and content >= 0) foo) bar;
 
 set statement_mem="1800";
@@ -40,7 +43,7 @@ set gp_resqueue_print_operator_memory_limits=on;
 -- only print the first 10
 select * from (select max(i1) from testhagg group by i2) foo order by 1 limit 10;
 select * from hashagg_spill.is_workfile_created('explain (analyze, verbose) select max(i1) from testhagg group by i2;');
-select * from hashagg_spill.is_workfile_created('explain (analyze, verbose) select max(i1) from testhagg group by i2 limit 45000;');
+select * from hashagg_spill.is_workfile_created('explain (analyze, verbose) select max(i1) from testhagg group by i2 limit 90000;');
 
 
 -- Test HashAgg with increasing amount of overflows
@@ -103,4 +106,5 @@ select count(*) from (select i, count(*) from aggspill group by i,j,t having cou
 select count(*) from (select i, count(*) from aggspill group by i,j,t having count(*) = 3) g;
 select count(*) from (select a, avg(b), avg(c) from aggspill_numeric_avg group by a) g;
 
+reset optimizer_force_multistage_agg;
 drop schema hashagg_spill cascade;

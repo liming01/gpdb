@@ -2244,7 +2244,7 @@ _bitmap_write_alltids(Relation rel, BMTidBuildBuf *tids,
  */
 static void
 build_inserttuple(Relation rel, uint64 tidnum,
-				  ItemPointerData ht_ctid  __attribute__((unused)), TupleDesc tupDesc,
+				  ItemPointerData ht_ctid  pg_attribute_unused(), TupleDesc tupDesc,
 				  Datum *attdata, bool *nulls, BMBuildState *state)
 {
 	Buffer 			metabuf;
@@ -2304,8 +2304,11 @@ build_inserttuple(Relation rel, uint64 tidnum,
 				{
 					Form_pg_attribute at = tupDesc->attrs[attno];
 
-					entry->attributeValueArr[attno] = datumCopy(entry->attributeValueArr[attno], at->attbyval,
-																at->attlen);
+					if (entry->isNullArr[attno])
+						entry->attributeValueArr[attno] = 0;
+					else
+						entry->attributeValueArr[attno] = datumCopy(entry->attributeValueArr[attno], at->attbyval,
+																	at->attlen);
 				}
 
 				/*
@@ -2397,7 +2400,7 @@ build_inserttuple(Relation rel, uint64 tidnum,
  */
 static void
 inserttuple(Relation rel, Buffer metabuf, uint64 tidnum, 
-			ItemPointerData ht_ctid __attribute__((unused)), TupleDesc tupDesc, Datum *attdata,
+			ItemPointerData ht_ctid pg_attribute_unused(), TupleDesc tupDesc, Datum *attdata,
 			bool *nulls, Relation lovHeap, Relation lovIndex, ScanKey scanKey,
 		   	IndexScanDesc scanDesc, bool use_wal)
 {
@@ -2493,14 +2496,6 @@ _bitmap_buildinsert(Relation rel, ItemPointerData ht_ctid, Datum *attdata,
 	TupleDesc	tupDesc;
 	uint64		tidOffset;
 
-	/*
-	 * Make sure the offset number of ItemPointer is valid,
-	 * Note that 0x8000 is valid when it is a fake ItemPointer which
-	 * is from AO tables.
-	 */
-	Assert(ItemPointerGetOffsetNumber(&ht_ctid) > 0 &&
-		   ItemPointerGetOffsetNumber(&ht_ctid) <= 0x8000);
-
 	tidOffset = BM_IPTR_TO_INT(&ht_ctid); 
 
 	tupDesc = RelationGetDescr(rel);
@@ -2529,14 +2524,6 @@ _bitmap_doinsert(Relation rel, ItemPointerData ht_ctid, Datum *attdata,
 	tupDesc = RelationGetDescr(rel);
 	if (tupDesc->natts <= 0)
 		return ;
-
-	/*
-	 * Make sure the offset number of ItemPointer is valid,
-	 * Note that 0x8000 is valid when it is a fake ItemPointer which
-	 * is from AO tables.
-	 */
-	Assert(ItemPointerGetOffsetNumber(&ht_ctid) > 0 &&
-		   ItemPointerGetOffsetNumber(&ht_ctid) <= 0x8000);
 
 	tidOffset = BM_IPTR_TO_INT(&ht_ctid);
 

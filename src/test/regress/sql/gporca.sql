@@ -1989,6 +1989,22 @@ set optimizer_enable_streaming_material = off;
 select c1 from t_outer where not c1 =all (select c2 from t_inner);
 reset optimizer_enable_streaming_material;
 
+-- Ensure that ORCA rescans the subquery in case of skip-level correlation with
+-- materialization
+drop table if exists wst0, wst1, wst2;
+
+create table wst0(a0 int, b0 int);
+create table wst1(a1 int, b1 int);
+create table wst2(a2 int, b2 int);
+
+insert into wst0 select i, i from generate_series(1,10) i;
+insert into wst1 select i, i from generate_series(1,10) i;
+insert into wst2 select i, i from generate_series(1,10) i;
+
+-- NB: the rank() is need to force materialization (via Sort) in the subplan
+select count(*) from wst0 where exists (select 1, rank() over (order by wst1.a1) from wst1 where a1 = (select b2 from wst2 where a0=a2+5));
+
+
 --
 -- Test to ensure sane behavior when DML queries are optimized by ORCA by
 -- enforcing a non-master gather motion, controlled by
@@ -2145,6 +2161,38 @@ SELECT * FROM touter LEFT JOIN tinnerbitmap ON touter.a = tinnerbitmap.a AND tin
 
 SELECT * FROM touter LEFT JOIN tinnerbtree ON touter.a = tinnerbtree.a;
 SELECT * FROM touter LEFT JOIN tinnerbtree ON touter.a = tinnerbtree.a AND tinnerbtree.b=10;
+
+-- test subplan in a qual under dynamic scan
+CREATE TABLE ds_part ( a INT, b INT, c INT) PARTITION BY RANGE(c)( START(1) END (10) EVERY (2), DEFAULT PARTITION deflt);
+CREATE TABLE non_part1 (c INT);
+CREATE TABLE non_part2 (e INT, f INT);
+
+INSERT INTO ds_part SELECT i, i, i FROM generate_series (1, 1000)i; 
+INSERT INTO non_part1 SELECT i FROM generate_series(1, 100)i; 
+INSERT INTO non_part2 SELECT i, i FROM generate_series(1, 100)i;
+
+SET optimizer_enforce_subplans TO ON;
+analyze ds_part;
+analyze non_part1;
+analyze non_part2;
+SELECT * FROM ds_part, non_part2 WHERE ds_part.c = non_part2.e AND non_part2.f = 10 AND a IN ( SELECT b + 1 FROM non_part1);
+explain SELECT * FROM ds_part, non_part2 WHERE ds_part.c = non_part2.e AND non_part2.f = 10 AND a IN ( SELECT b + 1 FROM non_part1);
+
+SELECT *, a IN ( SELECT b + 1 FROM non_part1) FROM ds_part, non_part2 WHERE ds_part.c = non_part2.e AND non_part2.f = 10 AND a IN ( SELECT b FROM non_part1);
+CREATE INDEX ds_idx ON ds_part(a);
+analyze ds_part;
+SELECT *, a IN ( SELECT b + 1 FROM non_part1) FROM ds_part, non_part2 WHERE ds_part.c = non_part2.e AND non_part2.f = 10 AND a IN ( SELECT b FROM non_part1);
+
+RESET optimizer_enforce_subplans;
+-- implied predicate must be generated for the type cast(ident) scalar array cmp const array
+CREATE TABLE varchar_sc_array_cmp(a varchar);
+INSERT INTO varchar_sc_array_cmp VALUES ('a'), ('b'), ('c'), ('d');
+EXPLAIN SELECT * FROM varchar_sc_array_cmp t1, varchar_sc_array_cmp t2 where t1.a = t2.a and t1.a in ('b', 'c');
+SELECT * FROM varchar_sc_array_cmp t1, varchar_sc_array_cmp t2 where t1.a = t2.a and t1.a in ('b', 'c');
+SET optimizer_array_constraints=on;
+EXPLAIN SELECT * FROM varchar_sc_array_cmp t1, varchar_sc_array_cmp t2 where t1.a = t2.a and (t1.a in ('b', 'c') OR t1.a = 'a');
+SELECT * FROM varchar_sc_array_cmp t1, varchar_sc_array_cmp t2 where t1.a = t2.a and (t1.a in ('b', 'c') OR t1.a = 'a');
+DROP TABLE varchar_sc_array_cmp;
 
 -- start_ignore
 DROP SCHEMA orca CASCADE;

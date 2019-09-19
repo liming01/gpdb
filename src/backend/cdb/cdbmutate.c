@@ -1258,6 +1258,9 @@ find_junk_tle(List *targetList, const char *junkAttrName)
 		if (!tle->resjunk)
 			continue;
 
+		if (!tle->resname)
+			continue;
+
 		if (strcmp(tle->resname, junkAttrName) == 0)
 			return tle;
 	}
@@ -1310,7 +1313,6 @@ copy_junk_attributes(List *src, List **dest, AttrNumber startAttrIdx)
 {
 	ListCell	*currAppendCell;
 	ListCell	*lct;
-	Var			*var;
 	TargetEntry	*newTargetEntry;
 
 	/* There should be at least ctid exist */
@@ -1320,16 +1322,34 @@ copy_junk_attributes(List *src, List **dest, AttrNumber startAttrIdx)
 
 	for_each_cell(lct, currAppendCell)
 	{
-		Assert(IsA(lfirst(lct), TargetEntry) && IsA(((TargetEntry *) lfirst(lct))->expr, Var));
+		Assert(IsA(lfirst(lct), TargetEntry));
 
-		var = copyObject(((TargetEntry *) lfirst(lct))->expr);
-		var->varno = OUTER_VAR;
-		var->varattno = ((TargetEntry *) lfirst(lct))->resno;
+		if(IsA(((TargetEntry *) lfirst(lct))->expr, Var))
+		{
+			Var			*var;
+			var = copyObject(((TargetEntry *) lfirst(lct))->expr);
+			var->varno = OUTER_VAR;
+			var->varattno = ((TargetEntry *) lfirst(lct))->resno;
 
-		newTargetEntry = makeTargetEntry((Expr *) var, startAttrIdx + 1, ((TargetEntry *) lfirst(lct))->resname,
-										 true);
-		*dest = lappend(*dest, newTargetEntry);
-		++startAttrIdx;
+			newTargetEntry = makeTargetEntry((Expr *) var,
+											 startAttrIdx + 1,
+											 ((TargetEntry *) lfirst(lct))->resname,
+											 true);
+			*dest = lappend(*dest, newTargetEntry);
+			++startAttrIdx;
+		}
+		else
+		{
+			Expr *ex;
+			ex            = copyObject(((TargetEntry *) lfirst(lct))->expr);
+			newTargetEntry = makeTargetEntry((Expr *) ex,
+											 startAttrIdx + 1,
+											 ((TargetEntry *) lfirst(lct))->resname,
+											 true);
+			*dest = lappend(*dest, newTargetEntry);
+			++startAttrIdx;
+		}
+
 	}
 }
 

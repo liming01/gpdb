@@ -104,6 +104,11 @@ int			gp_reject_percent_threshold;	/* SREH reject % kicks off only
 bool		gp_select_invisible = false;	/* debug mode to allow select to
 											 * see "invisible" rows */
 
+int         gp_segment_connect_timeout = 180;  /* Maximum time (in seconds) allowed 
+												* for a new worker process to start
+												* or a mirror to respond.
+												*/
+
 /*
  * Configurable timeout for snapshot add: exceptionally busy systems may take
  * longer than our old hard-coded version -- so here is a tuneable version.
@@ -236,7 +241,6 @@ int			gp_hashagg_groups_per_bucket = 5;
 int			gp_motion_slice_noop = 0;
 
 /* Greenplum Database Experimental Feature GUCs */
-int			gp_distinct_grouping_sets_threshold = 32;
 bool		gp_enable_explain_allstat = FALSE;
 bool		gp_enable_motion_deadlock_sanity = FALSE;	/* planning time sanity
 														 * check */
