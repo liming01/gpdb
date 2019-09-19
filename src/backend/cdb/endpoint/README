@@ -3,11 +3,11 @@ src/backend/cdb/endpoint/README
 With the segment number increasing, the performance bottleneck on the
 master node becomes more and more obvious.
 
-The parallel cursor feature is designed to reduce the heavy burdens of
-the master node. If possible it will not gather the result to the master
-and redirect the result to segments. When it is executed, user can setup
-retrieve mode connection to segments for retrieving result data in
-parallel.
+The parallel retrieve cursor feature is designed to reduce the heavy
+burdens of the master node. If possible it will not gather the result to
+the master and redirect the result to segments. When it is executed,
+user can setup retrieve mode connection to segments for retrieving
+result data in parallel.
 
 
 Parallel Retrieve Cursor
@@ -58,9 +58,9 @@ gp_endpoints_info(boolean) can be used to list parallel
 retrieve cursors and their endpoints information.
 
 Syntax:
-gp_endpoints_info(all_session)
+gp_endpoints_info(is_for_all_session)
 
-When all_session is false, only parallel retrieve cursors created in
+When is_for_all_session is false, only parallel retrieve cursors created in
 current session will be listed. Otherwise, all parallel retrieve
 cursors will be listed.
 
@@ -139,8 +139,8 @@ postgres=#
 Here the "tk071500004015dc6da471b20417afed65", "mdw" and "25432" are the
 endpoint "c1_00001507_00000000"'s token, hostname and port.
 
-Multi parallel cursors can be retrieved from the same retrieve session
-as long as their token is the same.
+Multi parallel retrieve cursors can be retrieved from the same retrieve
+session as long as their token is the same.
 
 
 Retrieve From Endpoint
@@ -220,7 +220,8 @@ Check Parallel Retrieve Cursor Retrieving Status
 ================================================
 
 UDF gp_check_parallel_retrieve_cursor(text) is designed for checking if
-all endpoints have been fully retrieved for the given parallel cursor.
+all endpoints have been fully retrieved for the given parallel retrieve
+cursor.
 It will abort the current transaction if any error happens in the
 retrieving sessions. If error happens, the parallel retrieve cursor will
 be closed and all related endpoints will be freed.
