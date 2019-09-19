@@ -114,7 +114,6 @@ static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid
 									SubTransactionId parentSubid, void *arg);
 
 /* utility */
-static void check_endpoint_allocated(void);
 static void generate_endpoint_name(char *name, const char *cursorName,
 								   int32 sessionID, int32 segindex);
 static EndpointDesc * find_endpoint_by_cursor_name(const char *name, bool with_lock);
@@ -409,10 +408,10 @@ get_or_create_token_on_qd()
 DestReceiver *
 CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName)
 {
+	Assert(EndpointCtl.Gp_prce_role == PRCER_SENDER);
 	// Register callback to deal with proc exit.
 	register_endpoint_callbacks();
 	alloc_endpoint_for_cursor(cursorName);
-	check_endpoint_allocated();
 
 	currentMQEntry = MemoryContextAllocZero(TopMemoryContext, sizeof(MsgQueueStatusEntry));
 	memcpy(currentMQEntry->endpoint_name, my_shared_endpoint->name, ENDPOINT_NAME_LEN);
@@ -1042,17 +1041,6 @@ get_session_id_for_auth(Oid userID, const int8 *token)
 	}
 
 	return session_id;
-}
-
-void
-check_endpoint_allocated(void)
-{
-	if (EndpointCtl.Gp_prce_role != PRCER_SENDER)
-		elog(ERROR, "%s could not check endpoint allocated status",
-			 endpoint_role_to_string(EndpointCtl.Gp_prce_role));
-
-	if (!my_shared_endpoint)
-		elog(ERROR, "endpoint for cursor %s is not allocated", EndpointCtl.cursor_name);
 }
 
 /*
