@@ -21,12 +21,12 @@ CREATE
 2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'full_memory_slot', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 1: BEGIN;
@@ -49,12 +49,12 @@ ROLLBACK
 2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'reset', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 2: SELECT gp_inject_fault('endpoint_shared_memory_slot_full', 'revert_memory_slot', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 --should work as normal
 1: BEGIN;
@@ -238,12 +238,12 @@ ROLLBACK
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 1: BEGIN;
@@ -294,19 +294,19 @@ ROLLBACK
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 -- Test3: fault inject at the 5th time while retrieving tuples from endpoint
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', '', '', '', 5, 5, 0, 3::smallint);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 1: BEGIN;
@@ -357,14 +357,14 @@ ROLLBACK
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 -- Test4: error inject at the 5th time while retrieving tuples from endpoint
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'error', '', '', '', 5, 5, 0, 2::smallint);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 1: BEGIN;
@@ -451,39 +451,39 @@ ROLLBACK
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 -- Test5: error inject at the 5th time while retrieving tuples from endpoint. other retrieve session still retrieving.
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 4);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 2::smallint);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 4::smallint);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', '', '', '', 5, 5, 0, 3::smallint);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 1: BEGIN;
@@ -535,17 +535,17 @@ ROLLBACK
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 4);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 
@@ -553,12 +553,12 @@ ROLLBACK
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', '', '', '', 1000, 1000, 0, 3::smallint);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 
 1: BEGIN;
@@ -610,5 +610,5 @@ ROLLBACK
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)

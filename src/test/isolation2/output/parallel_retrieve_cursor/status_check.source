@@ -913,12 +913,12 @@ ROLLBACK
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'reset', 1);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'sleep', '', '', '', 1, 1, 1, 1::smallint);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: BEGIN;
 BEGIN
@@ -1054,12 +1054,12 @@ ROLLBACK
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'reset', 1);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'sleep', '', '', '', 1, 1, 1, 1::smallint);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: BEGIN;
 BEGIN
@@ -1194,12 +1194,12 @@ ERROR:  canceling MPP operation  (seg2 10.34.58.56:25434 pid=74987)
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'reset', 1);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'sleep', '', '', '', 1, 1, 1, 1::smallint);
  gp_inject_fault 
 -----------------
- t               
+ Success:        
 (1 row)
 1: BEGIN;
 BEGIN
