@@ -1416,7 +1416,6 @@ _equalFetchStmt(const FetchStmt *a, const FetchStmt *b)
 	COMPARE_SCALAR_FIELD(howMany);
 	COMPARE_STRING_FIELD(portalname);
 	COMPARE_SCALAR_FIELD(ismove);
-	COMPARE_SCALAR_FIELD(isParallelRetrCursor);
 
 	return true;
 }

@@ -84,7 +84,6 @@ extern void WaitEndpointReady(const struct Plan *planTree, const char *cursorNam
 /*
  * Below functions should run on Endpoints(QE/Entry DB).
  */
-/* Functions used in CHECK PARALLEL RETRIEVE CURSOR stage, on Endpoints(QE/Entry DB) */
 extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName);
 extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 

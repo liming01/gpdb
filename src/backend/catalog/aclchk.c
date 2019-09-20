@@ -5021,10 +5021,8 @@ AclResult
 pg_proc_aclcheck(Oid proc_oid, Oid roleid, AclMode mode)
 {
 	/*
-	 * In retrieve mode connection, user need to check endpoint is READY before
-	 * retrieving, because there is a minor time gap between the
-	 * "CHECK PARALLEL RETRIEVE CURSOR" and the endpoint becomes ready.
-	 * The check statement like:
+	 * In retrieve mode connection, user may need to lookup endpoint details
+	 * info during retrieving. The lookup statement like:
 	 * > SELECT * FROM GP_ENDPOINTS_STATUS_INFO() where token='tk01065229061552603877';
 	 *
 	 * So not only UDF GP_ENDPOINTS_STATUS_INFO() but also the operator '='

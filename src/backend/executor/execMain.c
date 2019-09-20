@@ -2219,11 +2219,7 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	if (query_info_collect_hook)
 		(*query_info_collect_hook)(METRICS_PLAN_NODE_INITIALIZE, queryDesc);
 
-    /*
-     * Query with Parallel Retrieved don't have valid query on QD,
-     * set tupDesc to NULL so that CHECK PARALLEL RETRIEVE CURSOR not return result set.
-     */
-	if ((RootSliceIndex(estate) != LocallyExecutingSliceIndex(estate)) || (Gp_role == GP_ROLE_DISPATCH && queryDesc->parallel_retrieve_cursor))
+	if (RootSliceIndex(estate) != LocallyExecutingSliceIndex(estate))
 		return;
 
 	/*

@@ -8362,26 +8362,12 @@ FetchStmt:	FETCH fetch_args
 				{
 					FetchStmt *n = (FetchStmt *) $2;
 					n->ismove = FALSE;
-					n->isParallelRetrCursor = FALSE;
 					$$ = (Node *)n;
 				}
 			| MOVE fetch_args
 				{
 					FetchStmt *n = (FetchStmt *) $2;
 					n->ismove = TRUE;
-					n->isParallelRetrCursor = FALSE;
-					$$ = (Node *)n;
-				}
-			| CHECK PARALLEL RETRIEVE CURSOR cursor_name opt_nowait
-				{
-					/* CHECK PARALLEL RETRIEVE CURSOR is same as FETCH ALL FROM cursor_name */
-					FetchStmt *n = makeNode(FetchStmt);
-					n->ismove = FALSE;
-					n->isParallelRetrCursor = TRUE;
-					n->isParallelRetrCursorCheckWait = !($6);
-					n->portalname = $5;
-					n->direction = FETCH_FORWARD;
-					n->howMany = FETCH_ALL;
 					$$ = (Node *)n;
 				}
 		;

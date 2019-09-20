@@ -2876,10 +2876,6 @@ typedef struct FetchStmt
 	int64		howMany;		/* number of rows, or position argument */
 	char	   *portalname;		/* name of portal (cursor) */
 	bool		ismove;			/* TRUE if MOVE */
-	/*FIXME: This should be remove when remove CHECK PARALLEL RETRIEVE CURSOR. */
-	bool        isParallelRetrCursor;  /* If it is a PARALLEL RETRIEVE CURSOR, FETCH statement
-									  is in fact CHECK PARALLEL RETRIEVE CURSOR*/
-	bool        isParallelRetrCursorCheckWait; /* Whether wait on CHECK PARALLEL RETRIEVE CURSOR status */
 } FetchStmt;
 
 /* ----------------------

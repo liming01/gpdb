@@ -214,28 +214,21 @@ PerformPortalFetch(FetchStmt *stmt,
 	}
 
 	bool is_parallel_retrieve = (portal->cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE) > 0 ;
-	if (is_parallel_retrieve != stmt->isParallelRetrCursor)
+	if (is_parallel_retrieve)
 	{
-		if (stmt->isParallelRetrCursor)
-		{
-			ereport(ERROR,
-			        (errcode(ERRCODE_SYNTAX_ERROR),
-				        errmsg("Cannot specify 'CHECK PARALLEL RETRIEVE CURSOR' for non-PARALLEL RETRIEVE CURSOR."),
-				        errhint("Using 'FETCH' statement instead.")));
-		}
-		else if (stmt->ismove)
+		if (stmt->ismove)
 		{
 			ereport(ERROR,
 			        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				        errmsg("The 'MOVE' statement for PARALLEL RETRIEVE CURSOR is not supported."),
-				        errhint("Using 'CHECK PARALLEL RETRIEVE CURSOR' statement instead.")));
+				        errhint("The 'PARALLEL RETRIEVE CURSOR' doesnot support SCROLLABLE option.")));
 		}
 		else
 		{
 			ereport(ERROR,
 			        (errcode(ERRCODE_SYNTAX_ERROR),
 				        errmsg("Cannot specify 'FETCH' for PARALLEL RETRIEVE CURSOR."),
-				        errhint("Using 'CHECK PARALLEL RETRIEVE CURSOR' statement instead.")));
+				        errhint("Using 'RETRIEVE' statement on endpoint instead.")));
 		}
 	}
 

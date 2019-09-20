@@ -117,8 +117,8 @@ exec_parallel_cursor_threadfunc(void *master_conn)
 {
 	PGconn	   *conn = (PGconn *) master_conn;
 
-	/* CHECK PARALLEL RETRIEVE CURSOR in wait mode and it will wait for finish retrieving. */
-	if (exec_sql_without_resultset(conn, "CHECK PARALLEL RETRIEVE CURSOR myportal;") != 0)
+	/* call wait mode monitor UDF and it will wait for finish retrieving. */
+	if (exec_sql_without_resultset(conn, "gp_wait_parallel_retrieve_cursor('myportal');") != 0)
 		exit(1);
 	return NULL;
 }
@@ -247,7 +247,7 @@ main(int argc, char **argv)
 	pthread_t	thread1;
 
 	/*
-	 * create a second thread to CHECK PARALLEL RETRIEVE CURSOR because it will
+	 * create a second thread to run wait mode monitor UDF because it will
 	 * waiting until all data finished retrieved
 	 */
 	if (pthread_create(&thread1, NULL, exec_parallel_cursor_threadfunc, master_conn))
@@ -281,7 +281,7 @@ main(int argc, char **argv)
 		printf("\n------ End retrieving data from Endpoint %d# ------.\n", i);
 	}
 
-	/* wait for the second thread to finish "CHECK PARALLEL RETRIEVE CURSOR" */
+	/* wait for the second thread to finish calling the wait mode monitor UDF */
 	if (pthread_join(thread1, NULL))
 	{
 		fprintf(stderr, "Error joining thread of \"execute the PARALLEL RETRIEVE CURSOR\"\n");
