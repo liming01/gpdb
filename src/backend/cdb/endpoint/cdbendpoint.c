@@ -467,7 +467,6 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	sender_close();
 	sender_finish();
 
-	// instead.
 	set_attach_status(Status_Finished);
 	unset_endpoint_sender_pid(activeSharedEndpoint, true);
 
@@ -811,7 +810,6 @@ static void endpoint_abort(void)
 	}
 	free_endpoint(activeSharedEndpoint);
 	activeSharedEndpoint = NULL;
-	ClearParallelCursorExecRole();
 }
 
 void
@@ -961,6 +959,7 @@ sender_xact_abort_callback(XactEvent ev, void *vp)
 		 * detach message queue.
 		 */
 		sender_close();
+		ClearParallelCursorExecRole();
 	}
 }
 
@@ -1101,8 +1100,7 @@ EndpointDesc * find_endpoint_by_cursor_name(const char *cursor_name, bool with_l
 static void
 set_attach_status(enum AttachStatus status)
 {
-	if (EndpointCtl.Gp_prce_role != PRCER_SENDER)
-		elog(ERROR, "%s could not set endpoint", endpoint_role_to_string(EndpointCtl.Gp_prce_role));
+	Assert(EndpointCtl.Gp_prce_role == PRCER_SENDER);
 
 	if (!activeSharedEndpoint && !activeSharedEndpoint->empty)
 		elog(ERROR, "endpoint doesn't exist");

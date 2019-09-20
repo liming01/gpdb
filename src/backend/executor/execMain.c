@@ -744,18 +744,6 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		else
 			exec_identity = GP_IGNORE;
 
-		/*
-		 * Endpoint is on the QD, aggregate for example
-		 */
-		if (Gp_role == GP_ROLE_DISPATCH && queryDesc->parallel_retrieve_cursor
-			&& queryDesc->operation == CMD_SELECT
-			&& !(eflags & EXEC_FLAG_EXPLAIN_ONLY)
-			&& exec_identity == GP_ROOT_SLICE
-			&& LocallyExecutingSliceIndex(estate) == 0)
-		{
-			SetParallelCursorExecRole(PRCER_SENDER);
-		}
-
 		/* non-root on QE */
 		if (exec_identity == GP_NON_ROOT_ON_QE)
 		{
