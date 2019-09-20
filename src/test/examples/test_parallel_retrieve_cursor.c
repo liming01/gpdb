@@ -118,7 +118,7 @@ exec_parallel_cursor_threadfunc(void *master_conn)
 	PGconn	   *conn = (PGconn *) master_conn;
 
 	/* call wait mode monitor UDF and it will wait for finish retrieving. */
-	if (exec_sql_without_resultset(conn, "gp_wait_parallel_retrieve_cursor('myportal');") != 0)
+	if (exec_sql_with_resultset(conn, "SELECT * FROM gp_wait_parallel_retrieve_cursor('myportal');") != 0)
 		exit(1);
 	return NULL;
 }
