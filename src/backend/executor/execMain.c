@@ -883,7 +883,6 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	bool		sendTuples;
 	MemoryContext oldcontext;
 	DestReceiver *endpointDest		= NULL;
-	bool saved_set_latch_on_sigusr1 = set_latch_on_sigusr1;
 	/*
 	 * NOTE: Any local vars that are set in the PG_TRY block and examined in the
 	 * PG_CATCH block should be declared 'volatile'. (setjmp shenanigans)
@@ -1013,7 +1012,6 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 			 */
 			if (GetParallelCursorExecRole() == PRCER_SENDER)
 			{
-				set_latch_on_sigusr1 = true;
 				endpointDest = CreateTQDestReceiverForEndpoint(
 					queryDesc->tupDesc, queryDesc->ddesc->parallelCursorName);
 				(*endpointDest->rStartup) (dest, operation, queryDesc->tupDesc);
@@ -1042,7 +1040,6 @@ standard_ExecutorRun(QueryDesc *queryDesc,
     }
 	PG_CATCH();
 	{
-		set_latch_on_sigusr1 = saved_set_latch_on_sigusr1;
 		/* If EXPLAIN ANALYZE, let qExec try to return stats to qDisp. */
         if (estate->es_sliceTable &&
             estate->es_sliceTable->instrument_options &&

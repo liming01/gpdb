@@ -71,7 +71,6 @@ typedef struct EndpointDesc
 	pid_t receiver_pid;                /* The retrieve role's PID that connect to current endpoint */
 	dsm_handle handle;                 /* DSM handle, which contains shared message queue */
 	Latch ack_done;                    /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
-	Latch check_wait_latch;            /* Latch to sync CHECK WAIT udf in write gang and ENDPOINT QE */
 	enum AttachStatus attach_status;   /* The attach status of the endpoint */
 	int session_id;                    /* Connection session id */
 	Oid user_id;                       /* User ID of the current executed PARALLEL RETRIEVE CURSOR */
