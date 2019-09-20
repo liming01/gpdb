@@ -61,7 +61,7 @@ static char *status_enum_to_string(enum AttachStatus status);
 static enum AttachStatus status_string_to_enum(char *status);
 
 struct EndpointControl EndpointCtl = {                   /* Endpoint ctrl */
-	PRCER_NONE, {0}, -1
+	PRCER_NONE, -1
 };
 
 /*
@@ -131,7 +131,6 @@ ClearParallelCursorExecRole(void)
 	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint role %s", endpoint_role_to_string(EndpointCtl.Gp_prce_role));
 
 	EndpointCtl.Gp_prce_role = PRCER_NONE;
-	memset(EndpointCtl.cursor_name, '\0', NAMEDATALEN);
 }
 
 /*
@@ -162,13 +161,6 @@ endpoint_role_to_string(enum ParallelRetrCursorExecRole role)
 	}
 }
 
-void
-invalidate_endpoint_name(char *endpointName /*out*/)
-{
-	Assert(endpointName);
-	memset(endpointName, '\0', ENDPOINT_NAME_LEN);
-}
-
 /*
  * Returns true if the two given endpoint tokens are equal.
  */
@@ -185,21 +177,6 @@ bool
 endpoint_name_equals(const char *name1, const char *name2)
 {
 	return strncmp(name1, name2, ENDPOINT_NAME_LEN) == 0;
-}
-
-/*
- * Create a magic number from a given endpoint for DSM TOC usage.
- */
-uint64
-create_magic_num_for_endpoint(const EndpointDesc *desc)
-{
-	uint64 magic = 0;
-	Assert(desc);
-	for (int i = 0; i < 8; i++)
-	{
-		magic |= ((uint64)desc->name[i]) << i * 8;
-	}
-	return magic;
 }
 
 /*
@@ -548,9 +525,6 @@ status_enum_to_string(enum AttachStatus status)
 
 	switch (status)
 	{
-		case Status_NotAttached:
-			result = GP_ENDPOINT_STATUS_INIT;
-			break;
 		case Status_Prepared:
 			result = GP_ENDPOINT_STATUS_READY;
 			break;
@@ -574,11 +548,7 @@ enum AttachStatus
 status_string_to_enum(char *status)
 {
 	Assert(status);
-	if (strcmp(status, GP_ENDPOINT_STATUS_INIT) == 0)
-	{
-		return Status_NotAttached;
-	}
-	else if (strcmp(status, GP_ENDPOINT_STATUS_READY) == 0)
+	if (strcmp(status, GP_ENDPOINT_STATUS_READY) == 0)
 	{
 		return Status_Prepared;
 	}
@@ -597,7 +567,6 @@ status_string_to_enum(char *status)
 	else
 	{
 		elog(ERROR, "unknown end point status %s", status);
-		return Status_NotAttached;
 	}
 }
 

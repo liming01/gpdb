@@ -28,6 +28,22 @@
 #include "utils/dynahash.h"
 #include "utils/backend_cancel.h"
 
+/*
+ * For receiver, we have a hash table to store connected endpoint's shared message queue.
+ * So that we can retrieve from different endpoints in the same retriever and switch
+ * between different endpoints.
+ *
+ * For endpoint(on Entry DB/QE), only keep one entry to track current message queue.
+ */
+typedef struct MsgQueueStatusEntry
+{
+	char endpoint_name[ENDPOINT_NAME_LEN];     /* The name of endpoint to be retrieved, also behave as hash key */
+	dsm_segment *mq_seg;                       /* The dsm handle which contains shared memory message queue */
+	shm_mq_handle *mq_handle;                  /* Shared memory message queue */
+	TupleTableSlot *retrieve_ts;               /* tuple slot used for retrieve data */
+	TupleQueueReader *tq_reader;               /* TupleQueueReader to read tuple from message queue */
+	enum RetrieveStatus retrieve_status;       /* Track retrieve status */
+} MsgQueueStatusEntry;
 /* Hash table to cache tuple descriptors for all endpoint_names which have been retrieved
  * in this retrieve session */
 static HTAB *MsgQueueHTB = NULL;
@@ -236,7 +252,7 @@ init_conn_for_receiver(void)
 	elog(DEBUG3, "CDB_ENDPOINTS: init message queue conn for receiver");
 	dsm_segment *dsm_seg;
 	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-	if (currentMQEntry->mq_seg && dsm_segment_handle(currentMQEntry->mq_seg) == my_shared_endpoint->handle)
+	if (currentMQEntry->mq_seg && dsm_segment_handle(currentMQEntry->mq_seg) == my_shared_endpoint->mq_dsm_handle)
 	{
 		LWLockRelease(ParallelCursorEndpointLock);
 		return;
@@ -245,7 +261,7 @@ init_conn_for_receiver(void)
 	{
 		dsm_detach(currentMQEntry->mq_seg);
 	}
-	dsm_seg = dsm_attach(my_shared_endpoint->handle);
+	dsm_seg = dsm_attach(my_shared_endpoint->mq_dsm_handle);
 	LWLockRelease(ParallelCursorEndpointLock);
 	if (dsm_seg == NULL)
 	{
@@ -253,8 +269,7 @@ init_conn_for_receiver(void)
 		elog(ERROR, "attach to shared message queue failed.");
 	}
 	dsm_pin_mapping(dsm_seg);
-	shm_toc *toc = shm_toc_attach(
-		create_magic_num_for_endpoint(my_shared_endpoint),
+	shm_toc *toc = shm_toc_attach(ENDPOINT_MSG_QUEUE_MAGIC,
 		dsm_segment_address(dsm_seg));
 	shm_mq *mq = shm_toc_lookup(toc, ENDPOINT_KEY_TUPLE_QUEUE);
 	shm_mq_set_receiver(mq, MyProc);
@@ -331,8 +346,7 @@ TupleDescOfRetrieve(void)
 		init_conn_for_receiver();
 
 		Assert(currentMQEntry->mq_handle);
-		shm_toc *toc = shm_toc_attach(
-			create_magic_num_for_endpoint(my_shared_endpoint),
+		shm_toc *toc = shm_toc_attach(ENDPOINT_MSG_QUEUE_MAGIC,
 			dsm_segment_address(currentMQEntry->mq_seg));
 		td = read_tuple_desc_info(toc);
 		currentMQEntry->tq_reader = CreateTupleQueueReader(currentMQEntry->mq_handle, td);

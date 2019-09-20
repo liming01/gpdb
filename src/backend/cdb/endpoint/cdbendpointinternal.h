@@ -29,6 +29,8 @@
 #define ENDPOINT_KEY_TUPLE_DESC         2
 #define ENDPOINT_KEY_TUPLE_QUEUE        3
 
+#define ENDPOINT_MSG_QUEUE_MAGIC        0x1949100119980802U
+
 /*
  * Naming rules for endpoint:
  * cursorname_sessionIdHex_segIndexHex
@@ -40,7 +42,7 @@
  */
 enum AttachStatus
 {
-	Status_NotAttached = 0,
+	Status_Invalid = 0,
 	Status_Prepared,
 	Status_Attached,
 	Status_Finished,
@@ -69,8 +71,8 @@ typedef struct EndpointDesc
 	Oid database_id;                   /* Database OID */
 	pid_t sender_pid;                  /* The PID of EPR_SENDER(endpoint), set before endpoint sends data */
 	pid_t receiver_pid;                /* The retrieve role's PID that connect to current endpoint */
-	dsm_handle handle;                 /* DSM handle, which contains shared message queue */
-	Latch ack_done;                    /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
+	dsm_handle mq_dsm_handle;          /* DSM handle, which contains shared message queue */
+	Latch ack_done;	                   /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
 	enum AttachStatus attach_status;   /* The attach status of the endpoint */
 	int session_id;                    /* Connection session id */
 	Oid user_id;                       /* User ID of the current executed PARALLEL RETRIEVE CURSOR */
@@ -79,30 +81,16 @@ typedef struct EndpointDesc
 
 
 /*
- * For receiver, we have a hash table to store connected endpoint's shared message queue.
- * So that we can retrieve from different endpoints in the same retriever and switch
- * between different endpoints.
- *
- * For endpoint(on Entry DB/QE), only keep one entry to track current message queue.
- */
-typedef struct MsgQueueStatusEntry
-{
-	char endpoint_name[ENDPOINT_NAME_LEN];     /* The name of endpoint to be retrieved, also behave as hash key */
-	dsm_segment *mq_seg;                       /* The dsm handle which contains shared memory message queue */
-	shm_mq_handle *mq_handle;                  /* Shared memory message queue */
-	TupleTableSlot *retrieve_ts;               /* tuple slot used for retrieve data */
-	TupleQueueReader *tq_reader;               /* TupleQueueReader to read tuple from message queue */
-	enum RetrieveStatus retrieve_status;       /* Track retrieve status */
-} MsgQueueStatusEntry;
-
-/*
  * Local structure to record current PARALLEL RETRIEVE CURSOR token and other info.
  */
 typedef struct EndpointControl
 {
-	enum ParallelRetrCursorExecRole Gp_prce_role;   /* Current PARALLEL RETRIEVE CURSOR role */
-	char cursor_name[NAMEDATALEN];
-	int  session_id;
+	/* Current PARALLEL RETRIEVE CURSOR role */
+	enum ParallelRetrCursorExecRole Gp_prce_role;
+	/* Which session that the endpoint is created in.
+	 * For senders, this is the same with gp_session_id.
+	 * For receivers, this is decided by the auth token. */
+	int session_id;
 } EndpointControl;
 
 typedef EndpointDesc *Endpoint;
@@ -116,10 +104,8 @@ extern int get_session_id_for_auth(Oid userID, const int8 *token);
 
 /* utility functions in "cdbendpointutilities.c" */
 extern const char *endpoint_role_to_string(enum ParallelRetrCursorExecRole role);
-extern void invalidate_endpoint_name(char *endpointName /*out*/);
 extern bool token_equals(const int8 *token1, const int8 *token2);
 extern bool endpoint_name_equals(const char *name1, const char *name2);
-extern uint64 create_magic_num_for_endpoint(const EndpointDesc *desc);
 extern void parse_token(int8 *token /*out*/, const char *tokenStr);
 extern char *print_token(const int8 *token); /* Need to pfree() the result */
 
