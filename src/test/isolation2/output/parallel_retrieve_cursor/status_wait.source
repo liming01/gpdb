@@ -657,7 +657,7 @@ DECLARE
  senderpid41| t        | READY
 (1 row)
 -- run 'kill -s QUIT senderpid' to cancel the endpoint execution backend, retrieve session still can work
-0R: @in_sh 'kill -s QUIT ${PID41} && echo "${RAW_STR}" ': SELECT 1;
+1R: @in_sh 'kill -s QUIT ${PID41} && echo "${RAW_STR}" ': SELECT 1;
  ?column? 
 ----------
  1        
