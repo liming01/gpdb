@@ -1742,8 +1742,8 @@ CLOSE
 1: ROLLBACK TO s1;
 ROLLBACK
 1: SELECT * FROM pg_cursors WHERE name='c1';
- name | statement | is_holdable | is_binary | is_scrollable | is_parallel | creation_time 
-------+-----------+-------------+-----------+---------------+-------------+---------------
+ name | statement | is_holdable | is_binary | is_scrollable | is_parallel_rtrv | creation_time 
+------+-----------+-------------+-----------+---------------+------------------+---------------
 (0 rows)
 1: COMMIT;
 COMMIT

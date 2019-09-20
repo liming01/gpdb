@@ -192,8 +192,7 @@ AttachEndpoint(const char *endpointName)
 				(errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("Endpoint %s is already attached by receiver(pid: %d)",
 						   endpointName, attached_pid),
-					errdetail("An endpoint can be attached by only one retrieving session "
-							  "for each PARALLEL RETRIEVE CURSOR.")));
+					errdetail("An endpoint can only be attached by one retrieving session.")));
 
 	if (!my_shared_endpoint)
 		elog(ERROR, "failed to attach non-existing endpoint %s", endpointName);

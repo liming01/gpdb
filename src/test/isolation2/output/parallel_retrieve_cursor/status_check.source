@@ -492,7 +492,7 @@ DECLARE
 -- a new retrieve session should report error
 3R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE 10 FROM ENDPOINT "@ENDPOINT3";
 ERROR:  Endpoint endpoint_id3_1 is already attached by receiver(pid: PID) (cdbendpointretrieve.c:LINENO)
-DETAIL:  An endpoint can be attached by only one retrieving session for each 'CHECK PARALLEL RETRIEVE CURSOR'
+DETAIL:  An endpoint can only be attached by one retrieving session.
 -- quit this new retrieve session
 3Rq: ... <quitting>
 -- some endpoint retrieve partial results, some endpoint finished retrieving, some endpoint not start retrieving
