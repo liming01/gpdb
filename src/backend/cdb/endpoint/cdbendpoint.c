@@ -27,35 +27,32 @@
 
 #include "postgres.h"
 
-#include <poll.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <cdb/cdbdisp_dtx.h>
 #include <utils/portal.h>
-#include <cdb/cdbdispatchresult.h>
 
-#include "cdb/cdbendpoint.h"
-#include "cdbendpointinternal.h"
-#include "access/xact.h"
 #include "access/tupdesc.h"
-#include "cdb/cdbutil.h"
-#include "cdb/cdbdisp.h"
+#include "access/xact.h"
 #include "cdb/cdbdisp_query.h"
-#include "cdb/cdbvars.h"
+#include "cdb/cdbdispatchresult.h"
+#include "cdb/cdbendpoint.h"
 #include "cdb/cdbsrlz.h"
+#include "cdb/cdbvars.h"
+#include "cdbendpointinternal.h"
 #include "libpq-fe.h"
 #include "libpq/libpq.h"
-#include "storage/latch.h"
 #include "storage/ipc.h"
-#include "utils/elog.h"
-#include "utils/faultinjector.h"
-#include "utils/backend_cancel.h"
+#include "storage/latch.h"
 #include "storage/procsignal.h"
+#include "utils/backend_cancel.h"
+#include "utils/elog.h"
+#ifdef FAULT_INJECTOR
+#include "utils/faultinjector.h"
+#endif
 
 /* The timeout before returns failure for endpoints initialization. */
 #define WAIT_ENDPOINT_INIT_TIMEOUT      5000
 #define WAIT_NORMAL_TIMEOUT             300
-#define ENDPOINT_TUPLE_QUEUE_SIZE       65536  /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
+/* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
+#define ENDPOINT_TUPLE_QUEUE_SIZE       65536
 
 #define SHMEM_ENDPOINTS_ENTRIES         "SharedMemoryEndpointDescEntries"
 #define SHMEM_ENPOINTS_SESSION_INFO     "EndpointsSessionInfosHashtable"
@@ -114,10 +111,9 @@ static EndpointDesc *alloc_endpoint(const char *cursorName, dsm_handle dsmHandle
 static void free_endpoint(EndpointDesc *endpoint);
 static void create_and_connect_mq(TupleDesc tupleDesc, dsm_segment **mqSeg /*out*/,
 					  shm_mq_handle **mqSandle /*out*/);
+static void detach_mq(dsm_segment *dsmSeg);
 static void declare_parallel_retrieve_ready(const char *cursorName);
 static void wait_receiver(void);
-static void sender_finish(void);
-static void sender_close(void);
 static void unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc, bool withLock);
 static void signal_receiver_abort(volatile EndpointDesc *endPointDesc);
 static void endpoint_abort(void);
@@ -184,7 +180,7 @@ EndpointCTXShmemInit(void)
 }
 
 /*
- * Init EndpointDesc entriesS.
+ * Init EndpointDesc entries.
  */
 static void
 init_shared_endpoints(void *address)
@@ -395,7 +391,7 @@ get_or_create_token_on_qd()
 #ifdef HAVE_STRONG_RANDOM
 	static int session_id						  = InvalidSession;
 	static int8 current_token[ENDPOINT_TOKEN_LEN] = {0};
-	static int session_id_len					  = sizeof(session_id);
+	const static int session_id_len				  = sizeof(session_id);
 
 	if (session_id != gp_session_id)
 	{
@@ -425,6 +421,7 @@ CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName)
 	shm_mq_handle *mq_handle;
 
 	Assert(!activeSharedEndpoint);
+	Assert(!activeDsmSeg);
 	Assert(EndpointCtl.Gp_prce_role == PRCER_SENDER);
 
 	/* Register callback to deal with proc exit. */
@@ -458,14 +455,17 @@ void
 DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 {
 	Assert(activeSharedEndpoint);
+	Assert(activeDsmSeg);
 	/* wait for receiver to retrieve the first row */
 	wait_receiver();
+
 	/* tqueueShutdownReceiver() will call shm_mq_detach(), so need to
-	 * call it before sender_close()*/
+	 * call it before detach_mq()*/
 	(*endpointDest->rShutdown)(endpointDest);
 	(*endpointDest->rDestroy)(endpointDest);
-	sender_close();
-	sender_finish();
+
+	/* Wait until all data is retrieved */
+	wait_receiver();
 
 	set_attach_status(Status_Finished);
 	unset_endpoint_sender_pid(activeSharedEndpoint, true);
@@ -474,6 +474,8 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 
 	free_endpoint(activeSharedEndpoint);
 	activeSharedEndpoint = NULL;
+	detach_mq(activeDsmSeg);
+	activeDsmSeg = NULL;
 	ClearParallelCursorExecRole();
 }
 
@@ -685,7 +687,7 @@ wait_receiver(void)
 
 		if (wr & WL_POSTMASTER_DEATH)
 		{
-			sender_close();
+			endpoint_abort();
 			elog(DEBUG3, "CDB_ENDPOINT: postmaster exit, close shared memory message queue.");
 			proc_exit(0);
 		}
@@ -698,34 +700,18 @@ wait_receiver(void)
 }
 
 /*
- * Once sender finish send tuples, and receiver already retrieve some tuples,
- * Still need to wait receiver retrieve all data from the queue.
+ * Detach the shared memory message queue.
+ * This should happen after free endpoint, otherwise endpoint->mq_dsm_handle
+ * becomes invalid pointer.
  */
 static void
-sender_finish(void)
-{
-	elog(DEBUG3, "CDB_ENDPOINTS: sender finish");
-	/* wait for receiver to finish retrieving */
-	wait_receiver();
-}
-
-/*
- * Endpoint is finish the job. So detach from the shared memory
- * message queue. Clean current endpoint local info.
- */
-static void
-sender_close(void)
+detach_mq(dsm_segment *dsmSeg)
 {
 	elog(DEBUG3, "CDB_ENDPOINT: Sender message queue detaching. '%p'",
-		 (void *) activeDsmSeg);
+		 (void *) dsmSeg);
 
-	if (!activeDsmSeg) {
-		return;
-	}
-
-	Assert(activeDsmSeg);
-	dsm_detach(activeDsmSeg);
-	activeDsmSeg = NULL;
+	Assert(dsmSeg);
+	dsm_detach(dsmSeg);
 }
 
 /*
@@ -805,11 +791,22 @@ signal_receiver_abort(volatile EndpointDesc *endPointDesc)
  */
 static void endpoint_abort(void)
 {
-	if (!activeSharedEndpoint) {
-		return;
+	if (activeSharedEndpoint) {
+		free_endpoint(activeSharedEndpoint);
+		activeSharedEndpoint = NULL;
 	}
-	free_endpoint(activeSharedEndpoint);
-	activeSharedEndpoint = NULL;
+	/*
+	 * During xact abort, should make sure the endpoint_cleanup called first.
+	 * Cause if call detach_mq to detach the message queue first, the retriever
+	 * may read NULL from message queue, then retrieve mark itself down.
+	 *
+	 * So here, we need to make sure signal retrieve abort first before endpoint
+	 * detach message queue.
+	 */
+	if (activeDsmSeg) {
+		detach_mq(activeDsmSeg);
+		activeDsmSeg = NULL;
+	}
 }
 
 void
@@ -950,15 +947,6 @@ sender_xact_abort_callback(XactEvent ev, void *vp)
 		}
 		elog(DEBUG3, "CDB_ENDPOINT: sender xact abort callback");
 		endpoint_abort();
-		/*
-		 * During xact abort, should make sure the endpoint_cleanup called first.
-		 * Cause if call sender_close to detach the message queue first, the retriever
-		 * may read NULL from message queue, then retrieve mark itself down.
-		 *
-		 * So here, we need to make sure signal retrieve abort first before endpoint
-		 * detach message queue.
-		 */
-		sender_close();
 		ClearParallelCursorExecRole();
 	}
 }
