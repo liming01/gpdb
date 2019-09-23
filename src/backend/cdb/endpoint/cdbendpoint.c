@@ -456,11 +456,14 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 {
 	Assert(activeSharedEndpoint);
 	Assert(activeDsmSeg);
-	/* wait for receiver to retrieve the first row */
+	/* wait for receiver to retrieve the first row.
+	 * ack_done latch will be reset to be re-used when retrieving finished. */
 	wait_receiver();
 
-	/* tqueueShutdownReceiver() will call shm_mq_detach(), so need to
-	 * call it before detach_mq()*/
+	/* tqueueShutdownReceiver() (rShutdown calblack) will call shm_mq_detach(),
+	 * so need to call it before detach_mq().
+	 * Retrieving session will set ack_done latch again after shm_mq_detach()
+	 * called here. */
 	(*endpointDest->rShutdown)(endpointDest);
 	(*endpointDest->rDestroy)(endpointDest);
 

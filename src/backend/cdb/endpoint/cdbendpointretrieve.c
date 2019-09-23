@@ -448,9 +448,11 @@ receive_tuple_slot(void)
 		SetLatch(&my_shared_endpoint->ack_done);
 	}
 
+#ifdef FAULT_INJECTOR
 	HOLD_INTERRUPTS();
 	SIMPLE_FAULT_INJECTOR("fetch_tuples_from_endpoint");
 	RESUME_INTERRUPTS();
+#endif
 
 	/* re retrieve data in wait mode
 	 * if not the first time retrieve data
