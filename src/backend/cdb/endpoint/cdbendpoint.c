@@ -1130,12 +1130,15 @@ check_dispatch_connection(void)
 
 /*
  * gp_operate_endpoints_token - Operation for EndpointDesc entries on endpoint.
- *
- * Alloc/free/unset sender pid operations for a EndpointDesc entry base on the token.
- *
  * We dispatch this UDF by "CdbDispatchCommandToSegments" and "CdbDispatchCommand",
  * It'll always dispatch to writer gang, which is the gang that allocate endpoints on.
  * Since we always allocate endpoints on the top most slice gang.
+ *
+ * c: check if the endpoints have been finished retrieving in a non-blocking way.
+ * h: check if the endpoints have been finished retrieving in a blocking way. It will return until
+ *    endpoints were finished, or any error occurs.
+ * w: wait for the QE or the entry db initializing endpoints. It will return until
+ *    dest receiver is ready or timeout(5 seconds).
  */
 Datum
 gp_operate_endpoints_token(PG_FUNCTION_ARGS)
@@ -1183,10 +1186,10 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
  * misunderstanding (User may think that the endpoint backend of the latter cursor issues error).
  * Also it also issues 2 error messages (one is from endpoint backend, the other is from the
  * related write gang process). So we need to check query dispatcher (which dispatch the
- * orginal query of the parallel retrieve cursor) in addition in case of any error issues.
+ * original query of the parallel retrieve cursor) in addition in case of any error issues.
  *
  * In WAIT mode, we cannot use the same way as NOWAIT mode, because if one of the endpoint backend reports
- * error, then the query dispacher (which dispatch this UDF) will not return because other endpoints still
+ * error, then the query dispatcher (which dispatch this UDF) will not return because other endpoints still
  * waiting for retrieving session. So just report error in this func, although still 2 error messages issues,
  * but the error is regarded as this statement's error (because there is no other statement running at the
  * same session)
