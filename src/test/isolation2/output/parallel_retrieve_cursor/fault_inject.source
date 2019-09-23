@@ -251,9 +251,9 @@ BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
 1: @out_sh 'parse_endpoint 2 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- endpoint_id1_1 | token_id | host_id | port_id | READY
- endpoint_id1_2 | token_id | host_id | port_id | READY
- endpoint_id1_3 | token_id | host_id | port_id | READY
+ endpoint_id2_1 | token_id | host_id | port_id | READY
+ endpoint_id2_2 | token_id | host_id | port_id | READY
+ endpoint_id2_3 | token_id | host_id | port_id | READY
 (3 rows)
 1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
@@ -274,14 +274,14 @@ ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"
 --------
 (0 rows)
 1R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
-ERROR:  failed to attach non-existing endpoint endpoint_id1_2 (cdbendpointretrieve.c:LINENO)
+ERROR:  failed to attach non-existing endpoint endpoint_id2_2 (cdbendpointretrieve.c:LINENO)
 
 2R: @in_sh 'sub @TOKEN2 $TOKEN2' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN2';
  status 
 --------
 (0 rows)
 2R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
-ERROR:  failed to attach non-existing endpoint endpoint_id1_3 (cdbendpointretrieve.c:LINENO)
+ERROR:  failed to attach non-existing endpoint endpoint_id2_3 (cdbendpointretrieve.c:LINENO)
 
 1<:  <... completed>
 FAILED:  Execution failed
@@ -314,9 +314,9 @@ BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
 1: @out_sh 'parse_endpoint 3 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- endpoint_id1_1 | token_id | host_id | port_id | READY
- endpoint_id1_2 | token_id | host_id | port_id | READY
- endpoint_id1_3 | token_id | host_id | port_id | READY
+ endpoint_id3_1 | token_id | host_id | port_id | READY
+ endpoint_id3_2 | token_id | host_id | port_id | READY
+ endpoint_id3_3 | token_id | host_id | port_id | READY
 (3 rows)
 1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
@@ -337,14 +337,14 @@ ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"
 --------
 (0 rows)
 0R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
-ERROR:  failed to attach non-existing endpoint endpoint_id1_1 (cdbendpointretrieve.c:LINENO)
+ERROR:  failed to attach non-existing endpoint endpoint_id3_1 (cdbendpointretrieve.c:LINENO)
 
 2R: @in_sh 'sub @TOKEN3 $TOKEN3' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN3';
  status 
 --------
 (0 rows)
 2R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
-ERROR:  failed to attach non-existing endpoint endpoint_id1_3 (cdbendpointretrieve.c:LINENO)
+ERROR:  failed to attach non-existing endpoint endpoint_id3_3 (cdbendpointretrieve.c:LINENO)
 
 1<:  <... completed>
 FAILED:  Execution failed
@@ -372,9 +372,9 @@ BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
 1: @out_sh 'parse_endpoint 4 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- endpoint_id1_1 | token_id | host_id | port_id | READY
- endpoint_id1_2 | token_id | host_id | port_id | READY
- endpoint_id1_3 | token_id | host_id | port_id | READY
+ endpoint_id4_1 | token_id | host_id | port_id | READY
+ endpoint_id4_2 | token_id | host_id | port_id | READY
+ endpoint_id4_3 | token_id | host_id | port_id | READY
 (3 rows)
 1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
@@ -442,7 +442,7 @@ ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"  (seg0 12
 --------
 (0 rows)
 2R: @in_sh 'sub_endpoint_name @ENDPOINT4': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT4";
-ERROR:  failed to attach non-existing endpoint endpoint_id1_3 (cdbendpointretrieve.c:LINENO)
+ERROR:  failed to attach non-existing endpoint endpoint_id4_3 (cdbendpointretrieve.c:LINENO)
 
 1<:  <... completed>
 FAILED:  Execution failed
@@ -491,9 +491,9 @@ BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
 DECLARE
 1: @out_sh 'parse_endpoint 5 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- endpoint_id1_1 | token_id | host_id | port_id | READY
- endpoint_id1_2 | token_id | host_id | port_id | READY
- endpoint_id1_3 | token_id | host_id | port_id | READY
+ endpoint_id5_1 | token_id | host_id | port_id | READY
+ endpoint_id5_2 | token_id | host_id | port_id | READY
+ endpoint_id5_3 | token_id | host_id | port_id | READY
 (3 rows)
 1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 
@@ -566,9 +566,9 @@ BEGIN
 1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t2;
 DECLARE
 1: @out_sh 'parse_endpoint 6 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
- endpoint_id1_1 | token_id | host_id | port_id | READY
- endpoint_id1_2 | token_id | host_id | port_id | READY
- endpoint_id1_3 | token_id | host_id | port_id | READY
+ endpoint_id6_1 | token_id | host_id | port_id | READY
+ endpoint_id6_2 | token_id | host_id | port_id | READY
+ endpoint_id6_3 | token_id | host_id | port_id | READY
 (3 rows)
 1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
 

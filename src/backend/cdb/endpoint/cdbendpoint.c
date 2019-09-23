@@ -1059,8 +1059,13 @@ get_session_id_for_auth(Oid userID, const int8 *token)
 void generate_endpoint_name(char *name,
 							const char *cursorName, int32 sessionID, int32 segindex)
 {
-	snprintf(name, ENDPOINT_NAME_LEN, "%s_%08x_%08x", cursorName,
-			 sessionID, segindex);
+	/* Use counter to avoid duplicated endpoint names when error happens.
+	 * Since the retrieve session won't be terminated when transaction abort, reuse
+	 * the previous endpoint name may cause unexpected behaviour for the retrieving
+	 * session. */
+	static uint8 counter = 0;
+	snprintf(name, ENDPOINT_NAME_LEN, "%s%08x%08x%02x", cursorName,
+			 sessionID, segindex, counter++);
 }
 
 /*

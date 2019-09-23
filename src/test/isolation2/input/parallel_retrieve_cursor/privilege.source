@@ -116,8 +116,8 @@ RESET SESSION AUTHORIZATION;
 --- c1 is declared and executed by u1
 1: SET SESSION AUTHORIZATION u1;
 1: BEGIN;
-1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
-1: @out_sh 'parse_endpoint 5 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+1: DECLARE c4 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t1;
+1: @out_sh 'parse_endpoint 5 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c4';
 
 --- u2 is not able to see u1's endpoints on master
 1: SET SESSION AUTHORIZATION u2;
@@ -125,7 +125,7 @@ RESET SESSION AUTHORIZATION;
 
 --- execute the cursor by u1
 1: SET SESSION AUTHORIZATION u1;
-1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c4');
 
 --- u2 is not able to see u1's endpoints in RETRIEVE mode
 *R: SET SESSION AUTHORIZATION u2;
@@ -139,7 +139,7 @@ RESET SESSION AUTHORIZATION;
 *R: @in_sh 'sub_endpoint_name @ENDPOINT5': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT5";
 
 1<:
-1: CLOSE c1;
+1: CLOSE c4;
 1: END;
 0Rq:
 1Rq:
