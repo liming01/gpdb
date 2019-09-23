@@ -1,13 +1,13 @@
 /*
- * src/test/examples/test_parallel_cursor.c
+ * src/test/examples/test_parallel_cursor_wait.c
  *
  *
- * test_parallel_cursor.c
+ * test_parallel_cursor_wait.c
  *		this program only support gpdb with the PARALLEL RETRIEVE CURSOR feature. It shows how to
- * use LIBPQ to make a connect to gpdb master node and create a PARALLEL RETRIEVE CURSOR and check it's status,
- * and how to make multiple retrieve mode connections to all endpoints of the PARALLEL RETRIEVE CURSOR
- * (i.e. gpdb all segment nodes in this sample) and parallelly retrieve the results of these
- * endpoints.
+ * use LIBPQ to make a connect to gpdb master node and create a PARALLEL RETRIEVE CURSOR and check 
+ * it's status in wait mode, and how to make multiple retrieve mode connections to all endpoints
+ * of the PARALLEL RETRIEVE CURSOR (i.e. gpdb all segment nodes in this sample) and parallelly
+ * retrieve the results of these endpoints.
  */
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +15,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #include "libpq-fe.h"
+
+#define MASTER_CONNECT_INDEX -1
 
 static void
 finish_conn_nicely(PGconn *master_conn, PGconn *endpoint_conns[], size_t endpoint_conns_num)
@@ -56,12 +58,17 @@ check_prepare_conn(PGconn *conn, const char *dbName)
 	}
 	PQclear(res);
 }
+/* execute sql and check it is a command without result set returned */
 static int
-exec_sql_without_resultset(PGconn *conn, const char *sql)
+exec_sql_without_resultset(PGconn *conn, const char *sql, int conn_idx)
 {
 	PGresult   *res1;
 
-	printf("\nExec SQL: %s\n", sql);
+	if(conn_idx == MASTER_CONNECT_INDEX)
+		printf("\nExec SQL on Master:\n\t> %s\n", sql);
+	else
+		printf("\nExec SQL on EndPoint[%d]:\n\t> %s\n", conn_idx, sql);
+
 	res1 = PQexec(conn, sql);
 	if (PQresultStatus(res1) != PGRES_COMMAND_OK)
 	{
@@ -77,14 +84,19 @@ exec_sql_without_resultset(PGconn *conn, const char *sql)
 	PQclear(res1);
 	return 0;
 }
+/* execute sql and print the result set */
 static int
-exec_sql_with_resultset(PGconn *conn, const char *sql)
+exec_sql_with_resultset(PGconn *conn, const char *sql, int conn_idx)
 {
 	PGresult   *res1;
 	int			nFields;
 	int			i;
 
-	printf("\nExec SQL: %s\n", sql);
+	if(conn_idx == MASTER_CONNECT_INDEX)
+		printf("\nExec SQL on Master:\n\t> %s\n", sql);
+	else
+		printf("\nExec SQL on EndPoint[%d]:\n\t> %s\n", conn_idx, sql);;
+
 	res1 = PQexec(conn, sql);
 	if (PQresultStatus(res1) != PGRES_TUPLES_OK)
 	{
@@ -118,7 +130,7 @@ exec_parallel_cursor_threadfunc(void *master_conn)
 	PGconn	   *conn = (PGconn *) master_conn;
 
 	/* call wait mode monitor UDF and it will wait for finish retrieving. */
-	if (exec_sql_with_resultset(conn, "SELECT * FROM gp_wait_parallel_retrieve_cursor('myportal');") != 0)
+	if (exec_sql_with_resultset(conn, "SELECT * FROM gp_wait_parallel_retrieve_cursor('myportal');", MASTER_CONNECT_INDEX) != 0)
 		exit(1);
 	return NULL;
 }
@@ -140,10 +152,6 @@ main(int argc, char **argv)
 	char	   *token = NULL,
 			   **endpoint_names = NULL;
 
-
-	/*
-	 * PGresult   *res1, *res2;
-	 */
 	PGresult   *res1;
 
 	if (argc != 3)
@@ -175,20 +183,20 @@ main(int argc, char **argv)
 	check_prepare_conn(master_conn, dbName);
 
 	/* do some preparation for test */
-	if (exec_sql_without_resultset(master_conn, "DROP TABLE IF EXISTS public.tab_parallel_cursor;") != 0)
+	if (exec_sql_without_resultset(master_conn, "DROP TABLE IF EXISTS public.tab_parallel_cursor;", MASTER_CONNECT_INDEX) != 0)
 		goto LABEL_ERR;
-	if (exec_sql_without_resultset(master_conn, "CREATE TABLE public.tab_parallel_cursor AS SELECT id FROM pg_catalog.generate_series(1,100) id;") != 0)
+	if (exec_sql_without_resultset(master_conn, "CREATE TABLE public.tab_parallel_cursor AS SELECT id FROM pg_catalog.generate_series(1,100) id;", MASTER_CONNECT_INDEX) != 0)
 		goto LABEL_ERR;
 
 	/*
 	 * start a transaction block because PARALLEL RETRIEVE CURSOR only support WITHOUT
 	 * HOLD option
 	 */
-	if (exec_sql_without_resultset(master_conn, "BEGIN;") != 0)
+	if (exec_sql_without_resultset(master_conn, "BEGIN;", MASTER_CONNECT_INDEX) != 0)
 		goto LABEL_ERR;
 
 	/* declare PARALLEL RETRIEVE CURSOR for this table */
-	if (exec_sql_without_resultset(master_conn, "DECLARE myportal PARALLEL RETRIEVE CURSOR FOR select * from public.tab_parallel_cursor;") != 0)
+	if (exec_sql_without_resultset(master_conn, "DECLARE myportal PARALLEL RETRIEVE CURSOR FOR select * from public.tab_parallel_cursor;", MASTER_CONNECT_INDEX) != 0)
 		goto LABEL_ERR;
 
 	/*
@@ -196,7 +204,7 @@ main(int argc, char **argv)
 	 */
 	const char *sql1 = "select hostname,port,token,endpointname from pg_catalog.gp_endpoints where cursorname='myportal';";
 
-	printf("\nExec SQL: %s\n", sql1);
+	printf("\nExec SQL on Master:\n\t> %s\n", sql1);
 	res1 = PQexec(master_conn, sql1);
 	if (PQresultStatus(res1) != PGRES_TUPLES_OK)
 	{
@@ -247,7 +255,7 @@ main(int argc, char **argv)
 	pthread_t	thread1;
 
 	/*
-	 * create a second thread to run wait mode monitor UDF because it will
+	 * Create a second thread to run wait mode monitor UDF because it will
 	 * waiting until all data finished retrieved
 	 */
 	if (pthread_create(&thread1, NULL, exec_parallel_cursor_threadfunc, master_conn))
@@ -264,10 +272,10 @@ main(int argc, char **argv)
     usleep(1);
 
 	/*
-	 * Waiting for the status to becomes 'READY', and then retrieve the result
-	 * of the endpoints This section can be execute parallely on different
-	 * host or in different threads/processes on the same host. For
-	 * simplicity, here just use loop in one process.
+	 * Now the endpoint becomes 'READY' after "DECLARE ... PARALLEL RETRIEVE CURSOR" returns,
+	 * then we can retrieve the result of the endpoints in parallel. This section can be 
+	 * executed parallely on different host or in different threads/processes on the same 
+	 * host. For simplicity, here just use loop in one process
 	 */
 	for (i = 0; i < endpoint_conns_num; i++)
 	{
@@ -277,7 +285,7 @@ main(int argc, char **argv)
 
 		/* the endpoint is ready to be retrieved when 'DECLARE PARALLEL RETRIEVE CURSOR returns, here begin to retrieve */
 		snprintf(sql, sizeof(sql), "RETRIEVE ALL FROM ENDPOINT %s;", endpoint_names[i]);
-		exec_sql_with_resultset(endpoint_conns[i], sql);
+		exec_sql_with_resultset(endpoint_conns[i], sql, i);
 		printf("\n------ End retrieving data from Endpoint %d# ------.\n", i);
 	}
 
@@ -288,13 +296,12 @@ main(int argc, char **argv)
 		goto LABEL_ERR;
 	}
 	/* close the cursor */
-	if (exec_sql_without_resultset(master_conn, "CLOSE myportal;") != 0)
+	if (exec_sql_without_resultset(master_conn, "CLOSE myportal;", MASTER_CONNECT_INDEX) != 0)
 		goto LABEL_ERR;
 
 	/* end the transaction */
-	if (exec_sql_without_resultset(master_conn, "END;") != 0)
+	if (exec_sql_without_resultset(master_conn, "END;", MASTER_CONNECT_INDEX) != 0)
 		goto LABEL_ERR;
-
 
 /*	 fclose(debug); */
 	retVal = 0;

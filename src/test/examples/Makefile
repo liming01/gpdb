@@ -14,7 +14,7 @@ override CPPFLAGS := -I$(libpq_srcdir) $(CPPFLAGS)
 LDFLAGS_INTERNAL += $(libpq_pgport) -lpthread
 
 
-PROGS = test_parallel_retrieve_cursor testlibpq testlibpq2 testlibpq3 testlibpq4 testlo testlo64
+PROGS = test_parallel_retrieve_cursor_wait test_parallel_retrieve_cursor_nowait testlibpq testlibpq2 testlibpq3 testlibpq4 testlo testlo64
 
 all: $(PROGS)
 
