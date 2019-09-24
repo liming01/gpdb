@@ -98,8 +98,7 @@ extern Datum gp_wait_parallel_retrieve_cursor(PG_FUNCTION_ARGS);
  * Below functions should run on retrieve role backend.
  */
 extern bool FindEndpointTokenByUser(Oid userID, const char *tokenStr);
-extern void AttachEndpoint(const char *endpointName);
-extern TupleDesc TupleDescOfRetrieve(void);
+extern TupleDesc GetEndpointTupleDesc(const char *endpointName);
 extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
 
 

@@ -127,7 +127,6 @@ static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid
 static void generate_endpoint_name(char *name, const char *cursorName,
 								   int32 sessionID, int32 segindex);
 static EndpointDesc * find_endpoint_by_cursor_name(const char *name, bool with_lock);
-static void set_attach_status(enum AttachStatus status);
 static void check_dispatch_connection(void);
 
 /* Endpoints internal operation UDF's helper function */
@@ -468,19 +467,14 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	(*endpointDest->rShutdown)(endpointDest);
 	(*endpointDest->rDestroy)(endpointDest);
 
-	/* Wait until all data is retrieved by receiver.
-	 * This is needed because when endpoint send all data to shared message queue.
-	 * The retrieve session may still not get all data from */
-	wait_receiver();
-
-	set_attach_status(Status_Finished);
 	unset_endpoint_sender_pid(activeSharedEndpoint);
 
 	/* If all data get sent, hang the process and wait for QD to close it.
 	 * The purpose is to not clean up EndpointDesc entry until
 	 * CLOSE/COMMIT/ABORT (ie. ProtalCleanup get executed).
-	 * So user can still see the finished endpoint status through gp_endpoints_info UDF.
-	 * This is needed because pg_cusor view can still see the PARALLEL RETRIEVE CURSOR */
+	 * So user can still see the finished endpoint status through
+	 * gp_endpoints_info UDF. This is needed because pg_cusor view can still see
+	 * the PARALLEL RETRIEVE CURSOR */
 	wait_parallel_retrieve_close();
 
 	free_endpoint(activeSharedEndpoint);
@@ -1076,21 +1070,6 @@ EndpointDesc * find_endpoint_by_cursor_name(const char *cursor_name, bool with_l
 		LWLockRelease(ParallelCursorEndpointLock);
 
 	return res;
-}
-
-static void
-set_attach_status(enum AttachStatus status)
-{
-	Assert(EndpointCtl.Gp_prce_role == PRCER_SENDER);
-
-	if (!activeSharedEndpoint && !activeSharedEndpoint->empty)
-		elog(ERROR, "endpoint doesn't exist");
-
-	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
-
-	activeSharedEndpoint->attach_status = status;
-
-	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 void
