@@ -640,7 +640,14 @@ create_and_connect_mq(TupleDesc tupleDesc, dsm_segment **mqSeg /*out*/,
 	*mqHandle = shm_mq_attach(mq, *mqSeg, NULL);
 }
 
-static void declare_parallel_retrieve_ready(const char* cursorName)
+/*
+ * declare_parallel_retrieve_ready
+ *
+ * After endpoint is ready for retrieve, tell WaitEndpointReady
+ * to finish wait and then DECLARE statement could finish.
+ */
+void
+declare_parallel_retrieve_ready(const char* cursorName)
 {
 	SessionInfoEntry *info_entry = NULL;
 	Latch *latch = NULL;
@@ -661,8 +668,7 @@ static void declare_parallel_retrieve_ready(const char* cursorName)
 	/* Here compare the cursorName in SessionInfoEntry so endpoint process knows
 	 * whether is the right time to set latch to tell WaitEndpointReady
 	 * endpoint is ready for retrieve, DECLARE statement can finish.
-	 * So in gp_wait_parallel_retrieve_cursor, it needs wait until retrieve get
-	 * all data.
+	 *
 	 * Must make sure the cursorName is set before current function.
 	 * This is implemented by acquire LW_EXCLUSIVE EndpointLock when set
 	 * cursorName in check_endpoint_finished_by_cursor_name function. */
@@ -681,7 +687,7 @@ static void declare_parallel_retrieve_ready(const char* cursorName)
  * for all tuples, sender should wait receiver. Cause if sender detached
  * from the queue, the queue will be not available for receiver.
  */
-static void
+void
 wait_receiver(void)
 {
 	elog(DEBUG3, "CDB_ENDPOINTS: wait receiver.");
@@ -722,7 +728,7 @@ wait_receiver(void)
  * This should happen after free endpoint, otherwise endpoint->mq_dsm_handle
  * becomes invalid pointer.
  */
-static void
+void
 detach_mq(dsm_segment *dsmSeg)
 {
 	elog(DEBUG3, "CDB_ENDPOINT: Sender message queue detaching. '%p'",
@@ -735,10 +741,10 @@ detach_mq(dsm_segment *dsmSeg)
 /*
  * Unset endpoint sender pid.
  *
- * Clean the EndpointDesc entry sender pid when endpoint finish it's job.
- * Also consider to clean receiver state.
+ * Clean the EndpointDesc entry sender pid when endpoint finish it's
+ * job or abort.
  */
-static void
+void
 unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
 {
 	SessionInfoEntry*	sessionInfoEntry;
@@ -756,8 +762,8 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
 	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint sender pid.");
 
 	/*
-	 * Since the receiver is not in the session, sender has the duty to cancel
-	 * it
+	 * Since the receiver is not in the session, sender has the duty to
+	 * cancel it.
 	 */
 	signal_receiver_abort(endPointDesc->receiver_pid, endPointDesc->attach_status);
 
@@ -792,7 +798,7 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
  * If endpoint exit with error, let retrieve role know exception happened.
  * Called by endpoint.
  */
-static void
+void
 signal_receiver_abort(pid_t receiverPid, enum AttachStatus attachStatus)
 {
 	bool is_attached;
@@ -808,11 +814,10 @@ signal_receiver_abort(pid_t receiverPid, enum AttachStatus attachStatus)
 }
 
 /*
- * Clean up EndpointDesc entry for specify token.
- *
- * The sender should only have one in EndpointCtl.TokensInXact list.
+ * endpoint_abort - xact abort routine for endpoint
  */
-static void endpoint_abort(void)
+void
+endpoint_abort(void)
 {
 	if (activeSharedEndpoint) {
 		unset_endpoint_sender_pid(activeSharedEndpoint);
@@ -831,10 +836,11 @@ static void endpoint_abort(void)
 		detach_mq(activeDsmSeg);
 		activeDsmSeg = NULL;
 	}
+	ClearParallelCursorExecRole();
 }
 
 /*
- * Wait for PARALLEL RETRIEVE CURSOR cleanup after sender send all data.
+ * Wait for PARALLEL RETRIEVE CURSOR cleanup after endpoint send all data.
  *
  * If all data get sent, hang the process and wait for QD to close it.
  * The purpose is to not clean up EndpointDesc entry until
@@ -876,7 +882,7 @@ wait_parallel_retrieve_close(void)
 }
 
 /*
- * Frees the given endpoint.
+ * free_endpoint - Frees the given endpoint.
  */
 void
 free_endpoint(volatile EndpointDesc *endpoint)
@@ -917,7 +923,7 @@ register_endpoint_callbacks(void)
 }
 
 /*
- * If endpoint/sender on xact abort, do sender clean jobs.
+ * If endpoint/sender on xact abort, do endpoint clean jobs.
  */
 void
 sender_xact_abort_callback(XactEvent ev, void *vp)
@@ -930,12 +936,11 @@ sender_xact_abort_callback(XactEvent ev, void *vp)
 		}
 		elog(DEBUG3, "CDB_ENDPOINT: sender xact abort callback");
 		endpoint_abort();
-		ClearParallelCursorExecRole();
 	}
 }
 
 /*
- * If endpoint/sender on sub xact abort, do sender clean jobs.
+ * If endpoint/sender on sub xact abort, do endpoint clean jobs.
  */
 void
 sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
@@ -956,9 +961,11 @@ get_endpointdesc_by_index(int index)
 }
 
 /*
- * Find the endpoint by given endpoint name and session id.
- * For the sender, the session_id is the gp_session_id since it is the same with
- * the session which created the parallel retrieve cursor.
+ *
+ * find_endpoint - Find the endpoint by given endpoint name and session id.
+ *
+ * For the endpoint, the session_id is the gp_session_id since it is the same
+ * with the session which created the parallel retrieve cursor.
  * For the retriever, the session_id is picked by the token when doing the
  * authentication.
  *
@@ -988,6 +995,9 @@ find_endpoint(const char *endpointName, int sessionID)
 	return res;
 }
 
+/*
+ * get_token_by_session_id - get token based on given session id and user.
+ */
 void
 get_token_by_session_id(int sessionId, Oid userID, int8* token /*out*/)
 {
@@ -1010,7 +1020,7 @@ get_token_by_session_id(int sessionId, Oid userID, int8* token /*out*/)
 }
 
 /*
- * Find the corresponding session id by the given token.
+ * get_session_id_for_auth - Find the corresponding session id by the given token.
  */
 int
 get_session_id_for_auth(Oid userID, const int8 *token)
@@ -1036,12 +1046,15 @@ get_session_id_for_auth(Oid userID, const int8 *token)
 }
 
 /*
+ * generate_endpoint_name
+ *
  * Generate the endpoint name based on the PARALLEL RETRIEVE CURSOR name,
  * session ID and the segment index.lwlock.hlwlock.h
  * The endpoint name should be unique across sessions.
  */
-void generate_endpoint_name(char *name,
-							const char *cursorName, int32 sessionID, int32 segindex)
+void
+generate_endpoint_name(char *name, const char *cursorName, int32 sessionID,
+					   int32 segindex)
 {
 	/* Use counter to avoid duplicated endpoint names when error happens.
 	 * Since the retrieve session won't be terminated when transaction abort, reuse
@@ -1055,7 +1068,8 @@ void generate_endpoint_name(char *name,
 /*
  * Find the EndpointDesc entry by the given cursor name in current session.
  */
-EndpointDesc * find_endpoint_by_cursor_name(const char *cursor_name, bool with_lock)
+EndpointDesc *
+find_endpoint_by_cursor_name(const char *cursor_name, bool with_lock)
 {
 	EndpointDesc *res = NULL;
 
@@ -1104,6 +1118,7 @@ check_dispatch_connection(void)
 
 /*
  * gp_operate_endpoints_token - Operation for EndpointDesc entries on endpoint.
+ *
  * Dispatch this UDF by "CdbDispatchCommandToSegments" and "CdbDispatchCommand",
  * It'll always dispatch to writer gang.
  *
@@ -1330,8 +1345,8 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 }
 
 /*
- * Waits until the QE is ready -- the dest receiver will be ready after this
- * function returns successfully.
+ * Waits until the QE is ready -- the endpoint will be ready for retrieve
+ * after this function returns successfully.
  *
  * Create/reuse SessionInfoEntry for current session in shared memory.
  * SessionInfoEntry is used for retrieve auth and tracking parallel retrieve
@@ -1415,6 +1430,14 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 	}
 }
 
+/*
+ * gp_check_parallel_retrieve_cursor
+ *
+ * Check whether given parallel retrieve cursor is finished immediately.
+ *
+ * Return true means finished.
+ * Error out when parallel retrieve cursor has exception raised.
+ */
 Datum
 gp_check_parallel_retrieve_cursor(PG_FUNCTION_ARGS)
 {
@@ -1424,6 +1447,14 @@ gp_check_parallel_retrieve_cursor(PG_FUNCTION_ARGS)
     PG_RETURN_BOOL(check_parallel_retrieve_cursor(cursor_name, false));
 }
 
+/*
+ * gp_check_parallel_retrieve_cursor
+ *
+ * Wait until given parallel retrieve cursor is finished.
+ *
+ * Return true means finished.
+ * Error out when parallel retrieve cursor has exception raised.
+ */
 Datum
 gp_wait_parallel_retrieve_cursor(PG_FUNCTION_ARGS)
 {
@@ -1433,6 +1464,19 @@ gp_wait_parallel_retrieve_cursor(PG_FUNCTION_ARGS)
     PG_RETURN_BOOL(check_parallel_retrieve_cursor(cursor_name, true));
 }
 
+/*
+ * check_parallel_retrieve_cursor
+ *
+ * Support function for UDFs:
+ * gp_check_parallel_retrieve_cursor
+ * gp_wait_parallel_retrieve_cursor
+ *
+ * Check whether given parallel retrieve cursor is finished.
+ * If isWait is true, hang until parallel retrieve cursor finished.
+ *
+ * Return true means finished.
+ * Error out when parallel retrieve cursor has exception raised.
+ */
 bool
 check_parallel_retrieve_cursor(const char *cursorName, bool isWait)
 {
@@ -1458,7 +1502,7 @@ check_parallel_retrieve_cursor(const char *cursorName, bool isWait)
 		return false;
 	}
 
-	/** See commens at check_endpoint_finished_by_cursor_name()
+	/* See comments at check_endpoint_finished_by_cursor_name()
 	 *
 	 * In NOWAIT mode, need to check the query dispatcher for the orginal query of the parallel
 	 * retrieve cursor, because the UDF will not report error.
@@ -1480,10 +1524,10 @@ check_parallel_retrieve_cursor(const char *cursorName, bool isWait)
 }
 
 /*
- * Check the PARALLEL RETRIEVE CURSOR execution status, if get error, then rethrow the error
+ * check_parallel_cursor_errors - Check the PARALLEL RETRIEVE CURSOR execution status
  *
- * isWait:  support 2 modes - WAIT/NOWAIT
- * @return true if the PARALLEL RETRIEVE CURSOR Execution Finished
+ * If get error, then rethrow the error.
+ * Return true if the PARALLEL RETRIEVE CURSOR Execution Finished.
  */
 bool
 check_parallel_cursor_errors(QueryDesc *queryDesc)
