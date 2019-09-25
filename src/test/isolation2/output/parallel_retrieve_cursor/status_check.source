@@ -879,9 +879,8 @@ ERROR:  terminating connection due to administrator command  (seg0 10.34.58.56:2
 ----------+----------+--------
 (0 rows)
 
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#2retrieve> FATAL:  Retrieve auth token is invalid
+
 -- report error for EXECUTE canceled PARALLEL RETRIEVE CURSOR
 1: SELECT * FROM gp_check_parallel_retrieve_cursor('c5');
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
@@ -904,9 +903,8 @@ ROLLBACK
 ----------+----------+--------
 (0 rows)
 
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#2retrieve> FATAL:  Retrieve auth token is invalid
+
 
 ---------- Test6: Cancel (using signal INT) the process of 'CHECK PARALLEL RETRIEVE CURSOR'
 -- faul injection on QD
@@ -1020,9 +1018,8 @@ ERROR:  canceling MPP operation  (seg2 10.34.58.56:25434 pid=60386)
 ----------+----------+--------
 (0 rows)
 
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#2retrieve> FATAL:  Retrieve auth token is invalid
+
 -- report error for EXECUTE canceled PARALLEL RETRIEVE CURSOR
 1: SELECT * FROM gp_check_parallel_retrieve_cursor('c6');
 ERROR:  current transaction is aborted, commands ignored until end of transaction block
@@ -1045,9 +1042,8 @@ ROLLBACK
 ----------+----------+--------
 (0 rows)
 
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#2retrieve> FATAL:  Retrieve auth token is invalid
+
 
 ---------- Test6.1: Cancel (using signal INT) the process of 'CHECK PARALLEL RETRIEVE CURSOR' without rollback
 -- faul injection on QD
@@ -1161,9 +1157,8 @@ ERROR:  canceling MPP operation  (seg2 10.34.58.56:25434 pid=74987)
 ----------+----------+--------
 (0 rows)
 
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#2retrieve> FATAL:  Retrieve auth token is invalid
+
 -- quit the session of 'CHECK PARALLEL RETRIEVE CURSOR' and keep other session connected
 1q: ... <quitting>
 -- check no endpoint info
@@ -1183,12 +1178,10 @@ ERROR:  canceling MPP operation  (seg2 10.34.58.56:25434 pid=74987)
 ----------+----------+--------
 (0 rows)
 
- ?column? | ?column? | status 
-----------+----------+--------
-(0 rows)
+#2retrieve> FATAL:  Retrieve auth token is invalid
+
 0Rq: ... <quitting>
 1Rq: ... <quitting>
-2Rq: ... <quitting>
 
 ---------- Test7: terminate (using signal QUIT) the process of 'CHECK PARALLEL RETRIEVE CURSOR'
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'reset', 1);

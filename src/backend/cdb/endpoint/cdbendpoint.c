@@ -95,7 +95,7 @@ static HTAB *sharedSessionInfoHash = NULL;
 
 /* Current EndpointDesc entry for sender.
  * It is set when create dest receiver and unset when destroy it. */
-static EndpointDesc *activeSharedEndpoint = NULL;
+static volatile EndpointDesc *activeSharedEndpoint = NULL;
 /* Current dsm_segment pointer, saved it for detach. */
 static dsm_segment *activeDsmSeg = NULL;
 
@@ -108,18 +108,17 @@ static const int8 * get_or_create_token_on_qd(void);
 
 /* Endpoint helper function */
 static EndpointDesc *alloc_endpoint(const char *cursorName, dsm_handle dsmHandle);
-static void free_endpoint(EndpointDesc *endpoint);
+static void free_endpoint(volatile EndpointDesc *endpoint);
 static void create_and_connect_mq(TupleDesc tupleDesc, dsm_segment **mqSeg /*out*/,
-					  shm_mq_handle **mqSandle /*out*/);
+					  			  shm_mq_handle **mqHandle /*out*/);
 static void detach_mq(dsm_segment *dsmSeg);
 static void declare_parallel_retrieve_ready(const char *cursorName);
 static void wait_receiver(void);
-static void unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc, bool withLock);
-static void signal_receiver_abort(volatile EndpointDesc *endPointDesc);
+static void unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc);
+static void signal_receiver_abort(pid_t receiverPid, enum AttachStatus attachStatus);
 static void endpoint_abort(void);
 static void wait_parallel_retrieve_close(void);
 static void register_endpoint_callbacks(void);
-static void endpoint_exit_callback(int code, Datum arg);
 static void sender_xact_abort_callback(XactEvent ev, void *vp);
 static void sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 									SubTransactionId parentSubid, void *arg);
@@ -131,7 +130,9 @@ static EndpointDesc * find_endpoint_by_cursor_name(const char *name, bool with_l
 static void set_attach_status(enum AttachStatus status);
 static void check_dispatch_connection(void);
 
-/* Endpoints internal operation UDF's helper function  */
+/* Endpoints internal operation UDF's helper function */
+static void register_session_info_callback(void);
+static void session_info_clean_callback(XactEvent ev, void *vp);
 static bool check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait);
 static void wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr);
 static bool check_parallel_retrieve_cursor(const char *cursorName, bool isWait);
@@ -467,12 +468,19 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	(*endpointDest->rShutdown)(endpointDest);
 	(*endpointDest->rDestroy)(endpointDest);
 
-	/* Wait until all data is retrieved */
+	/* Wait until all data is retrieved by receiver.
+	 * This is needed because when endpoint send all data to shared message queue.
+	 * The retrieve session may still not get all data from */
 	wait_receiver();
 
 	set_attach_status(Status_Finished);
-	unset_endpoint_sender_pid(activeSharedEndpoint, true);
+	unset_endpoint_sender_pid(activeSharedEndpoint);
 
+	/* If all data get sent, hang the process and wait for QD to close it.
+	 * The purpose is to not clean up EndpointDesc entry until
+	 * CLOSE/COMMIT/ABORT (ie. ProtalCleanup get executed).
+	 * So user can still see the finished endpoint status through gp_endpoints_info UDF.
+	 * This is needed because pg_cusor view can still see the PARALLEL RETRIEVE CURSOR */
 	wait_parallel_retrieve_close();
 
 	free_endpoint(activeSharedEndpoint);
@@ -562,8 +570,6 @@ alloc_endpoint(const char *cursorName, dsm_handle dsmHandle)
 	ret = &sharedEndpoints[i];
 
 	LWLockRelease(ParallelCursorEndpointLock);
-	/* track current session id for endpoint_exit_callback  */
-	EndpointCtl.session_id = gp_session_id;
 	return ret;
 }
 
@@ -644,6 +650,7 @@ static void declare_parallel_retrieve_ready(const char* cursorName)
 	tag.sessionID = gp_session_id;
 	tag.userID = GetUserId();
 
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	info_entry = (SessionInfoEntry *) hash_search(
 		sharedSessionInfoHash, &tag, HASH_FIND, NULL);
 
@@ -652,10 +659,19 @@ static void declare_parallel_retrieve_ready(const char* cursorName)
 	{
 		latch = &info_entry->udf_check_latch;
 	}
+	/* Here compare the cursorName in SessionInfoEntry so endpoint process knows
+	 * whether is the right time to set latch to tell WaitEndpointReady
+	 * endpoint is ready for retrieve, DECLARE statement can finish.
+	 * So in gp_wait_parallel_retrieve_cursor, it needs wait until retrieve get
+	 * all data.
+	 * Must make sure the cursorName is set before current function.
+	 * This is implemented by acquire LW_EXCLUSIVE EndpointLock when set
+	 * cursorName in check_endpoint_finished_by_cursor_name function. */
 	if (latch && strncmp(info_entry->cursorName, cursorName, NAMEDATALEN) == 0)
 	{
 		SetLatch(latch);
 	}
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*
@@ -724,22 +740,27 @@ detach_mq(dsm_segment *dsmSeg)
  * Also consider to clean receiver state.
  */
 static void
-unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc, bool withLock)
+unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
 {
-	SessionInfoEntry* sessionInfoEntry;
-	SessionTokenTag tag;
+	SessionInfoEntry*	sessionInfoEntry;
+	SessionTokenTag		tag;
 
-	if (!endPointDesc || (endPointDesc && endPointDesc->empty))
+	tag.sessionID = gp_session_id;
+	tag.userID = GetUserId();
+
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
+	if (!endPointDesc || endPointDesc->empty)
+	{
+		LWLockRelease(ParallelCursorEndpointLock);
 		return;
-	if (withLock)
-		LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
+	}
+	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint sender pid.");
+
 	/*
 	 * Since the receiver is not in the session, sender has the duty to cancel
 	 * it
 	 */
-	signal_receiver_abort(endPointDesc);
-
-	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint sender pid.");
+	signal_receiver_abort(endPointDesc->receiver_pid, endPointDesc->attach_status);
 
 	/*
 	 * Only the endpoint QE/QD execute this unset sender pid function.
@@ -749,18 +770,23 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc, bool withLock)
 	Assert(MyProcPid == endPointDesc->sender_pid || endPointDesc->sender_pid == InvalidPid);
 	if (MyProcPid == endPointDesc->sender_pid)
 	{
-		tag.sessionID = gp_session_id;
-		tag.userID = GetUserId();
-		sessionInfoEntry = hash_search(sharedSessionInfoHash, &tag, HASH_FIND, NULL);
-		Assert(sessionInfoEntry);
-
 		endPointDesc->sender_pid = InvalidPid;
-		if (strncmp(activeSharedEndpoint->cursor_name, sessionInfoEntry->cursorName, NAMEDATALEN) == 0)
-        	SetLatch(&sessionInfoEntry->udf_check_latch);
+		sessionInfoEntry = hash_search(sharedSessionInfoHash, &tag, HASH_FIND, NULL);
+		/* sessionInfoEntry may get removed on process(which executed
+		 * gp_operate_endpoints_token('w', *) UDF). This means xact finished.
+		 * No need to set latch. */
+		if (sessionInfoEntry)
+		{
+			/* Here compare the cursorName in SessionInfoEntry so endpoint
+			 * process knows whether is the right time to SetLatch that tells
+			 * UDF gp_wait_parallel_retrieve_cursor the retrieve is finished.
+		 	 */
+			if (strncmp((const char*)endPointDesc->cursor_name, sessionInfoEntry->cursorName, NAMEDATALEN) == 0)
+				SetLatch(&sessionInfoEntry->udf_check_latch);
+		}
 	}
 
-	if (withLock)
-		LWLockRelease(ParallelCursorEndpointLock);
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*
@@ -768,22 +794,17 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc, bool withLock)
  * Called by endpoint.
  */
 static void
-signal_receiver_abort(volatile EndpointDesc *endPointDesc)
+signal_receiver_abort(pid_t receiverPid, enum AttachStatus attachStatus)
 {
-	pid_t receiver_pid;
 	bool is_attached;
-
-	if (!endPointDesc || (endPointDesc && endPointDesc->empty))
-		return;
 
 	elog(DEBUG3, "CDB_ENDPOINT: signal the receiver to abort.");
 
-	receiver_pid = endPointDesc->receiver_pid;
-	is_attached = endPointDesc->attach_status == Status_Attached;
-	if (receiver_pid != InvalidPid && is_attached && receiver_pid != MyProcPid)
+	is_attached = attachStatus == Status_Attached;
+	if (receiverPid != InvalidPid && is_attached && receiverPid != MyProcPid)
 	{
-		SetBackendCancelMessage(receiver_pid, "Signal the receiver to abort.");
-		kill(receiver_pid, SIGINT);
+		SetBackendCancelMessage(receiverPid, "Signal the receiver to abort.");
+		kill(receiverPid, SIGINT);
 	}
 }
 
@@ -795,6 +816,7 @@ signal_receiver_abort(volatile EndpointDesc *endPointDesc)
 static void endpoint_abort(void)
 {
 	if (activeSharedEndpoint) {
+		unset_endpoint_sender_pid(activeSharedEndpoint);
 		free_endpoint(activeSharedEndpoint);
 		activeSharedEndpoint = NULL;
 	}
@@ -803,7 +825,7 @@ static void endpoint_abort(void)
 	 * Cause if call detach_mq to detach the message queue first, the retriever
 	 * may read NULL from message queue, then retrieve mark itself down.
 	 *
-	 * So here, we need to make sure signal retrieve abort first before endpoint
+	 * So here, need to make sure signal retrieve abort first before endpoint
 	 * detach message queue.
 	 */
 	if (activeDsmSeg) {
@@ -812,6 +834,13 @@ static void endpoint_abort(void)
 	}
 }
 
+/*
+ * Wait for PARALLEL RETRIEVE CURSOR cleanup after sender send all data.
+ *
+ * If all data get sent, hang the process and wait for QD to close it.
+ * The purpose is to not clean up EndpointDesc entry until
+ * CLOSE/COMMIT/ABORT (ie. ProtalCleanup get executed).
+ */
 void
 wait_parallel_retrieve_close(void)
 {
@@ -851,7 +880,7 @@ wait_parallel_retrieve_close(void)
  * Frees the given endpoint.
  */
 void
-free_endpoint(EndpointDesc *endpoint)
+free_endpoint(volatile EndpointDesc *endpoint)
 {
 	Assert(endpoint);
 	Assert(!endpoint->empty);
@@ -859,14 +888,12 @@ free_endpoint(EndpointDesc *endpoint)
 	elog(DEBUG3, "CDB_ENDPOINTS: Free endpoint '%s'.", endpoint->name);
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
-
-	unset_endpoint_sender_pid(endpoint, false);
 	endpoint->database_id = InvalidOid;
 	endpoint->mq_dsm_handle = DSM_HANDLE_INVALID;
 	endpoint->session_id = InvalidSession;
 	endpoint->user_id = InvalidOid;
 	endpoint->empty = true;
-	memset(endpoint->name, '\0', ENDPOINT_NAME_LEN);
+	memset((char *)endpoint->name, '\0', ENDPOINT_NAME_LEN);
 	ResetLatch(&endpoint->ack_done);
 	DisownLatch(&endpoint->ack_done);
 
@@ -883,8 +910,6 @@ register_endpoint_callbacks(void)
 
 	if (!is_registered)
 	{
-		/* Register endpoint_exit_callback only for QD/QE processes */
-		before_shmem_exit(endpoint_exit_callback, (Datum) 0);
 		// Register callback to deal with proc endpoint xact abort.
 		RegisterSubXactCallback(sender_subxact_callback, NULL);
 		RegisterXactCallback(sender_xact_abort_callback, NULL);
@@ -893,56 +918,12 @@ register_endpoint_callbacks(void)
 }
 
 /*
- * endpoint_exit_callback - callback when endpoint backend process exit
- *
- * When an endpoint backend process exit, we need to clean "session - token" mapping
- * entry in shared memory if there's no endpoint in current entry.
- * Cause when session id wrapped, we don't want old token exists in shared memory
- * for same session id(which is actually a new session id). Cause this may lead to
- * use old token to auth for new session.
- */
-static void
-endpoint_exit_callback(int code, Datum arg)
-{
-	if (!(Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_EXECUTE))
-		return;
-	bool endpoint_exists = false;
-	elog(DEBUG3, "CDB_ENDPOINT: endpoint_exit_callback session %d.", EndpointCtl.session_id);
-
-	/* Remove session info entry if current session don't have any exists EndpointDesc slot */
-	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-	for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
-	{
-		if (sharedEndpoints[i].session_id == EndpointCtl.session_id)
-		{
-			endpoint_exists = true;
-			break;
-		}
-	}
-	if (!endpoint_exists)
-	{
-		elog(LOG, "CDB_ENDPOINT: endpoint_exit_callback clean token for session %d", EndpointCtl.session_id);
-		SessionInfoEntry *entry;
-		SessionTokenTag tag;
-
-		/* When proc exit, the gp_session_id is -1, so use our record session id instead */
-		tag.sessionID = EndpointCtl.session_id;
-		tag.userID = GetUserId();
-		entry = hash_search(sharedSessionInfoHash, &tag, HASH_REMOVE, NULL);
-		if (!entry)
-			elog(LOG, "CDB_ENDPOINT: endpoint_exit_callback no entry exists for user id: %d, session: %d",
-				 tag.userID, EndpointCtl.session_id);
-	}
-	LWLockRelease(ParallelCursorEndpointLock);
-}
-
-/*
- * If endpoint/sender on xact abort, we need to do sender clean jobs.
+ * If endpoint/sender on xact abort, do sender clean jobs.
  */
 void
 sender_xact_abort_callback(XactEvent ev, void *vp)
 {
-	if (ev == XACT_EVENT_ABORT)
+	if (ev == XACT_EVENT_ABORT || ev == XACT_EVENT_PARALLEL_ABORT)
 	{
 		if (Gp_role == GP_ROLE_RETRIEVE || Gp_role == GP_ROLE_UTILITY)
 		{
@@ -955,7 +936,7 @@ sender_xact_abort_callback(XactEvent ev, void *vp)
 }
 
 /*
- * If endpoint/sender on sub xact abort, we need to do sender clean jobs.
+ * If endpoint/sender on sub xact abort, do sender clean jobs.
  */
 void
 sender_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
@@ -993,9 +974,9 @@ find_endpoint(const char *endpointName, int sessionID)
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
-		// endpoint_name is unique across sessions. But it is not right, we need
-		// to find the endpoint created by in the session with the given
-		// session_id.
+		// endpoint_name is unique across sessions. But it is not right,
+		// need to fetch the endpoint created in the session with the
+		// given session_id.
 		if (!sharedEndpoints[i].empty && sharedEndpoints[i].session_id == sessionID &&
 			endpoint_name_equals(sharedEndpoints[i].name, endpointName) &&
 			sharedEndpoints[i].database_id == MyDatabaseId)
@@ -1008,8 +989,8 @@ find_endpoint(const char *endpointName, int sessionID)
 	return res;
 }
 
-const int8 *
-get_token_by_session_id(int sessionId, Oid userID)
+void
+get_token_by_session_id(int sessionId, Oid userID, int8* token /*out*/)
 {
 	SessionInfoEntry *info_entry = NULL;
 	SessionTokenTag tag;
@@ -1017,6 +998,7 @@ get_token_by_session_id(int sessionId, Oid userID)
 	tag.sessionID = sessionId;
 	tag.userID = userID;
 
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	info_entry = (SessionInfoEntry *) hash_search(
 		sharedSessionInfoHash, &tag, HASH_FIND, NULL);
 	if (info_entry == NULL)
@@ -1024,7 +1006,8 @@ get_token_by_session_id(int sessionId, Oid userID)
 		elog(ERROR, "Token for user id: %d, session: %d doesn't exist",
 			 tag.userID, sessionId);
 	}
-	return info_entry->token;
+	memcpy(token, info_entry->token, ENDPOINT_TOKEN_LEN);
+	LWLockRelease(ParallelCursorEndpointLock);
 }
 
 /*
@@ -1037,6 +1020,7 @@ get_session_id_for_auth(Oid userID, const int8 *token)
 	SessionInfoEntry *info_entry = NULL;
 	HASH_SEQ_STATUS status;
 
+	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 	hash_seq_init(&status, sharedSessionInfoHash);
 	while ((info_entry = (SessionInfoEntry *) hash_seq_search(&status)) != NULL)
 	{
@@ -1047,13 +1031,14 @@ get_session_id_for_auth(Oid userID, const int8 *token)
 			break;
 		}
 	}
+	LWLockRelease(ParallelCursorEndpointLock);
 
 	return session_id;
 }
 
 /*
  * Generate the endpoint name based on the PARALLEL RETRIEVE CURSOR name,
- * session ID and the segment index.
+ * session ID and the segment index.lwlock.hlwlock.h
  * The endpoint name should be unique across sessions.
  */
 void generate_endpoint_name(char *name,
@@ -1135,9 +1120,8 @@ check_dispatch_connection(void)
 
 /*
  * gp_operate_endpoints_token - Operation for EndpointDesc entries on endpoint.
- * We dispatch this UDF by "CdbDispatchCommandToSegments" and "CdbDispatchCommand",
- * It'll always dispatch to writer gang, which is the gang that allocate endpoints on.
- * Since we always allocate endpoints on the top most slice gang.
+ * Dispatch this UDF by "CdbDispatchCommandToSegments" and "CdbDispatchCommand",
+ * It'll always dispatch to writer gang.
  *
  * c: check if the endpoints have been finished retrieving in a non-blocking way.
  * h: check if the endpoints have been finished retrieving in a blocking way. It will return until
@@ -1180,6 +1164,56 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 	PG_RETURN_BOOL(ret_val);
 }
 
+
+/*
+ * Register SessionInfoEntry clean up callback
+ *
+ * Since the SessionInfoEntry is created during WaitEndpointReady through
+ * gp_operate_endpoints_token('w', *) UDF execute process(which is write gang or QD),
+ * so callback needs to be registered on these processes.
+ */
+void
+register_session_info_callback(void)
+{
+	static bool registered = false;
+	if (!registered)
+	{
+		/* Register session_info_clean_callback only for UDF execute processes */
+		RegisterXactCallback(session_info_clean_callback, NULL);
+	}
+}
+
+
+/*
+ * session_info_clean_callback - callback when xact finished
+ *
+ * When an xact finished, clean "session - token" mapping entry in
+ * shared memory is needed, since there's no endpoint for current session.
+ */
+void
+session_info_clean_callback(XactEvent ev, void *vp)
+{
+	if ((ev == XACT_EVENT_COMMIT || ev == XACT_EVENT_PARALLEL_COMMIT ||
+		 ev == XACT_EVENT_ABORT  || ev == XACT_EVENT_PARALLEL_ABORT) &&
+		(Gp_is_writer || Gp_role == GP_ROLE_DISPATCH))
+	{
+		elog(LOG, "CDB_ENDPOINT: sender_xact_abort_callback clean token for session %d", EndpointCtl.session_id);
+		SessionInfoEntry *entry;
+		SessionTokenTag tag;
+
+		/* When proc exit, the gp_session_id is -1, so use our record session id instead */
+		tag.sessionID = EndpointCtl.session_id;
+		tag.userID = GetUserId();
+
+		LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
+		entry = hash_search(sharedSessionInfoHash, &tag, HASH_REMOVE, NULL);
+		if (!entry)
+			elog(LOG, "CDB_ENDPOINT: sender_xact_abort_callback no entry exists for user id: %d, session: %d",
+				 tag.userID, EndpointCtl.session_id);
+		LWLockRelease(ParallelCursorEndpointLock);
+	}
+}
+
 /*
  * Check if the endpoint has finished retrieving data
  *
@@ -1209,12 +1243,17 @@ gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 bool
 check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 {
-	bool isFinished = false;
-	EndpointDesc *endpointDesc = NULL;
-	SessionInfoEntry* sessionInfoEntry;
-	SessionTokenTag tag;
+	bool 				isFinished = false;
+	EndpointDesc*		endpointDesc = NULL;
+	SessionInfoEntry* 	sessionInfoEntry;
+	SessionTokenTag 	tag;
+	Latch*				latch = NULL;
 
-	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+	tag.userID = GetUserId();
+	tag.sessionID = gp_session_id;
+
+	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
+
 	endpointDesc = find_endpoint_by_cursor_name(cursorName, false);
 	if (endpointDesc)
 	{
@@ -1228,9 +1267,9 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 		}
 		isFinished = endpointDesc->attach_status == Status_Finished;
 	}
-	LWLockRelease(ParallelCursorEndpointLock);
-	if (endpointDesc == NULL)
+	else
 	{
+		LWLockRelease(ParallelCursorEndpointLock);
 		if(isWait){
 			elog(ERROR, "Endpoint doesn't exist.");
 		}else{
@@ -1239,15 +1278,30 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 		}
 	}
 
-	tag.userID = GetUserId();
-	tag.sessionID = gp_session_id;
 	sessionInfoEntry = hash_search(sharedSessionInfoHash, &tag, HASH_FIND, NULL);
 	Assert(sessionInfoEntry);
 
-	if(isWait && !isFinished){
-		elog(LOG, "CDB_ENDPOINT: WaitLatch on sessionInfoEntry->udf_check_latch by pid: %d", MyProcPid);
+	/* If wait is needed, set right cursorName in SessionInfoEntry when holding
+	 * LW_EXCLUSIVE EndpointLock. This guarantee sender will set latch when
+	 * retrieve finished.
+	 * Reset latch is needed before release the EndpointLock. Cause here need clean
+	 * the latch for waiting.
+	 * And sender may SetLatch right after release the EndpointLock. If reset latch out
+	 * the lock, here may WaitLatch forever.
+	 *
+	 * See declare_parallel_retrieve_ready for more details. */
+	if (isWait && !isFinished)
+	{
+		latch = &sessionInfoEntry->udf_check_latch;
+		ResetLatch(latch);
 		snprintf(sessionInfoEntry->cursorName, NAMEDATALEN, "%s", cursorName);
-		ResetLatch(&sessionInfoEntry->udf_check_latch);
+	}
+
+	LWLockRelease(ParallelCursorEndpointLock);
+
+	if(latch)
+	{
+		elog(LOG, "CDB_ENDPOINT: WaitLatch on sessionInfoEntry->udf_check_latch by pid: %d", MyProcPid);
 		while (true)
 		{
 			int wr;
@@ -1255,7 +1309,7 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 
 			if (QueryFinishPending)
 				break;
-			wr = WaitLatch(&sessionInfoEntry->udf_check_latch,
+			wr = WaitLatch(latch,
 						   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
 						   WAIT_NORMAL_TIMEOUT);
 			if (wr & WL_TIMEOUT)
@@ -1267,8 +1321,16 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 			}
 			break;
 		}
-		snprintf(sessionInfoEntry->cursorName, NAMEDATALEN, "%s", "");
-		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
+
+		LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
+		sessionInfoEntry = hash_search(sharedSessionInfoHash, &tag, HASH_FIND, NULL);
+		if (sessionInfoEntry)
+		{
+			/* It's ok not clean cursorName for interrupts or proc_exit,
+			 * since ResetLatch is always executed before WaitLatch,
+			 * it's also ok the latch get set by others already. */
+			snprintf(sessionInfoEntry->cursorName, NAMEDATALEN, "%s", "");
+		}
 		endpointDesc = find_endpoint_by_cursor_name(cursorName, false);
 		if (endpointDesc)
 		{
@@ -1286,6 +1348,10 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 /*
  * Waits until the QE is ready -- the dest receiver will be ready after this
  * function returns successfully.
+ *
+ * Create/reuse SessionInfoEntry for current session in shared memory.
+ * SessionInfoEntry is used for retrieve auth and tracking parallel retrieve
+ * from QD through UDF.
  */
 void
 wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
@@ -1297,8 +1363,14 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 	int wr						 = 0;
 	SessionTokenTag   tag;
 
+	/* Since current process create SessionInfoEntry. Register clean callback here. */
+	register_session_info_callback();
+
 	tag.sessionID = gp_session_id;
 	tag.userID = GetUserId();
+
+	/* track current session id for session_info_clean_callback  */
+	EndpointCtl.session_id = gp_session_id;
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
@@ -1316,11 +1388,10 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 	}
 	/* Overwrite exists token in case the wrapped session id entry not get removed
 	 * For example, 1 hours ago, a session 7 exists and have entry with token 123.
-	 * And for some reason the entry not get remove by endpoint_exit_callback.
+	 * And for some reason the entry not get remove by session_info_clean_callback.
 	 * Now current session is session 7 again. Here need to overwrite the old token. */
 	parse_token(info_entry->token, tokenStr);
 	elog(DEBUG3, "CDB_ENDPOINT: set new token %s, for session %d", tokenStr, gp_session_id);
-	snprintf(info_entry->cursorName, NAMEDATALEN, "%s", cursorName);
 
 	desc = find_endpoint_by_cursor_name(cursorName, false);
 	/* If the endpoints have been created and attach status is prepared, just return.
@@ -1328,6 +1399,7 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 	 * latch.*/
 	if (!desc || desc->attach_status != Status_Prepared)
 	{
+		snprintf(info_entry->cursorName, NAMEDATALEN, "%s", cursorName);
 		ResetLatch(&info_entry->udf_check_latch);
 		latch = &info_entry->udf_check_latch;
 	}
@@ -1340,7 +1412,11 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 					   WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
 					   WAIT_ENDPOINT_INIT_TIMEOUT);
 		ResetLatch(latch);
+		/* Clear the cursor name so no need to set latch in
+	 	* declare_parallel_retrieve_ready in current session */
+		LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 		snprintf(info_entry->cursorName, NAMEDATALEN, "%s", "");
+		LWLockRelease(ParallelCursorEndpointLock);
 	}
 
 	if (wr & WL_TIMEOUT)

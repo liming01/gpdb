@@ -208,7 +208,6 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 *R: @in_sh 'sub @TOKEN61 $TOKEN61': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN61';
 0Rq:
 1Rq:
-2Rq:
 
 ---------- Test7: terminate (using signal QUIT) the process of 'CHECK PARALLEL RETRIEVE CURSOR'
 1: SELECT gp_inject_fault('check_parallel_retrieve_cursor_after_udf', 'reset', 1); 

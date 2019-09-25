@@ -191,7 +191,6 @@ insert into t1 select generate_series(1,100);
 *R: @in_sh 'sub @TOKEN61 $TOKEN61': SELECT senderpid<>-1, receiverpid<>-1, status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN61';
 0Rq:
 1Rq:
-2Rq:
 
 ---------- Test7: terminate (using signal QUIT) the process of 'CHECK PARALLEL RETRIEVE CURSOR'
 1: BEGIN;

@@ -326,7 +326,7 @@ gp_endpoints_info(PG_FUNCTION_ARGS)
 					EndpointStatus* status = &mystatus->status[mystatus->status_num - cnt + idx];
 					strncpy(mystatus->status[idx].name, entry->name, ENDPOINT_NAME_LEN);
 					strncpy(mystatus->status[idx].cursor_name, entry->cursor_name, NAMEDATALEN);
-					memcpy(status->token, get_token_by_session_id(entry->session_id, entry->user_id), ENDPOINT_TOKEN_LEN);
+					get_token_by_session_id(entry->session_id, entry->user_id, status->token);
 					status->dbid = contentid_get_dbid(MASTER_CONTENT_ID, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY, false);
 					status->attach_status = entry->attach_status;
 					status->sender_pid = entry->sender_pid;
@@ -482,9 +482,11 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
 		{
 			char *status = NULL;
-			char *token = print_token(get_token_by_session_id(entry->session_id, entry->user_id));
+			int8 token[ENDPOINT_TOKEN_LEN];
+			get_token_by_session_id(entry->session_id, entry->user_id, token);
+			char *tokenStr = print_token(token);
 
-			values[0] = CStringGetTextDatum(token);
+			values[0] = CStringGetTextDatum(tokenStr);
 			nulls[0] = false;
 			values[1] = Int32GetDatum(entry->database_id);
 			nulls[1] = false;
@@ -509,7 +511,7 @@ gp_endpoints_status_info(PG_FUNCTION_ARGS)
 			result = HeapTupleGetDatum(tuple);
 			mystatus->current_idx++;
 			LWLockRelease(ParallelCursorEndpointLock);
-			pfree(token);
+			pfree(tokenStr);
 			SRF_RETURN_NEXT(funcctx, result);
 		}
 		mystatus->current_idx++;

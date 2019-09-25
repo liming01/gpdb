@@ -477,7 +477,7 @@ receive_tuple_slot(void)
 		dsm_detach(currentMQEntry->mq_seg);
 		currentMQEntry->mq_seg = NULL;
 		/* when finish retrieving data, tell sender not to wait at sender_finish()*/
-		elog(DEBUG3, "CDB_ENDPOINT: receiver set latch in receive_tuple_slot() when finish retrieving data");
+		elog(LOG, "CDB_ENDPOINT: receiver set latch in receive_tuple_slot() when finish retrieving data");
 		SetLatch(&my_shared_endpoint->ack_done);
 		currentMQEntry->retrieve_status = RETRIEVE_STATUS_FINISH;
 		return NULL;
@@ -645,8 +645,11 @@ static void retrieve_exit_callback(int code, Datum arg)
 	hash_seq_init(&status, MsgQueueHTB);
 	while ((entry = (MsgQueueStatusEntry *) hash_seq_search(&status)) != NULL)
 	{
-		retrieve_cancel_action(entry->endpoint_name, "Endpoint retrieve session quit, "
-													  "all unfinished endpoint backends will be cancelled");
+		if (entry->retrieve_status != RETRIEVE_STATUS_FINISH)
+			retrieve_cancel_action(
+				entry->endpoint_name,
+				"Endpoint retrieve session quit, all unfinished endpoint "
+				"backends will be cancelled");
 	}
 	detach_endpoint(true);
 
@@ -682,7 +685,9 @@ static void retrieve_xact_abort_callback(XactEvent ev, void *vp)
 			my_shared_endpoint != NULL &&
             EndpointCtl.session_id != InvalidSession)
 		{
-			retrieve_cancel_action(currentMQEntry->endpoint_name, "Endpoint retrieve statement aborted");
+			if (currentMQEntry->retrieve_status != RETRIEVE_STATUS_FINISH)
+				retrieve_cancel_action(currentMQEntry->endpoint_name,
+									   "Endpoint retrieve statement aborted");
 			detach_endpoint(true);
 		}
 		ClearParallelCursorExecRole();
