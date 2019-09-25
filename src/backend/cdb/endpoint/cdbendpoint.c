@@ -467,6 +467,11 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	(*endpointDest->rShutdown)(endpointDest);
 	(*endpointDest->rDestroy)(endpointDest);
 
+	/* Wait until all data is retrieved by receiver.
+	 * This is needed because when endpoint send all data to shared message queue.
+	 * The retrieve session may still not get all data from */
+	wait_receiver();
+
 	unset_endpoint_sender_pid(activeSharedEndpoint);
 
 	/* If all data get sent, hang the process and wait for QD to close it.

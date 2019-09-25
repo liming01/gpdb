@@ -47,15 +47,13 @@ typedef struct MsgQueueStatusEntry
 /* Hash table to cache tuple descriptors for all endpoint_names which have been retrieved
  * in this retrieve session */
 static HTAB *MsgQueueHTB = NULL;
-
-/* Current EndpointDesc entry */
-EndpointDesc *my_shared_endpoint = NULL;
+static MsgQueueStatusEntry* currentMQEntry = NULL;
 
 static dsm_handle attach_endpoint(MsgQueueStatusEntry *entry);
 static void detach_endpoint(MsgQueueStatusEntry *entry, bool resetPID);
 static void attach_receiver_mq(MsgQueueStatusEntry *entry, dsm_handle dsmHandle);
 static void detach_receiver_mq(MsgQueueStatusEntry *entry);
-static void notify_sender(MsgQueueStatusEntry *entry);
+static void notify_sender(MsgQueueStatusEntry *entry, bool isFinished);
 static TupleDesc read_tuple_desc_info(shm_toc *toc);
 static TupleTableSlot *receive_tuple_slot(MsgQueueStatusEntry *entry);
 static void receiver_finish(void);
@@ -117,9 +115,6 @@ attach_endpoint(MsgQueueStatusEntry *entry)
 		elog(ERROR, "%s could not attach endpoint",
 			 endpoint_role_to_string(EndpointCtl.Gp_prce_role));
 
-	if (my_shared_endpoint)
-		elog(ERROR, "endpoint is already attached");
-
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 	Endpoint endpointDesc = find_endpoint(endpointName, EndpointCtl.session_id);
 	if (!endpointDesc)
@@ -173,11 +168,10 @@ attach_endpoint(MsgQueueStatusEntry *entry)
 	{
 		endpointDesc->attach_status = Status_Attached;
 	}
-	my_shared_endpoint = endpointDesc;
 	handle = endpointDesc->mq_dsm_handle;
 
 	LWLockRelease(ParallelCursorEndpointLock);
-
+	currentMQEntry = entry;
 	return handle;
 }
 
@@ -253,7 +247,7 @@ detach_receiver_mq(MsgQueueStatusEntry *entry)
  * Notify the sender to stop waiting on the ack_done latch.
  */
 void
-notify_sender(MsgQueueStatusEntry *entry)
+notify_sender(MsgQueueStatusEntry *entry, bool isFinished)
 {
 	EndpointDesc *endpoint;
 	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
@@ -262,6 +256,10 @@ notify_sender(MsgQueueStatusEntry *entry)
 	{
 		LWLockRelease(ParallelCursorEndpointLock);
 		elog(ERROR, "Failed to notify non-existing endpoint %s", entry->endpoint_name);
+	}
+	if (isFinished)
+	{
+		endpoint->attach_status = Status_Finished;
 	}
 	SetLatch(&endpoint->ack_done);
 	LWLockRelease(ParallelCursorEndpointLock);
@@ -424,7 +422,7 @@ receive_tuple_slot(MsgQueueStatusEntry *entry)
 
 		/* at the first time to retrieve data, tell sender not to wait at wait_receiver()*/
 		elog(DEBUG3, "CDB_ENDPOINT: receiver set latch in receive_tuple_slot() at the first time to retrieve data");
-		notify_sender(entry);
+		notify_sender(entry, false);
 	}
 
 #ifdef FAULT_INJECTOR
@@ -445,6 +443,8 @@ receive_tuple_slot(MsgQueueStatusEntry *entry)
 	if (readerdone)
 	{
 		Assert(!tup);
+		DestroyTupleQueueReader(entry->tq_reader);
+		entry->tq_reader = NULL;
 		/* dsm_detach will send SIGUSR1 to sender which may interrupt the
 		 * procLatch. But sender will wait on procLatch after finishing sending.
 		 * So dsm_detach has to be called earlier to ensure the SIGUSR1 is coming
@@ -452,6 +452,7 @@ receive_tuple_slot(MsgQueueStatusEntry *entry)
 		 */
 		detach_receiver_mq(entry);
 		entry->retrieve_status = RETRIEVE_STATUS_FINISH;
+		notify_sender(entry, true);
 		return NULL;
 	}
 
@@ -506,6 +507,7 @@ detach_endpoint(MsgQueueStatusEntry *entry, bool resetPID)
 		 * will occupy current endpoint entry.
 		 */
 		LWLockRelease(ParallelCursorEndpointLock);
+		currentMQEntry = NULL;
 		return;
 	}
 
@@ -537,8 +539,7 @@ detach_endpoint(MsgQueueStatusEntry *entry, bool resetPID)
 	}
 
 	LWLockRelease(ParallelCursorEndpointLock);
-
-	my_shared_endpoint = NULL;
+	currentMQEntry = NULL;
 }
 
 /*
@@ -611,10 +612,14 @@ static void retrieve_exit_callback(int code, Datum arg)
 
 	elog(DEBUG3, "CDB_ENDPOINTS: retrieve exit callback");
 
-	ClearParallelCursorExecRole();
 	/* Nothing to do if hashtable not set up */
 	if (MsgQueueHTB == NULL)
 		return;
+
+	if (currentMQEntry)
+	{
+		detach_endpoint(currentMQEntry, true);
+	}
 
 	/* Cancel all partially retrieved endpoints in this retrieve session */
 	hash_seq_init(&status, MsgQueueHTB);
@@ -627,11 +632,9 @@ static void retrieve_exit_callback(int code, Datum arg)
 			/* It could have been detached already when finish. */
 			detach_receiver_mq(entry);
 		}
-		if (entry->retrieve_status == RETRIEVE_STATUS_GET_DATA) {
-			detach_endpoint(entry, true);
-		}
 	}
 	MsgQueueHTB = NULL;
+	ClearParallelCursorExecRole();
 }
 
 /*
@@ -645,33 +648,17 @@ static void retrieve_exit_callback(int code, Datum arg)
  */
 static void retrieve_xact_abort_callback(XactEvent ev, void *vp)
 {
-	HASH_SEQ_STATUS status;
-	MsgQueueStatusEntry *entry;
 	if (ev == XACT_EVENT_ABORT)
 	{
 		elog(DEBUG3, "CDB_ENDPOINT: retrieve xact abort callback");
-		if (EndpointCtl.Gp_prce_role == PRCER_RECEIVER && EndpointCtl.session_id != InvalidSession)
+		if (EndpointCtl.Gp_prce_role == PRCER_RECEIVER &&
+            EndpointCtl.session_id != InvalidSession &&
+			currentMQEntry)
 		{
-			while ((entry = (MsgQueueStatusEntry *) hash_seq_search(&status)) !=
-				   NULL)
-			{
-				retrieve_cancel_action(
-					entry->endpoint_name,
-					"Endpoint retrieve session quit, "
-					"all unfinished endpoint backends will be cancelled");
-				if (entry->mq_seg)
-				{
-					/* It could have been detached already when finish. */
-					detach_receiver_mq(entry);
-				}
-				if (entry->retrieve_status == RETRIEVE_STATUS_GET_DATA)
-				{
-					detach_endpoint(entry, true);
-				}
-				if (entry->retrieve_status != RETRIEVE_STATUS_FINISH)
-					retrieve_cancel_action(entry->endpoint_name,
-										   "Endpoint retrieve statement aborted");
-				}
+			if (currentMQEntry->retrieve_status != RETRIEVE_STATUS_FINISH)
+				retrieve_cancel_action(currentMQEntry->endpoint_name,
+									   "Endpoint retrieve statement aborted");
+			detach_endpoint(currentMQEntry, true);
 		}
 		ClearParallelCursorExecRole();
 	}
