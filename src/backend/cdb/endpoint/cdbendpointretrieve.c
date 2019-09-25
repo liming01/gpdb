@@ -563,9 +563,12 @@ retrieve_cancel_action(const char *endpointName, char *msg)
 	{
 		endpointDesc->receiver_pid = InvalidPid;
 		endpointDesc->attach_status = Status_Released;
-		elog(DEBUG3, "CDB_ENDPOINT: signal sender to abort");
-		SetBackendCancelMessage(endpointDesc->sender_pid, msg);
-		kill(endpointDesc->sender_pid, SIGINT);
+		if (endpointDesc->sender_pid != InvalidPid)
+		{
+			elog(DEBUG3, "CDB_ENDPOINT: signal sender to abort");
+			SetBackendCancelMessage(endpointDesc->sender_pid, msg);
+			kill(endpointDesc->sender_pid, SIGINT);
+		}
 	}
 
 	LWLockRelease(ParallelCursorEndpointLock);
