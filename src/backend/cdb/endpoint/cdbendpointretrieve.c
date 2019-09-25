@@ -350,7 +350,7 @@ RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
 	TupleTableSlot *result	 = NULL;
 	int64 retrieve_count;
 
-	entry = hash_search(MsgQueueHTB, stmt->endpoint_name, HASH_ENTER, NULL);
+	entry = hash_search(MsgQueueHTB, stmt->endpoint_name, HASH_FIND, NULL);
 	if (entry == NULL)
 	{
 		elog(ERROR, "Endpoint %s has not been attached.", stmt->endpoint_name);
