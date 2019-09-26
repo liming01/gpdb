@@ -1,13 +1,10 @@
 /*
- * src/test/examples/test_parallel_cursor_nowait.c
+ * src/test/examples/test_parallel_cursor_extended_query.c
  *
  *
- * test_parallel_cursor_nowait.c
- *		this program only support gpdb with the PARALLEL RETRIEVE CURSOR feature. It shows how to
- * use LIBPQ to make a connect to gpdb master node and create a PARALLEL RETRIEVE CURSOR and check 
- * it's status in nowait mode, and how to make multiple retrieve mode connections to all endpoints
- * of the PARALLEL RETRIEVE CURSOR (i.e. gpdb all segment nodes in this sample) and parallelly
- * retrieve the results of these endpoints.
+ * test_parallel_cursor_extended_query.c
+ *
+ * this program is to show extended query with the PARALLEL RETRIEVE CURSOR.
  */
 #include <stdio.h>
 #include <string.h>
@@ -425,7 +422,7 @@ main(int argc, char **argv)
 		goto LABEL_ERR;
 
 
-/*	 fclose(debug); */
+	/* fclose(debug); */
 	retVal = 0;
 	goto LABEL_FINISH;
 
