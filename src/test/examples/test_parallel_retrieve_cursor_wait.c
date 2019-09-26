@@ -285,7 +285,11 @@ main(int argc, char **argv)
 
 		/* the endpoint is ready to be retrieved when 'DECLARE PARALLEL RETRIEVE CURSOR returns, here begin to retrieve */
 		snprintf(sql, sizeof(sql), "RETRIEVE ALL FROM ENDPOINT %s;", endpoint_names[i]);
-		exec_sql_with_resultset(endpoint_conns[i], sql, i);
+		if(exec_sql_with_resultset(endpoint_conns[i], sql, i))
+		{
+			fprintf(stderr, "Error during retrieving result on endpoint.\n");
+			goto LABEL_ERR;
+		}
 		printf("\n------ End retrieving data from Endpoint %d# ------.\n", i);
 	}
 

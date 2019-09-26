@@ -101,8 +101,9 @@ FindEndpointTokenByUser(Oid userID, const char *tokenStr)
 }
 
 /*
- * attach_endpoint - Attach to an endpoint which's name is specified in the given
- * entry.
+ * attach_endpoint - Attach to an endpoint which's name is specified in the given entry.
+ * When call RETRIEVE statement in PQprepare() & PQexecPrepared(), this
+ * func will be called 2 times.
  */
 dsm_handle
 attach_endpoint(MsgQueueStatusEntry *entry)
@@ -137,7 +138,7 @@ attach_endpoint(MsgQueueStatusEntry *entry)
 		//Assert(endpointDesc->attach_status == Status_Finished);
 	}
 
-	if (endpointDesc->attach_status == Status_Attached)
+	if (endpointDesc->attach_status == Status_Attached && endpointDesc->receiver_pid != MyProcPid)
 	{
 		attached_pid = endpointDesc->receiver_pid;
 		elog(ERROR, "Endpoint %s is already being retrieved by receiver(pid: %d)",

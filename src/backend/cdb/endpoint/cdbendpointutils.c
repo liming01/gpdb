@@ -108,14 +108,16 @@ print_token(const int8 *token)
 }
 
 /*
- * Set the role of endpoint, sender or receiver
+ * Set the role of endpoint, sender or receiver.
+ * When call RETRIEVE statement in PQprepare() & PQexecPrepared(), this
+ * func will be called 2 times.
  */
 void
 SetParallelCursorExecRole(enum ParallelRetrCursorExecRole role)
 {
-	if (EndpointCtl.Gp_prce_role != PRCER_NONE)
-		elog(ERROR, "endpoint role %s is already set",
-			 endpoint_role_to_string(EndpointCtl.Gp_prce_role));
+	if (EndpointCtl.Gp_prce_role != PRCER_NONE && EndpointCtl.Gp_prce_role != role)
+		elog(ERROR, "endpoint role %s is already set to %s",
+			 endpoint_role_to_string(EndpointCtl.Gp_prce_role), endpoint_role_to_string(role));
 
 	elog(DEBUG3, "CDB_ENDPOINT: set endpoint role to %s", endpoint_role_to_string(role));
 

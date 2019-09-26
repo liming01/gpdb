@@ -86,6 +86,94 @@ exec_sql_without_resultset(PGconn *conn, const char *sql, int conn_idx)
 
 /* execute sql and print the result set */
 static int
+exec_sql_with_resultset_in_extended_query_protocol(PGconn *conn, const char *sql, int conn_idx)
+{
+	PGresult   *res1;
+	int			nFields;
+	int			i;
+	const char *paramValues[1];
+
+	paramValues[0] = "0";
+
+	if(conn_idx == MASTER_CONNECT_INDEX)
+		printf("\nExec SQL on Master:\n\t> %s\n", sql);
+	else
+		printf("\nExec SQL on EndPoint[%d]:\n\t> %s\n", conn_idx, sql);
+
+	/* Just for simplicity, here for different connect index,
+	 * call different API in the extended query protocol
+	 */
+	switch (conn_idx){
+		case 0:
+			res1 = PQprepare(conn, "extend_query_cursor",
+			                 sql,
+			                 0, NULL);
+
+			if (PQresultStatus(res1) != PGRES_TUPLES_OK && PQresultStatus(res1) != PGRES_COMMAND_OK)
+			{
+				fprintf(stdout, "PQprepare didn't return properly: resultStatus: %d: \"%s\"\nfailed %s", PQresultStatus(res1), sql, PQerrorMessage(conn));
+				PQclear(res1);
+				return 1;
+			}
+			res1 = PQexecPrepared(conn, "extend_query_cursor", 0,
+			                      paramValues, NULL, NULL, 0);
+
+			if (PQresultStatus(res1) != PGRES_TUPLES_OK)
+			{
+				fprintf(stderr, "Query didn't return tuples properly: \"%s\"\nfailed %s", sql, PQerrorMessage(conn));
+				PQclear(res1);
+				return 1;
+			}
+			break;
+		case 1:
+			res1 = PQexecParams(conn,
+			                   sql,
+			                   0,       /* one param */
+			                   NULL,    /* let the backend deduce param type */
+			                   paramValues,
+			                   NULL,    /* don't need param lengths since text */
+			                   NULL,    /* default to all text params */
+			                   0);       /* ask for binary results */
+			if (PQresultStatus(res1) != PGRES_TUPLES_OK)
+			{
+				fprintf(stderr, "Query didn't return tuples properly: \"%s\"\nfailed %s", sql, PQerrorMessage(conn));
+				PQclear(res1);
+				return 1;
+			}
+			break;
+		case 2:
+		default:
+			res1 = PQexec(conn, sql);
+			if (PQresultStatus(res1) != PGRES_TUPLES_OK)
+			{
+				fprintf(stderr, "Query didn't return tuples properly: \"%s\"\nfailed %s", sql, PQerrorMessage(conn));
+				PQclear(res1);
+				return 1;
+			}
+			break;
+	}
+
+
+	/* first, print out the attribute names */
+	nFields = PQnfields(res1);
+	for (i = 0; i < nFields; i++)
+		printf("%-15s", PQfname(res1, i));
+	printf("\n---------\n");
+
+	/* next, print out the instances */
+	for (i = 0; i < PQntuples(res1); i++)
+	{
+		for (int j = 0; j < nFields; j++)
+			printf("%-15s", PQgetvalue(res1, i, j));
+		printf("\n");
+	}
+
+	PQclear(res1);
+	return 0;
+}
+
+/* execute sql and print the result set */
+static int
 exec_sql_with_resultset(PGconn *conn, const char *sql, int conn_idx)
 {
 	PGresult   *res1;
@@ -312,11 +400,12 @@ main(int argc, char **argv)
 		/* the endpoint is ready to be retrieved when 'DECLARE PARALLEL RETRIEVE CURSOR returns, here begin to retrieve */
 		printf("\n------ Begin retrieving data from Endpoint %d# ------\n", i);
 		snprintf(sql, sizeof(sql), "RETRIEVE ALL FROM ENDPOINT %s;", endpoint_names[i]);
-		if(exec_sql_with_resultset(endpoint_conns[i], sql, i))
+		if(exec_sql_with_resultset_in_extended_query_protocol(endpoint_conns[i], sql, i))
 		{
 			fprintf(stderr, "Error during retrieving result on endpoint.\n");
 			goto LABEL_ERR;
 		}
+
 		printf("\n------ End retrieving data from Endpoint %d# ------.\n", i);
 	}
 
