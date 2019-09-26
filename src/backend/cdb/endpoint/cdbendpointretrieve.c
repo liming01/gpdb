@@ -56,7 +56,6 @@ static void detach_receiver_mq(MsgQueueStatusEntry *entry);
 static void notify_sender(MsgQueueStatusEntry *entry, bool isFinished);
 static TupleDesc read_tuple_desc_info(shm_toc *toc);
 static TupleTableSlot *receive_tuple_slot(MsgQueueStatusEntry *entry);
-static void receiver_finish(void);
 static void retrieve_cancel_action(const char *endpointName, char *msg);
 static void retrieve_exit_callback(int code, Datum arg);
 static void retrieve_xact_abort_callback(XactEvent ev, void *vp);
@@ -389,8 +388,6 @@ RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest)
 				(*dest->receiveSlot)(result, dest);
 			}
 		}
-
-		receiver_finish();
 	}
 
 	detach_endpoint(entry, false);
@@ -469,15 +466,6 @@ receive_tuple_slot(MsgQueueStatusEntry *entry)
 						   false);    /* slot should not pfree tuple */
 	}
 	return result;
-}
-
-/*
- * Receiver finish
- */
-static void
-receiver_finish(void)
-{
-/* for now, receiver does nothing after finished */
 }
 
 /*
