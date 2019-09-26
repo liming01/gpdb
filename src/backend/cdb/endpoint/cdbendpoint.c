@@ -460,7 +460,7 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 	 * ack_done latch will be reset to be re-used when retrieving finished. */
 	wait_receiver();
 
-	/* tqueueShutdownReceiver() (rShutdown calblack) will call shm_mq_detach(),
+	/* tqueueShutdownReceiver() (rShutdown callback) will call shm_mq_detach(),
 	 * so need to call it before detach_mq().
 	 * Retrieving session will set ack_done latch again after shm_mq_detach()
 	 * called here. */
@@ -476,7 +476,7 @@ DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest)
 
 	/* If all data get sent, hang the process and wait for QD to close it.
 	 * The purpose is to not clean up EndpointDesc entry until
-	 * CLOSE/COMMIT/ABORT (ie. ProtalCleanup get executed).
+	 * CLOSE/COMMIT/ABORT (i.e. ProtalCleanup get executed).
 	 * So user can still see the finished endpoint status through
 	 * gp_endpoints_info UDF. This is needed because pg_cusor view can still see
 	 * the PARALLEL RETRIEVE CURSOR */
@@ -1058,7 +1058,7 @@ generate_endpoint_name(char *name, const char *cursorName, int32 sessionID,
 {
 	/* Use counter to avoid duplicated endpoint names when error happens.
 	 * Since the retrieve session won't be terminated when transaction abort, reuse
-	 * the previous endpoint name may cause unexpected behaviour for the retrieving
+	 * the previous endpoint name may cause unexpected behavior for the retrieving
 	 * session. */
 	static uint8 counter = 0;
 	snprintf(name, ENDPOINT_NAME_LEN, "%s%08x%08x%02x", cursorName,
@@ -1069,23 +1069,24 @@ generate_endpoint_name(char *name, const char *cursorName, int32 sessionID,
  * Find the EndpointDesc entry by the given cursor name in current session.
  */
 EndpointDesc *
-find_endpoint_by_cursor_name(const char *cursor_name, bool with_lock)
+find_endpoint_by_cursor_name(const char *cursorName, bool withLock)
 {
 	EndpointDesc *res = NULL;
 
-	if (with_lock)
+	if (withLock)
 		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
 
 	for (int i = 0; i < MAX_ENDPOINT_SIZE; ++i)
 	{
 		if (!sharedEndpoints[i].empty && sharedEndpoints[i].session_id == gp_session_id &&
-			strncmp(sharedEndpoints[i].cursor_name, cursor_name, NAMEDATALEN) == 0)
+			strncmp(sharedEndpoints[i].cursor_name, cursorName, NAMEDATALEN) == 0)
 		{
 			res = &sharedEndpoints[i];
+			break;
 		}
 	}
 
-	if (with_lock)
+	if (withLock)
 		LWLockRelease(ParallelCursorEndpointLock);
 
 	return res;
@@ -1207,8 +1208,10 @@ session_info_clean_callback(XactEvent ev, void *vp)
 		LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 		entry = hash_search(sharedSessionInfoHash, &tag, HASH_REMOVE, NULL);
 		if (!entry)
+		{
 			elog(LOG, "CDB_ENDPOINT: sender_xact_abort_callback no entry exists for user id: %d, session: %d",
 				 tag.userID, EndpointCtl.session_id);
+		}
 		LWLockRelease(ParallelCursorEndpointLock);
 	}
 }
@@ -1269,9 +1272,12 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 	else
 	{
 		LWLockRelease(ParallelCursorEndpointLock);
-		if(isWait){
+		if (isWait)
+		{
 			elog(ERROR, "Endpoint doesn't exist.");
-		}else{
+		}
+		else
+		{
 			/* if no endpoint found, it maybe something wrong, just return false, i.e. not finished successfully. */
 			return false;
 		}
