@@ -131,12 +131,6 @@ attach_endpoint(MsgQueueStatusEntry *entry)
 								"RETRIEVE CURSOR creator to retrieve.")));
 	}
 
-	if (endpointDesc->sender_pid == InvalidPid)
-	{
-		// FIXME: Enable this when moved set finished to this file.
-		//Assert(endpointDesc->attach_status == Status_Finished);
-	}
-
 	if (endpointDesc->attach_status == Status_Attached && endpointDesc->receiver_pid != MyProcPid)
 	{
 		attached_pid = endpointDesc->receiver_pid;
@@ -155,6 +149,12 @@ attach_endpoint(MsgQueueStatusEntry *entry)
 						endpointName, attached_pid),
 				 errdetail("An endpoint can only be attached by one retrieving "
 						   "session.")));
+	}
+
+	if (endpointDesc->sender_pid == InvalidPid)
+	{
+		/* Should not happen. */
+		Assert(endpointDesc->attach_status == Status_Finished);
 	}
 
 	if (endpointDesc->receiver_pid == InvalidPid)
@@ -236,8 +236,8 @@ detach_receiver_mq(MsgQueueStatusEntry *entry)
 	Assert(entry->mq_seg);
 	Assert(entry->mq_handle);
 
-	// FIXME: Should we call detach here?
-	//shm_mq_detach();
+	/* No need to call shm_mq_detach since mq will register mq_detach_callback on
+	 * seg->on_detach to do that. */
 	dsm_detach(entry->mq_seg);
 	entry->mq_seg = NULL;
 	entry->mq_handle = NULL;
