@@ -1,22 +1,61 @@
-/*
+/*-------------------------------------------------------------------------
  * cdbendpoint.c
  *
- * When define and execute a PARALLEL RETRIEVE CURSOR, the results are written to
- * endpoints.
+ * An endpoint is a query result source for a parallel retrieve cursor on a
+ * dedicated QE. One parallel retrieve cursor could have multiple endpoints
+ * on different QEs to allow the retrieving to be done in parallel.
+ *
+ * This file implements the sender part of endpoint.
  *
  * Endpoint may exist on master or segments, depends on the query of the PARALLEL
- * RETRIEVE CURSOR: (1) An endpoint is on QD only if the query of the parallel
- *     cursor needs to be finally gathered by the master. e.g.
- *     > CREATE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM T1 ORDER BY C1;
+ * RETRIEVE CURSOR:
+ * (1) An endpoint is on QD only if the query of the parallel cursor needs to be
+ *     finally gathered by the master. e.g.:
+ * > CREATE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM T1 ORDER BY C1;
  * (2) The endpoints are on specific segments node if the direct dispatch happens.
- * e.g. > CREATE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM T1 WHERE C1=1 OR
- * C1=2; (3) The endpoints are on all segments node. e.g. > CREATE c1 PARALLEL
- * RETRIEVE CURSOR FOR SELECT * FROM T1;
+ *     e.g.:
+ * > CREATE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM T1 WHERE C1=1 OR C1=2;
+ * (3) The endpoints are on all segments node. e.g:
+ * > CREATE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM T1;
  *
- * When QE or QD write results to endpoint, it will replace normal dest receiver
- * with TQueueDestReceiver, so that the query results will be write into a shared
- * message queue. Then the retrieve backend use TupleQueueReader to read
- * query results from the shared message queue(cdbendpointretrieve.c).
+ * When a parallel retrieve cusor is declared, the query plan will be dispatched
+ * to the corresponding QEs. Before the query execution, endpoints will be
+ * created first on QEs. An entry of EndpointDesc in the shared memory represents
+ * the endpoint. Through the EndpointDesc, the client could know the endpoint's
+ * identification (endpoint name), location (dbid, host, port and session id),
+ * and the status for the retrieve session. All of those information can be
+ * obtained on QD by UDF "gp_endpoints_info" or on QE's retrieve session by UDF
+ * "gp_endpoint_status_info". The EndpointDesc are stored on QE only in the
+ * shared memory. QD doesn't know the endpoint's information unless it sends a
+ * query requst (by UDF "gp_endpoint_status_info") to QE.
+ *
+ * Instead of returning the query result to master through a normal dest receiver,
+ * endpoints writes the results to TQueueDestReceiver which is a shared memory
+ * queue and can be retrieved from a different process. See
+ * CreateTQDestReceiverForEndpoint(). The information about the message queue is
+ * also stored in the EndpointDesc so that the retrieve session on the same QE
+ * can know.
+ *
+ * The token is stored in a different structure SessionInfoEntry to make the
+ * tokens same for all endpoints in the same session. The token is created on
+ * QD and sent to QE's write gang by internal udf gp_operate_endpoints_token after
+ * endpoint intialization and query starts. This happens on write gang since read
+ * gang is busy with executing query plan and cannot respond to QD's command.
+ *
+ * DECLCARE returns only when endpoint and token are ready and query starts
+ * execution. See WaitEndpointReady().
+ *
+ * When the query finishes, the endpoint won't be destroyed immediately since we
+ * may still want to check its status on QD. In the implementation, the
+ * DestroyTQDestReceiverForEndpoint is blocked until the parallel retrieve cursor
+ * is closed explicitly through CLOSE statement or error happens.
+ *
+ * About implementation of endpoint receiver, see "cdbendpointretrieve.c".
+ *
+ * UDF gp_check_parallel_retrieve_cursor and gp_wait_parallel_retrieve_cursor are
+ * supplied as client helper functions to monitor the retrieve status. They are
+ * running on the write gangs to return/check endpoint's status in the shared
+ * memory.
  *
  * Copyright (c) 2019-Present Pivotal Software, Inc.
  *
