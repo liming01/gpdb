@@ -612,3 +612,85 @@ ROLLBACK
 -----------------
  Success:        
 (1 row)
+
+
+-- Test7: close PARALLEL RETRIEVE CURSOR during retrieve
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 2::smallint);
+ gp_inject_fault 
+-----------------
+ Success:        
+(1 row)
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 4::smallint);
+ gp_inject_fault 
+-----------------
+ Success:        
+(1 row)
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 3::smallint);
+ gp_inject_fault 
+-----------------
+ Success:        
+(1 row)
+
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
+DECLARE
+1: @out_sh 'parse_endpoint 7 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id7_1 | token_id | host_id | port_id | READY
+ endpoint_id7_2 | token_id | host_id | port_id | READY
+ endpoint_id7_3 | token_id | host_id | port_id | READY
+(3 rows)
+
+0R: @in_sh 'sub @TOKEN6 $TOKEN7' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
+ status 
+--------
+(0 rows)
+0R&: @in_sh 'sub_endpoint_name @ENDPOINT7': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT7";  <waiting ...>
+
+1R: @in_sh 'sub @TOKEN6 $TOKEN7' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
+ status 
+--------
+(0 rows)
+1R&: @in_sh 'sub_endpoint_name @ENDPOINT7': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT7";  <waiting ...>
+
+2R: @in_sh 'sub @TOKEN6 $TOKEN7' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
+ status 
+--------
+(0 rows)
+2R&: @in_sh 'sub_endpoint_name @ENDPOINT7': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT7";  <waiting ...>
+
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
+ finished 
+----------
+ f        
+(1 row)
+1: CLOSE c1;
+CLOSE
+
+0R<:  <... completed>
+ERROR:  canceling statement due to user request: "Signal the receiver to abort."
+1R<:  <... completed>
+ERROR:  canceling statement due to user request: "Signal the receiver to abort."
+2R<:  <... completed>
+ERROR:  canceling statement due to user request: "Signal the receiver to abort."
+
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
+ERROR:  cursor "c1" does not exist
+1: END;
+END
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
+ gp_inject_fault 
+-----------------
+ Success:        
+(1 row)
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
+ gp_inject_fault 
+-----------------
+ Success:        
+(1 row)
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 4);
+ gp_inject_fault 
+-----------------
+ Success:        
+(1 row)
+

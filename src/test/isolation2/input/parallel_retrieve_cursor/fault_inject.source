@@ -176,3 +176,36 @@ CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 1<:
 1: ROLLBACK;
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
+
+
+-- Test7: close PARALLEL RETRIEVE CURSOR during retrieve
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 2::smallint);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 4::smallint);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'sleep', '', '', '', 1, 6, 10, 3::smallint);
+
+1: BEGIN;
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t1;
+1: @out_sh 'parse_endpoint 7 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+
+0R: @in_sh 'sub @TOKEN6 $TOKEN7' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
+0R&: @in_sh 'sub_endpoint_name @ENDPOINT7': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT7";
+
+1R: @in_sh 'sub @TOKEN6 $TOKEN7' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
+1R&: @in_sh 'sub_endpoint_name @ENDPOINT7': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT7";
+
+2R: @in_sh 'sub @TOKEN6 $TOKEN7' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN7';
+2R&: @in_sh 'sub_endpoint_name @ENDPOINT7': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT7";
+
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
+1: CLOSE c1;
+
+0R<:
+1R<:
+2R<:
+
+1: SELECT * FROM gp_check_parallel_retrieve_cursor('c1');
+1: END;
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 2);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 4);
+
