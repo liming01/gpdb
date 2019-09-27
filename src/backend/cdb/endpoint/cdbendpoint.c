@@ -50,7 +50,7 @@
 #endif
 
 /* The timeout before returns failure for endpoints initialization. */
-#define WAIT_ENDPOINT_INIT_TIMEOUT      5000
+#define WAIT_ENDPOINT_INIT_RETRY_LIMIT  20
 #define WAIT_NORMAL_TIMEOUT             300
 /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536
@@ -1475,25 +1475,42 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 
 	if (latch)
 	{
-		wr = WaitLatch(latch, WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
-					   WAIT_ENDPOINT_INIT_TIMEOUT);
-		ResetLatch(latch);
+		int wr;
+		int retryCount = 0;
+		while (true && retryCount < WAIT_ENDPOINT_INIT_RETRY_LIMIT)
+		{
+			CHECK_FOR_INTERRUPTS();
+
+			if (QueryFinishPending)
+				break;
+
+			check_dispatch_connection();
+
+			wr = WaitLatch(latch, WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT,
+						   WAIT_NORMAL_TIMEOUT);
+			retryCount++;
+			if (wr & WL_TIMEOUT)
+				continue;
+
+			if (wr & WL_POSTMASTER_DEATH)
+			{
+				elog(DEBUG3, "CDB_ENDPOINT: postmaster exit, DECLARE PARALLEL CURSOR failed.");
+				proc_exit(0);
+			}
+
+			Assert(wr & WL_LATCH_SET);
+			ResetLatch(latch);
+			break;
+		}
+
 		/* Clear the cursor name so no need to set latch in
 		 * declare_parallel_retrieve_ready in current session */
 		LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 		snprintf(info_entry->cursorName, NAMEDATALEN, "%s", "");
 		LWLockRelease(ParallelCursorEndpointLock);
-	}
 
-	if (wr & WL_TIMEOUT)
-	{
-		elog(ERROR, "Creating endpoint timeout");
-	}
-
-	if (wr & WL_POSTMASTER_DEATH)
-	{
-		elog(DEBUG3, "CDB_ENDPOINT: Postmaster exit.");
-		proc_exit(1);
+		if (wr & WL_TIMEOUT && !QueryFinishPending)
+			elog(ERROR, "Creating endpoint timeout");
 	}
 }
 
