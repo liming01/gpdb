@@ -64,7 +64,7 @@ static char *			 status_enum_to_string(enum AttachStatus status);
 static enum AttachStatus status_string_to_enum(const char *status);
 
 /* Endpoint control information for current session. */
-struct EndpointControl EndpointCtl = {PRCER_NONE, -1};
+struct EndpointControl EndpointCtl = {PRCER_NONE, InvalidSession};
 
 /*
  * Convert the string tk0123456789 to int 0123456789 and save it into

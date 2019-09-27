@@ -344,7 +344,7 @@ retrieve_role_authentication(Port *port)
 	 * password is the token
 	 */
 	owner_uid = get_role_oid(port->user_name, false);
-	if (!FindEndpointTokenByUser(owner_uid, passwd))
+	if (!AuthEndpoint(owner_uid, passwd))
 	{
 		ereport(FATAL, (errcode(ERRCODE_INVALID_PASSWORD), errmsg("%s", msg)));
 	}

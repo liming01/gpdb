@@ -1078,7 +1078,7 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_RetrieveStmt:
-			RetrieveResults((RetrieveStmt *) parsetree, dest);
+			ExecRetrieveStmt((RetrieveStmt *) parsetree, dest);
 			break;
 
 		case T_CommentStmt:
@@ -2151,7 +2151,7 @@ UtilityTupleDescriptor(Node *parsetree)
 
                 SetParallelCursorExecRole(PRCER_RECEIVER);
 
-				return CreateTupleDescCopy(GetEndpointTupleDesc(n->endpoint_name));
+				return CreateTupleDescCopy(GetRetrieveStmtTupleDesc(n));
 			}
 
 		default:

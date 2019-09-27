@@ -97,9 +97,9 @@ extern Datum gp_wait_parallel_retrieve_cursor(PG_FUNCTION_ARGS);
 /*
  * Below functions should run on retrieve role backend.
  */
-extern bool FindEndpointTokenByUser(Oid userID, const char *tokenStr);
-extern TupleDesc GetEndpointTupleDesc(const char *endpointName);
-extern void RetrieveResults(RetrieveStmt *stmt, DestReceiver *dest);
+extern bool		 AuthEndpoint(Oid userID, const char *tokenStr);
+extern TupleDesc GetRetrieveStmtTupleDesc(const RetrieveStmt *stmt);
+extern void		 ExecRetrieveStmt(const RetrieveStmt *stmt, DestReceiver *dest);
 
 
 /* cdbendpointutils.c */
