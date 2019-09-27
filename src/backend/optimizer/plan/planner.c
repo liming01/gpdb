@@ -312,6 +312,8 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	glob->lastRowMarkId = 0;
 	glob->transientPlan = false;
 	glob->oneoffPlan = false;
+	glob->nMotionNodes = 0;
+	glob->nInitPlans = 0;
 	/* ApplyShareInputContext initialization. */
 	glob->share.producers = NULL;
 	glob->share.producer_count = 0;
@@ -407,16 +409,9 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		lfirst(lp) = set_plan_references(subroot, subplan);
 	}
 
-	/* walk plan and remove unused initplans and their params */
-	remove_unused_initplans(top_plan, root);
-
-	/* walk subplans and fixup subplan node referring to same plan_id */
-	SubPlanWalkerContext subplan_context;
-	fixup_subplans(top_plan, root, &subplan_context);
-
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
-		top_plan = cdbparallelize(root, top_plan, parse, cursorOptions);
+		top_plan = cdbparallelize(root, top_plan, cursorOptions);
 
 		/*
 		 * cdbparallelize() mutates all the nodes, so the producer nodes we
@@ -434,16 +429,16 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		 */
 		top_plan = apply_shareinput_xslice(top_plan, root);
 	}
-
-	/*
-	 * Remove unused subplans.
-	 * Executor initializes state for subplans even they are unused.
-	 * When the generated subplan is not used and has motion inside,
-	 * causing motionID not being assigned, which will break sanity
-	 * check when executor tries to initialize subplan state.
-	 */
-	remove_unused_subplans(root, &subplan_context);
-	bms_free(subplan_context.bms_subplans);
+	else
+	{
+		/*
+		 * Normally cdbparallelize() creates these, but they need to be
+		 * initialized even for completely local plans that don't need any
+		 * "parallelization"; the out/read functions expect them to be present.
+		 */
+		glob->subplan_sliceIds = palloc0((list_length(glob->subplans) + 1) * sizeof(int));
+		glob->subplan_initPlanParallel = palloc0((list_length(glob->subplans) + 1) * sizeof(bool));
+	}
 
 	/* fix ShareInputScans for EXPLAIN */
 	foreach(lp, glob->subplans)
@@ -469,6 +464,8 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	result->resultRelations = glob->resultRelations;
 	result->utilityStmt = parse->utilityStmt;
 	result->subplans = glob->subplans;
+	result->subplan_sliceIds = glob->subplan_sliceIds;
+	result->subplan_initPlanParallel = glob->subplan_initPlanParallel;
 	result->rewindPlanIDs = glob->rewindPlanIDs;
 	result->result_partitions = root->result_partitions;
 	result->result_aosegnos = root->result_aosegnos;
@@ -478,8 +475,8 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	result->nParamExec = glob->nParamExec;
 	result->hasRowSecurity = glob->hasRowSecurity;
 
-	result->nMotionNodes = top_plan->nMotionNodes;
-	result->nInitPlans = top_plan->nInitPlans;
+	result->nMotionNodes = glob->nMotionNodes;
+	result->nInitPlans = glob->nInitPlans;
 	result->intoPolicy = GpPolicyCopy(parse->intoPolicy);
 	result->queryPartOids = NIL;
 	result->queryPartsMetadata = NIL;
@@ -1508,9 +1505,14 @@ inheritance_planner(PlannerInfo *root)
 			}
 			if (!locus_ok)
 			{
-				ereport(ERROR, (
-								errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("incompatible loci in target inheritance set")));
+				/*
+				 * This is reachable, if you have normal distributed/replicated tables,
+				 * and foreign tables that can only be executed in the QD, in the same
+				 * inheritance tree.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("incompatible loci in target inheritance set")));
 			}
 		}
 
@@ -3857,7 +3859,7 @@ is_dummy_plan_walker(Node *node, bool *context)
 			 * plan topology, even though we know they will return no rows
 			 * from a dummy.
 			 */
-			return plan_tree_walker(node, is_dummy_plan_walker, context);
+			return plan_tree_walker(node, is_dummy_plan_walker, context, true);
 
 		default:
 

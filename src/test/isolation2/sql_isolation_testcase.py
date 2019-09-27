@@ -18,7 +18,10 @@ limitations under the License.
 import pygresql.pg
 import pty
 import os
-import subprocess
+try:
+    import subprocess32 as subprocess
+except:
+    import subprocess
 import re
 import multiprocessing
 import tempfile
@@ -102,7 +105,6 @@ class GlobalShellExecutor(object):
         # open pseudo-terminal to interact with subprocess
         self.master_fd, self.slave_fd = pty.openpty()
         self.sh_proc = subprocess.Popen(['/bin/bash', '--noprofile', '--norc', '--noediting', '-i'],
-                                        preexec_fn=os.setsid,
                                         stdin=self.slave_fd,
                                         stdout=self.slave_fd,
                                         stderr=self.slave_fd,

@@ -1840,7 +1840,7 @@ MotionFinderWalker(Plan *node,
 	}
 
 	/* Continue walking */
-	return plan_tree_walker((Node*)node, MotionFinderWalker, ctx);
+	return plan_tree_walker((Node*)node, MotionFinderWalker, ctx, true);
 }
 
 /*
@@ -1891,7 +1891,7 @@ SubPlanFinderWalker(Plan *node,
 	}
 
 	/* Continue walking */
-	return plan_tree_walker((Node*)node, SubPlanFinderWalker, ctx);
+	return plan_tree_walker((Node*)node, SubPlanFinderWalker, ctx, true);
 }
 
 /*
@@ -1948,7 +1948,7 @@ static void ExtractSubPlanParam(SubPlan *subplan, EState *estate)
 			 * we will simply substitute the actual value from
 			 * the external parameters.
 			 */
-			if (Gp_role == GP_ROLE_EXECUTE && subplan->is_initplan)
+			if (subplan->is_initplan)
 			{
 				ParamListInfo paramInfo = estate->es_param_list_info;
 				ParamExternData *prmExt = NULL;
@@ -2006,17 +2006,21 @@ ParamExtractorWalker(Plan *node,
 	}
 
 	/* Continue walking */
-	return plan_tree_walker((Node*)node, ParamExtractorWalker, ctx);
+	return plan_tree_walker((Node*)node, ParamExtractorWalker, ctx, true);
 }
 
 /*
  * Find and extract all the InitPlan setParams in a root node's subtree.
  */
-void ExtractParamsFromInitPlans(PlannedStmt *plannedstmt, Plan *root, EState *estate)
+void
+ExtractParamsFromInitPlans(PlannedStmt *plannedstmt, Plan *root, EState *estate)
 {
 	ParamExtractorContext ctx;
-	ctx.base.node = (Node*)plannedstmt;
+
+	ctx.base.node = (Node*) plannedstmt;
 	ctx.estate = estate;
+
+	Assert(Gp_role == GP_ROLE_EXECUTE);
 
 	/* If gather motion shows up at top, we still need to find master only init plan */
 	if (IsA(root, Motion))
@@ -2078,14 +2082,14 @@ MotionAssignerWalker(Plan *node,
 	if (IsA(node, Motion))
 	{
 		ctx->motStack = lcons(node, ctx->motStack);
-		plan_tree_walker((Node *)node, MotionAssignerWalker, ctx);
+		plan_tree_walker((Node *)node, MotionAssignerWalker, ctx, true);
 		ctx->motStack = list_delete_first(ctx->motStack);
 
 		return false;
 	}
 
 	/* Continue walking */
-	return plan_tree_walker((Node*)node, MotionAssignerWalker, ctx);
+	return plan_tree_walker((Node*)node, MotionAssignerWalker, ctx, true);
 }
 
 /*

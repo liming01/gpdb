@@ -15,7 +15,10 @@ import tarfile
 import tempfile
 import thread
 import json
-from subprocess import Popen, PIPE
+try:
+    from subprocess32 import Popen, PIPE
+except:
+    from subprocess import Popen, PIPE
 import commands
 import signal
 from collections import defaultdict
@@ -2225,6 +2228,28 @@ def _gpexpand_redistribute(context, duration=False, endtime=False):
             return
         else:
             raise Exception("gpexpand didn't stop at duration / endtime.\nstderr=%s\nstdout=%s" % (std_err, std_out))
+    if ret_code != 0:
+        raise Exception("gpexpand exited with return code: %d.\nstderr=%s\nstdout=%s" % (ret_code, std_err, std_out))
+
+@given('expanded preferred primary on segment "{segment_id}" has failed')
+def step_impl(context, segment_id):
+    stop_primary(context, int(segment_id))
+    wait_for_unblocked_transactions(context)
+
+@given('the user runs gpexpand with a static inputfile for a two-node cluster with mirrors')
+def impl(context):
+    inputfile_contents = """
+sdw1|sdw1|20502|/tmp/gpexpand_behave/two_nodes/data/primary/gpseg2|6|2|p
+sdw2|sdw2|21502|/tmp/gpexpand_behave/two_nodes/data/mirror/gpseg2|8|2|m
+sdw2|sdw2|20503|/tmp/gpexpand_behave/two_nodes/data/primary/gpseg3|7|3|p
+sdw1|sdw1|21503|/tmp/gpexpand_behave/two_nodes/data/mirror/gpseg3|9|3|m"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    inputfile_name = "%s/gpexpand_inputfile_%s" % (context.working_directory, timestamp)
+    with open(inputfile_name, 'w') as fd:
+        fd.write(inputfile_contents)
+
+    gpexpand = Gpexpand(context, working_directory=context.working_directory)
+    ret_code, std_err, std_out = gpexpand.initialize_segments()
     if ret_code != 0:
         raise Exception("gpexpand exited with return code: %d.\nstderr=%s\nstdout=%s" % (ret_code, std_err, std_out))
 

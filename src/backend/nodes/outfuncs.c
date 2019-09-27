@@ -374,9 +374,6 @@ _outPlanInfo(StringInfo str, const Plan *node)
 
 	WRITE_NODE_FIELD(flow);
 	WRITE_ENUM_FIELD(dispatch, DispatchMethod);
-	WRITE_INT_FIELD(nMotionNodes);
-	WRITE_INT_FIELD(nInitPlans);
-	WRITE_NODE_FIELD(sliceTable);
 
 	WRITE_NODE_FIELD(lefttree);
 	WRITE_NODE_FIELD(righttree);
@@ -1206,8 +1203,6 @@ _outMotion(StringInfo str, const Motion *node)
 	for (i = 0; i < list_length(node->hashExprs); i++)
 		appendStringInfo(str, " %u", node->hashFuncs[i]);
 
-	WRITE_INT_FIELD(isBroadcast);
-
 	WRITE_INT_FIELD(numSortCols);
 	appendStringInfoLiteral(str, " :sortColIdx");
 	for (i = 0; i < node->numSortCols; i++)
@@ -1636,7 +1631,6 @@ _outSubPlan(StringInfo str, const SubPlan *node)
 {
 	WRITE_NODE_TYPE("SUBPLAN");
 
-    WRITE_INT_FIELD(qDispSliceId);  /*CDB*/
 	WRITE_ENUM_FIELD(subLinkType, SubLinkType);
 	WRITE_NODE_FIELD(testexpr);
 	WRITE_NODE_FIELD(paramIds);
@@ -1655,7 +1649,6 @@ _outSubPlan(StringInfo str, const SubPlan *node)
 	WRITE_NODE_FIELD(extParam);
 	WRITE_FLOAT_FIELD(startup_cost, "%.2f");
 	WRITE_FLOAT_FIELD(per_call_cost, "%.2f");
-	WRITE_BOOL_FIELD(initPlanParallel); /*CDB*/
 }
 
 static void
