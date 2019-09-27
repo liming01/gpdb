@@ -1513,7 +1513,7 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 
 	if (latch)
 	{
-		int wr;
+		int wr = 0;
 		int retryCount = 0;
 		while (true && retryCount < WAIT_ENDPOINT_INIT_RETRY_LIMIT)
 		{
@@ -1547,7 +1547,7 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 		snprintf(info_entry->cursorName, NAMEDATALEN, "%s", "");
 		LWLockRelease(ParallelCursorEndpointLock);
 
-		if (wr & WL_TIMEOUT && !QueryFinishPending)
+		if ((wr & WL_TIMEOUT) && !QueryFinishPending)
 			elog(ERROR, "Creating endpoint timeout");
 	}
 }
