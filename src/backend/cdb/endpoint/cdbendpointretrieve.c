@@ -1,12 +1,33 @@
-/*
+/*-------------------------------------------------------------------------
  * cdbendpointretrieve.c
  *
- * After define and execute a PARALLEL RETRIEVE CURSOR(see cdbendpoint.c), the
- * results are written to endpoints. Then connect the endpoint with retrieve role
- * to retrieve data from endpoint backend.
+ * Once a PARALLEL RETRIEVE CURSOR(see cdbendpoint.c) has been declared, the QE
+ * starts to send results to endpoints. The results can be retrieved through a
+ * retrieve session directly on QE. A retrieve session is a special mode session
+ * on QE which can only execute endpoint related statements.
  *
- * The retrieve backend use TupleQueueReader to read query results from the
- * shared message queue.
+ * To start a retrieve session, the endpoint's token is needed as the password for
+ * authentication. The user should be the same as the one who declares the
+ * parallel retrieve cursor. Also a runtime parameter gp_session_rol=retrieve
+ * needs to be set to start the session. As long as login succeeds, the retrieve
+ * session will be able to retrieve from all endpoints which have the same token.
+ * Call AuthEndpoint() with user and token to do the retrieve authentication.
+ *
+ * To start retrieving from an endpoint, call GetRetrieveStmtTupleDesc() to obtain
+ * a TupleDesc first. The function attachs the current retrieve session to the
+ * given endpoint and connect to the shared message queue as receiver with
+ * TupleQueueReader.
+ *
+ * To retrieve, call ExecRetrieveStmt(). It reads tuples from the shared message
+ * queue and write them into the given DestReceiver. If no more tuples left an
+ * empty result set will be returned.
+ *
+ * Once a endpoint is attached to a retrieve session, it cannot be attached to
+ * other retrieve sessions. That means the RETRIEVE statement on the same endpoint
+ * cannot be called on more than one retrieve sessions.
+ *
+ * It is possible to retrieve multiple endpoints from the same retrieve session if
+ * they share the same token.
  *
  * Copyright (c) 2019-Present Pivotal Software, Inc.
  *
@@ -110,6 +131,125 @@ AuthEndpoint(Oid userID, const char *tokenStr)
 	}
 
 	return isFound;
+}
+
+/*
+ * GetRetrieveStmtTupleDesc - Gets TupleDesc for the given retrieve statement.
+ *
+ * This function tries to:
+ * 1. Find the endpoint with the name in RetrieveStmt.
+ * 2. Attach to the endpoint message queue and create a tuple descriptor for it.
+ * 3. Returns the tuple descriptor.
+ */
+TupleDesc
+GetRetrieveStmtTupleDesc(const RetrieveStmt *stmt)
+{
+	dsm_handle			 handle;
+	bool				 isFound;
+	MsgQueueStatusEntry  *entry;
+	const char			 *endpointName;
+
+	Assert(stmt);
+	endpointName = stmt->endpoint_name;
+	Assert(endpointName);
+	Assert(endpointName[0]);
+
+	/* Init hashtable */
+	if (msgQueueHTB == NULL)
+	{
+		HASHCTL ctl;
+		MemSet(&ctl, 0, sizeof(ctl));
+		ctl.keysize   = ENDPOINT_NAME_LEN;
+		ctl.entrysize = sizeof(MsgQueueStatusEntry);
+		ctl.hash	  = string_hash;
+		msgQueueHTB   = hash_create("endpoint hash", MAX_ENDPOINT_SIZE, &ctl,
+									(HASH_ELEM | HASH_FUNCTION));
+	}
+
+	/*
+	 * Search all endpoint_names that have been retrieved in this session
+	 */
+	entry = hash_search(msgQueueHTB, endpointName, HASH_ENTER, &isFound);
+	if (!isFound)
+	{
+		entry->mqSeg		  = NULL;
+		entry->mqHandle		  = NULL;
+		entry->retrieveStatus = RETRIEVE_STATUS_INVALID;
+		entry->retrieveTs	 = NULL;
+	}
+
+	handle = attach_endpoint(entry);
+
+	if (entry->retrieveStatus == RETRIEVE_STATUS_INIT)
+	{
+		attach_receiver_mq(entry, handle);
+	}
+
+	Assert(entry->retrieveTs);
+	Assert(entry->retrieveTs->tts_tupleDescriptor);
+
+	return entry->retrieveTs->tts_tupleDescriptor;
+}
+
+/*
+ * ExecRetrieveStmt - Execute the given RetrieveStmt.
+ *
+ * This function tries to use the endpoint name in the RetrieveStmt to find the
+ * attached endpoint in this retrieve session. If the endpoint can be found, then
+ * read from the message queue to feed the given DestReceiver. And mark the
+ * endpoint as detached before returning.
+ */
+void
+ExecRetrieveStmt(const RetrieveStmt *stmt, DestReceiver *dest)
+{
+	MsgQueueStatusEntry *entry  = NULL;
+	TupleTableSlot *	 result = NULL;
+	int64				 retrieveCount;
+
+	entry = hash_search(msgQueueHTB, stmt->endpoint_name, HASH_FIND, NULL);
+	if (entry == NULL)
+	{
+		elog(ERROR, "Endpoint %s has not been attached.", stmt->endpoint_name);
+	}
+
+	retrieveCount = stmt->count;
+	if (retrieveCount <= 0 && !stmt->is_all)
+	{
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						errmsg("RETRIEVE statement only supports forward scan, "
+							   "count should not be: %ld",
+							   retrieveCount)));
+	}
+
+	if (entry->retrieveStatus < RETRIEVE_STATUS_FINISH)
+	{
+		while (retrieveCount > 0)
+		{
+			result = receive_tuple_slot(entry);
+			if (!result)
+			{
+				break;
+			}
+			(*dest->receiveSlot)(result, dest);
+			retrieveCount--;
+		}
+
+		if (stmt->is_all)
+		{
+			while (true)
+			{
+				result = receive_tuple_slot(entry);
+				if (!result)
+				{
+					break;
+				}
+				(*dest->receiveSlot)(result, dest);
+			}
+		}
+	}
+
+	detach_endpoint(entry, false);
+	ClearParallelCursorExecRole();
 }
 
 /*
@@ -307,125 +447,6 @@ read_tuple_desc_info(shm_toc *toc)
 	TupleDescNode *tupdescnode =
 		(TupleDescNode *) deserializeNode(tupdesc_space, *tdlen_plen);
 	return tupdescnode->tuple;
-}
-
-/*
- * GetRetrieveStmtTupleDesc - Gets TupleDesc for the given retrieve statement.
- *
- * This function tries to:
- * 1. Find the endpoint with the name in RetrieveStmt.
- * 2. Attach to the endpoint message queue and create a tuple descriptor for it.
- * 3. Returns the tuple descriptor.
- */
-TupleDesc
-GetRetrieveStmtTupleDesc(const RetrieveStmt *stmt)
-{
-	dsm_handle			 handle;
-	bool				 isFound;
-	MsgQueueStatusEntry  *entry;
-	const char			 *endpointName;
-
-	Assert(stmt);
-	endpointName = stmt->endpoint_name;
-	Assert(endpointName);
-	Assert(endpointName[0]);
-
-	/* Init hashtable */
-	if (msgQueueHTB == NULL)
-	{
-		HASHCTL ctl;
-		MemSet(&ctl, 0, sizeof(ctl));
-		ctl.keysize   = ENDPOINT_NAME_LEN;
-		ctl.entrysize = sizeof(MsgQueueStatusEntry);
-		ctl.hash	  = string_hash;
-		msgQueueHTB   = hash_create("endpoint hash", MAX_ENDPOINT_SIZE, &ctl,
-									(HASH_ELEM | HASH_FUNCTION));
-	}
-
-	/*
-	 * Search all endpoint_names that have been retrieved in this session
-	 */
-	entry = hash_search(msgQueueHTB, endpointName, HASH_ENTER, &isFound);
-	if (!isFound)
-	{
-		entry->mqSeg		  = NULL;
-		entry->mqHandle		  = NULL;
-		entry->retrieveStatus = RETRIEVE_STATUS_INVALID;
-		entry->retrieveTs	 = NULL;
-	}
-
-	handle = attach_endpoint(entry);
-
-	if (entry->retrieveStatus == RETRIEVE_STATUS_INIT)
-	{
-		attach_receiver_mq(entry, handle);
-	}
-
-	Assert(entry->retrieveTs);
-	Assert(entry->retrieveTs->tts_tupleDescriptor);
-
-	return entry->retrieveTs->tts_tupleDescriptor;
-}
-
-/*
- * ExecRetrieveStmt - Execute the given RetrieveStmt.
- *
- * This function tries to use the endpoint name in the RetrieveStmt to find the
- * attached endpoint in this retrieve session. If the endpoint can be found, then
- * read from the message queue to feed the given DestReceiver. And mark the
- * endpoint as detached before returning.
- */
-void
-ExecRetrieveStmt(const RetrieveStmt *stmt, DestReceiver *dest)
-{
-	MsgQueueStatusEntry *entry  = NULL;
-	TupleTableSlot *	 result = NULL;
-	int64				 retrieveCount;
-
-	entry = hash_search(msgQueueHTB, stmt->endpoint_name, HASH_FIND, NULL);
-	if (entry == NULL)
-	{
-		elog(ERROR, "Endpoint %s has not been attached.", stmt->endpoint_name);
-	}
-
-	retrieveCount = stmt->count;
-	if (retrieveCount <= 0 && !stmt->is_all)
-	{
-		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						errmsg("RETRIEVE statement only supports forward scan, "
-							   "count should not be: %ld",
-							   retrieveCount)));
-	}
-
-	if (entry->retrieveStatus < RETRIEVE_STATUS_FINISH)
-	{
-		while (retrieveCount > 0)
-		{
-			result = receive_tuple_slot(entry);
-			if (!result)
-			{
-				break;
-			}
-			(*dest->receiveSlot)(result, dest);
-			retrieveCount--;
-		}
-
-		if (stmt->is_all)
-		{
-			while (true)
-			{
-				result = receive_tuple_slot(entry);
-				if (!result)
-				{
-					break;
-				}
-				(*dest->receiveSlot)(result, dest);
-			}
-		}
-	}
-
-	detach_endpoint(entry, false);
-	ClearParallelCursorExecRole();
 }
 
 /*
