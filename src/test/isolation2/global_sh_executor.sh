@@ -79,10 +79,10 @@ match_sub() {
 # get a 3 digits userid like '123', the diff will fail since we have one more space than
 # the actual sql output.
 # To deal with it, use match_sub_tt userid $USERID
-# And make the output source like:
-# | username | userid | gender |
-# |----------+--------+--------|
-# | jonh     | userid1| male   |
+# And make the output source like (note: append one space to the replaced string):
+# | username | userid  | gender |
+# |----------+---------+--------|
+# | jonh     | userid1 | male   |
 # Notice here that there is no space following userid1 since we replace the whole userid with
 # its tailing spaces with 'userid1'. Like '123   ' -> 'userid'.
 match_sub_tt() {
@@ -94,7 +94,7 @@ match_sub_tt() {
             to_replace=$var
         else
             # \b is trying to match the whole word to make it more stable.
-            export MATCHSUBS="${MATCHSUBS}${NL}m/\\b${var}\\b/${NL}s/\\b${var} */${to_replace}/${NL}"
+            export MATCHSUBS="${MATCHSUBS}${NL}m/\\b${var}\\b/${NL}s/\\b${var} */${to_replace} /${NL}"
             to_replace=""
         fi
     done
@@ -182,7 +182,7 @@ parse_endpoint() {
         eval "TOKEN${postfix}=${token}"
         export RETRIEVE_TOKEN=${token}
 
-        match_sub "endpoint_id${postfix}_${index}" "${name}" \
+        match_sub_tt "endpoint_id${postfix}_${index}" "${name}" \
             port_id "${port}" \
             token_id "${token}" \
             host_id "${host}" > /dev/null

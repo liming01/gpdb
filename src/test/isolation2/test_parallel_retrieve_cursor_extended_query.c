@@ -17,10 +17,12 @@
 static void
 finish_conn_nicely(PGconn *master_conn, PGconn *endpoint_conns[], size_t endpoint_conns_num)
 {
+	int i;
+
 	if (master_conn)
 		PQfinish(master_conn);
 
-	for (int i = 0; i < endpoint_conns_num; i++)
+	for (i = 0; i < endpoint_conns_num; i++)
 	{
 		if (endpoint_conns[i])
 			PQfinish(endpoint_conns[i]);
@@ -87,7 +89,7 @@ exec_sql_with_resultset_in_extended_query_protocol(PGconn *conn, const char *sql
 {
 	PGresult   *res1;
 	int			nFields;
-	int			i;
+	int			i,j;
 	const char *paramValues[1];
 
 	paramValues[0] = "0";
@@ -160,7 +162,7 @@ exec_sql_with_resultset_in_extended_query_protocol(PGconn *conn, const char *sql
 	/* next, print out the instances */
 	for (i = 0; i < PQntuples(res1); i++)
 	{
-		for (int j = 0; j < nFields; j++)
+		for (j = 0; j < nFields; j++)
 			printf("%-15s", PQgetvalue(res1, i, j));
 		printf("\n");
 	}
@@ -175,7 +177,7 @@ exec_sql_with_resultset(PGconn *conn, const char *sql, int conn_idx)
 {
 	PGresult   *res1;
 	int			nFields;
-	int			i;
+	int			i,j;
 
 	if(conn_idx == MASTER_CONNECT_INDEX)
 		printf("\nExec SQL on Master:\n\t> %s\n", sql);
@@ -199,7 +201,7 @@ exec_sql_with_resultset(PGconn *conn, const char *sql, int conn_idx)
 	/* next, print out the instances */
 	for (i = 0; i < PQntuples(res1); i++)
 	{
-		for (int j = 0; j < nFields; j++)
+		for (j = 0; j < nFields; j++)
 			printf("%-15s", PQgetvalue(res1, i, j));
 		printf("\n");
 	}
@@ -438,7 +440,7 @@ LABEL_FINISH:
 
 	if (endpoint_names)
 	{
-		for (int i=0; i< endpoint_conns_num; i++)
+		for (i=0; i< endpoint_conns_num; i++)
 			if(endpoint_names[i])
 				free(endpoint_names[i]);
 

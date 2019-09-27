@@ -556,7 +556,7 @@ alloc_endpoint(const char *cursorName, dsm_handle dsmHandle)
 
 	generate_endpoint_name(sharedEndpoints[i].name, cursorName, gp_session_id,
 						   GpIdentity.segindex);
-	strncpy(sharedEndpoints[i].cursor_name, cursorName, NAMEDATALEN);
+	StrNCpy(sharedEndpoints[i].cursor_name, cursorName, NAMEDATALEN);
 	sharedEndpoints[i].database_id   = MyDatabaseId;
 	sharedEndpoints[i].session_id	= gp_session_id;
 	sharedEndpoints[i].user_id		 = GetUserId();

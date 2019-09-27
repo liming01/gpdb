@@ -1341,9 +1341,9 @@ DECLARE
 1: @out_sh 'get_cell SESSION81 3 2 ; get_token_cell TOKEN81 3 1 ; match_sub_tt session81 $SESSION81 > /dev/null ; match_sub token81 $TOKEN81': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
  token                              | sessionid | status
 ------------------------------------+-----------+--------
- token81 | session81| READY
- token81 | session81| READY
- token81 | session81| READY
+ token81 | session81 | READY
+ token81 | session81 | READY
+ token81 | session81 | READY
 (3 rows)
 -- Session 2 can only see its own cursors by default.
 2: BEGIN;
@@ -1353,20 +1353,20 @@ DECLARE
 2: @out_sh 'get_cell SESSION82 3 2 ; get_token_cell TOKEN82 3 1 ; match_sub_tt session82 $SESSION82 > /dev/null ; match_sub token82 $TOKEN82': SELECT token,sessionid,status FROM GP_ENDPOINTS WHERE cursorname='c8';
  token                              | sessionid | status
 ------------------------------------+-----------+--------
- token82 | session82| READY
- token82 | session82| READY
- token82 | session82| READY
+ token82 | session82 | READY
+ token82 | session82 | READY
+ token82 | session82 | READY
 (3 rows)
 -- Session 2 can only see all cursors with gp_endpoints_info(true).
 2: SELECT token,sessionid,status FROM gp_endpoints_info(true) WHERE cursorname='c8';
  token                              | sessionid | status 
 ------------------------------------+-----------+--------
- token81 | session81| READY  
- token81 | session81| READY  
- token81 | session81| READY  
- token82 | session82| READY  
- token82 | session82| READY  
- token82 | session82| READY  
+ token81 | session81 | READY  
+ token81 | session81 | READY  
+ token81 | session81 | READY  
+ token82 | session82 | READY  
+ token82 | session82 | READY  
+ token82 | session82 | READY  
 (6 rows)
 
 1: CLOSE c8;

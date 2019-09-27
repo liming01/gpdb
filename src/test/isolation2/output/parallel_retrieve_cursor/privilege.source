@@ -39,12 +39,12 @@ RESET
 2: @out_sh 'get_cell ADMIN_ID 3 1 && match_sub_tt admin_id $ADMIN_ID': SELECT usesysid FROM pg_user WHERE usename = 'adminuser';
  usesysid
 ----------
- admin_id
+ admin_id 
 (1 row)
 2: @out_sh 'get_cell U1_ID 3 1 && match_sub_tt u1_id $U1_ID': SELECT usesysid FROM pg_user WHERE usename = 'u1';
  usesysid
 ----------
- u1_id
+ u1_id 
 (1 row)
 --- c1 is declared by superuser
 1: SET SESSION AUTHORIZATION adminuser;
@@ -114,8 +114,8 @@ SET
 0R: SELECT token, userid FROM gp_endpoints_status_info();
  token                              | userid 
 ------------------------------------+--------
- token_id | admin_id
- token_id | u1_id
+ token_id | admin_id 
+ token_id | u1_id 
 (2 rows)
 0R: @in_sh 'sub_endpoint_name @ENDPOINT1': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT1";
  a 
