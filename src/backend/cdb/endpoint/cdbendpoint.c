@@ -1424,7 +1424,6 @@ wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
 	SessionInfoEntry *info_entry = NULL;
 	Latch *latch                 = NULL;
 	bool found					 = false;
-	int wr						 = 0;
 	SessionTokenTag   tag;
 
 	/* Since current process create SessionInfoEntry. Register clean callback
