@@ -1000,7 +1000,6 @@ DECLARE
 -- check it can cancel the "gp_check_parallel_retrieve_cursor"
 1<:  <... completed>
 ERROR:  canceling statement due to user request
-ERROR:  canceling MPP operation  (seg2 10.34.58.56:25434 pid=60386)
 -- check no endpoint info left
 2: @in_sh 'sub @TOKEN6 $TOKEN6': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c6' AND token='@TOKEN6';
  status 
@@ -1139,7 +1138,6 @@ DECLARE
 -- check it can cancel the "gp_check_parallel_retrieve_cursor"
 1<:  <... completed>
 ERROR:  canceling statement due to user request
-ERROR:  canceling MPP operation  (seg2 10.34.58.56:25434 pid=74987)
 -- check no endpoint info left
 2: @in_sh 'sub @TOKEN61 $TOKEN61': SELECT status FROM gp_endpoints_info(true) WHERE cursorname='c61' AND token='@TOKEN61';
  status 
