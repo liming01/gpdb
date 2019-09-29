@@ -66,7 +66,7 @@ clean distclean:
 
 install: all gpdiff.pl gpstringsubs.pl
 
-installcheck: install
+installcheck: install installcheck-parallel-retrieve-cursor
 	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_isolation2 --bindir='$(bindir)' --inputdir=$(srcdir) --load-extension=gp_inject_fault --schedule=$(srcdir)/isolation2_schedule
 
 installcheck-resgroup: install
