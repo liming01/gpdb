@@ -1034,8 +1034,15 @@ shm_mq_wait_internal(volatile shm_mq *mq, PGPROC *volatile * ptr,
 	bool		result = false;
 
 	save_set_latch_on_sigusr1 = set_latch_on_sigusr1;
-	if (handle != NULL)
-		set_latch_on_sigusr1 = true;
+
+	/* Since set_latch_on_sigusr1 is removed in pg 9.6 (sha: db0f6cad4884bd4c835156d3a720d9a79dbd63a9).
+	 * So it's ok to let procsignal_sigusr1_handler always execute SetLatch(MyLatch).
+	 *
+	 * if (handle != NULL)
+	 *     set_latch_on_sigusr1 = true;
+	 * For above code, when not set set_latch_on_sigusr1 = true, SIGUSR1 signal
+	 * will never wake up the latch here if BackgroundWorkerHandle is not used. */
+	set_latch_on_sigusr1 = true;
 
 	PG_TRY();
 	{

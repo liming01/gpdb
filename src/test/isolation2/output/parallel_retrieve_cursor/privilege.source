@@ -143,7 +143,6 @@ SET
 ---
  2 
 (1 row)
-0Rq: ... <quitting>
 
 1: SET ROLE uu1;
 SET
@@ -166,12 +165,12 @@ DECLARE
  1        
 (1 row)
 --- Login as uu1 and retrieve all to finish the test
-0R: SELECT SESSION_USER, CURRENT_USER;
+3R: SELECT SESSION_USER, CURRENT_USER;
  session_user | current_user 
 --------------+--------------
  uu1          | uu1          
 (1 row)
-0R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
+3R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
  a 
 ---
  2 
@@ -182,10 +181,11 @@ DECLARE
 (5 rows)
 
 --- Retrieve c2(which belone to u1) but current user is uu1.
-0R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+3R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 ERROR:  The PARALLEL RETRIEVE CURSOR was created by a different user.
 HINT:  Using the same user as the PARALLEL RETRIEVE CURSOR creator to retrieve.
 0Rq: ... <quitting>
+3Rq: ... <quitting>
 1<:  <... completed>
 FAILED:  Execution failed
 1: END;

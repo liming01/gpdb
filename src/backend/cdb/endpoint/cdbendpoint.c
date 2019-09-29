@@ -90,7 +90,7 @@
 
 /* The timeout before returns failure for endpoints initialization. */
 #define WAIT_ENDPOINT_INIT_RETRY_LIMIT  20
-#define WAIT_NORMAL_TIMEOUT             300
+#define WAIT_NORMAL_TIMEOUT             100
 /* This value is copy from PG's PARALLEL_TUPLE_QUEUE_SIZE */
 #define ENDPOINT_TUPLE_QUEUE_SIZE       65536
 

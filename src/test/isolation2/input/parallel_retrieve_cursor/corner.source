@@ -1,6 +1,9 @@
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (a INT) DISTRIBUTED by (a);
 insert into t1 select generate_series(1,100);
+DROP TABLE IF EXISTS t11;
+CREATE TABLE t11 (a INT) DISTRIBUTED by (a);
+insert into t11 select generate_series(1,100000);
 DROP TABLE IF EXISTS t2;
 CREATE TABLE t2 (a INT) DISTRIBUTED by (a);
 DROP TABLE IF EXISTS t3;
@@ -24,6 +27,20 @@ INSERT INTO t5 SELECT GENERATE_SERIES(1, 10);
 
 -- error out for closed cursor
 1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');
+1: ROLLBACK;
+
+-- test for a large table
+1: BEGIN;
+1: DECLARE c11 PARALLEL RETRIEVE CURSOR FOR SELECT * FROM t11;
+1: @out_sh 'parse_endpoint 11 1 2 3 4': SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c11';
+1: CLOSE c11;
+-- check no endpoint info
+1: SELECT token,status FROM gp_endpoints_info(true) WHERE cursorname='c11';
+-- check no token info on QE after close PARALLEL RETRIEVE CURSOR
+*R: @in_sh 'sub_endpoint_name @ENDPOINT11': SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE endpointname='@ENDPOINT11';
+
+-- error out for closed cursor
+1: SELECT * FROM gp_wait_parallel_retrieve_cursor('c11');
 1: ROLLBACK;
 
 -- Test2: open many PARALLEL RETRIEVE CURSORs

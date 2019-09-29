@@ -51,7 +51,6 @@ RESET SESSION AUTHORIZATION;
 --- Login as u1 and retrieve all to finish the test
 0R: SELECT SESSION_USER, CURRENT_USER;
 0R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE 1 FROM ENDPOINT "@ENDPOINT2";
-0Rq:
 
 1: SET ROLE uu1;
 1: SELECT SESSION_USER, CURRENT_USER;
@@ -60,12 +59,13 @@ RESET SESSION AUTHORIZATION;
 
 3: @in_sh 'export RETRIEVE_USER="uu1"; echo $RAW_STR ' : SELECT 1;
 --- Login as uu1 and retrieve all to finish the test
-0R: SELECT SESSION_USER, CURRENT_USER;
-0R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
+3R: SELECT SESSION_USER, CURRENT_USER;
+3R: @in_sh 'sub_endpoint_name @ENDPOINT3': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT3";
 
 --- Retrieve c2(which belone to u1) but current user is uu1.
-0R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
+3R: @in_sh 'sub_endpoint_name @ENDPOINT2': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT2";
 0Rq:
+3Rq:
 1<:
 1: END;
 2q:
