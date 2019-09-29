@@ -1320,7 +1320,7 @@ session_info_clean_callback(XactEvent ev, void *vp)
 		(Gp_is_writer || Gp_role == GP_ROLE_DISPATCH))
 	{
 		elog(
-			 LOG,
+			 DEBUG3,
 		"CDB_ENDPOINT: sender_xact_abort_callback clean token for session %d",
 			 EndpointCtl.sessionID);
 		SessionInfoEntry *entry;
@@ -1337,7 +1337,7 @@ session_info_clean_callback(XactEvent ev, void *vp)
 		entry = hash_search(sharedSessionInfoHash, &tag, HASH_REMOVE, NULL);
 		if (!entry)
 		{
-			elog(LOG,
+			elog(DEBUG3,
 			  "CDB_ENDPOINT: sender_xact_abort_callback no entry exists for "
 				 "user id: %d, session: %d",
 				 tag.userID, EndpointCtl.sessionID);
@@ -1444,7 +1444,7 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
 
 	if (latch)
 	{
-		elog(LOG,
+		elog(DEBUG3,
 		   "CDB_ENDPOINT: WaitLatch on sessionInfoEntry->udf_check_latch by "
 			 "pid: %d",
 			 MyProcPid);
