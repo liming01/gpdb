@@ -159,8 +159,13 @@ setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort
 	 * We use INADDR_ANY if we don't have a valid address for ourselves (e.g.
 	 * QD local connections tend to be AF_UNIX, or on 127.0.0.1 -- so bind
 	 * everything)
+	 *
+	 * EntryDB can be used to exec gather motion for parallel retrieve cursor
+	 * when endpoint on master
 	 */
-	if (Gp_role == GP_ROLE_DISPATCH || MyProcPort == NULL ||
+	if (Gp_role == GP_ROLE_DISPATCH ||
+	    ( Gp_role == GP_ROLE_EXECUTE && GpIdentity.segindex == -1) ||
+	    MyProcPort == NULL ||
 		(MyProcPort->laddr.addr.ss_family != AF_INET &&
 		 MyProcPort->laddr.addr.ss_family != AF_INET6))
 		localname = NULL;		/* We will listen on all network adapters */
