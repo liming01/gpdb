@@ -105,7 +105,7 @@ installcheck-parallel-retrieve-cursor: install installcheck-parallel-retrieve-cu
 	gpconfig -c optimizer -v false && \
 	gpstop -u && \
 	gpconfig -s statement_timeout && \
-	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_retrieve_cursor --bindir='$(bindir)' --inputdir=$(srcdir) --dbname=isolation2parallelretrcursor --schedule=$(srcdir)/parallel_retrieve_cursor_schedule ; \
+	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_retrieve_cursor --bindir='$(bindir)' --inputdir=$(srcdir) --dbname=isolation2parallelretrcursor --load-extension=gp_inject_fault --schedule=$(srcdir)/parallel_retrieve_cursor_schedule ; \
 	ret=$$? ; \
 	./test_parallel_retrieve_cursor_extended_query "gpadmin" "postgres" > test_parallel_retrieve_cursor_extended_query.log 2>&1 ; \
 	ret2=$$? ; \
