@@ -6,7 +6,7 @@
  * Copyright (c) 2019 - Present Pivotal Software, Inc.
  *
  * IDENTIFICATION
- *	    src/backend/cdb/cdbendpointutils.c
+ *		src/backend/cdb/cdbendpointutils.c
  *
  *-------------------------------------------------------------------------
  */
@@ -32,35 +32,35 @@
  */
 typedef struct
 {
-	char			  name[ENDPOINT_NAME_LEN];
-	char			  cursorName[NAMEDATALEN];
-	int8			  token[ENDPOINT_TOKEN_LEN];
-	int				  dbid;
+	char		name[ENDPOINT_NAME_LEN];
+	char		cursorName[NAMEDATALEN];
+	int8		token[ENDPOINT_TOKEN_LEN];
+	int			dbid;
 	enum AttachStatus attachStatus;
-	pid_t			  senderPid;
-	Oid				  userId;
-	int				  sessionId;
-} EndpointStatus;
+	pid_t		senderPid;
+	Oid			userId;
+	int			sessionId;
+}	EndpointStatus;
 
 typedef struct
 {
 	/* current index in shared token list. */
-	int					   curTokenIdx;
+	int			curTokenIdx;
 	CdbComponentDatabases *cdbs;
 	/* current index of node (master + segment) id */
-	int					   currIdx;
-	EndpointStatus		  *status;
-	int					   status_num;
-} EndpointsInfo;
+	int			currIdx;
+	EndpointStatus *status;
+	int			status_num;
+}	EndpointsInfo;
 
 typedef struct
 {
-	int endpointsNum; /* number of EndpointDesc in the list */
-	int currentIdx;   /* current index of EndpointDesc in the list */
-} EndpointsStatusInfo;
+	int			endpointsNum;	/* number of EndpointDesc in the list */
+	int			currentIdx;		/* current index of EndpointDesc in the list */
+}	EndpointsStatusInfo;
 
 /* Used in UDFs */
-static char *			 status_enum_to_string(enum AttachStatus status);
+static char *status_enum_to_string(enum AttachStatus status);
 static enum AttachStatus status_string_to_enum(const char *status);
 
 /* Endpoint control information for current session. */
@@ -71,9 +71,10 @@ struct EndpointControl EndpointCtl = {PRCER_NONE, InvalidSession};
  * the given token pointer.
  */
 void
-parse_token(int8 *token /*out*/, const char *tokenStr)
+parse_token(int8 *token /* out */ , const char *tokenStr)
 {
 	static const char *fmt = "Invalid token \"%s\"";
+
 	if (tokenStr[0] == 't' && tokenStr[1] == 'k' &&
 		strlen(tokenStr) == ENDPOINT_TOKEN_STR_LEN)
 	{
@@ -103,10 +104,11 @@ char *
 print_token(const int8 *token)
 {
 	const size_t len =
-		ENDPOINT_TOKEN_STR_LEN + 1; /* 2('tk') + HEX string length + 1('\0') */
-	char *res = palloc(len);
-	res[0]	= 't';
-	res[1]	= 'k';
+	ENDPOINT_TOKEN_STR_LEN + 1; /* 2('tk') + HEX string length + 1('\0') */
+	char	   *res = palloc(len);
+
+	res[0] = 't';
+	res[1] = 'k';
 	hex_encode((const char *) token, ENDPOINT_TOKEN_LEN, res + 2);
 	res[len - 1] = 0;
 
@@ -144,7 +146,7 @@ ClearParallelCursorExecRole(void)
 }
 
 /*
- * Return the value of static variable Gp_prce_role
+ * Return the value of static variable GpPrceRole
  */
 enum ParallelRetrCursorExecRole
 GetParallelCursorExecRole(void)
@@ -180,7 +182,11 @@ token_equals(const int8 *token1, const int8 *token2)
 {
 	Assert(token1);
 	Assert(token2);
-	/* memcmp should be good enough. Timing attack would not be a concern here. */
+
+	/*
+	 * memcmp should be good enough. Timing attack would not be a concern
+	 * here.
+	 */
 	return memcmp(token1, token2, ENDPOINT_TOKEN_LEN) == 0;
 }
 
@@ -193,19 +199,20 @@ endpoint_name_equals(const char *name1, const char *name2)
 /*
  * On QD, display all the endpoints information in shared memory
  */
-Datum gp_endpoints_info(PG_FUNCTION_ARGS)
+Datum
+gp_endpoints_info(PG_FUNCTION_ARGS)
 {
 	if (Gp_role != GP_ROLE_DISPATCH)
 		elog(ERROR, "gp_endpoints_info() only can be called on query dispatcher");
 
-	bool			 allSessions = PG_GETARG_BOOL(0);
-	FuncCallContext  *funcctx;
-	EndpointsInfo    *mystatus;
-	MemoryContext	 oldcontext;
-	Datum			 values[GP_ENDPOINTS_INFO_ATTRNUM];
-	bool			 nulls[GP_ENDPOINTS_INFO_ATTRNUM] = {true};
-	HeapTuple		 tuple;
-	int				 res_number = 0;
+	bool		allSessions = PG_GETARG_BOOL(0);
+	FuncCallContext *funcctx;
+	EndpointsInfo *mystatus;
+	MemoryContext oldcontext;
+	Datum		values[GP_ENDPOINTS_INFO_ATTRNUM];
+	bool		nulls[GP_ENDPOINTS_INFO_ATTRNUM] = {true};
+	HeapTuple	tuple;
+	int			res_number = 0;
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -216,8 +223,8 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tuple descriptor */
-		TupleDesc tupdesc =
-			CreateTemplateTupleDesc(GP_ENDPOINTS_INFO_ATTRNUM, false);
+		TupleDesc	tupdesc =
+		CreateTemplateTupleDesc(GP_ENDPOINTS_INFO_ATTRNUM, false);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token", TEXTOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "cursorname", TEXTOID, -1, 0);
@@ -230,27 +237,26 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 9, "endpointname", TEXTOID, -1,
 						   0);
 
-		funcctx->tuple_desc   = BlessTupleDesc(tupdesc);
-		mystatus			  = (EndpointsInfo *) palloc0(sizeof(EndpointsInfo));
-		funcctx->user_fctx    = (void *) mystatus;
+		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+		mystatus = (EndpointsInfo *) palloc0(sizeof(EndpointsInfo));
+		funcctx->user_fctx = (void *) mystatus;
 		mystatus->curTokenIdx = 0;
-		mystatus->cdbs		  = cdbcomponent_getCdbComponents();
-		mystatus->currIdx	  = 0;
-		mystatus->status	  = NULL;
-		mystatus->status_num  = 0;
+		mystatus->cdbs = cdbcomponent_getCdbComponents();
+		mystatus->currIdx = 0;
+		mystatus->status = NULL;
+		mystatus->status_num = 0;
 
 		CdbPgResults cdb_pgresults = {NULL, 0};
 
 		CdbDispatchCommand(
-			"SELECT "
-			"endpointname,cursorname,token,dbid,status,senderpid,userid,"
-			"sessionid FROM pg_catalog.gp_endpoints_status_info()",
-			DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
+		 "SELECT endpointname,cursorname,token,dbid,status,senderpid,userid,"
+					  "sessionid FROM pg_catalog.gp_endpoints_status_info()",
+					  DF_WITH_SNAPSHOT | DF_CANCEL_ON_ERROR, &cdb_pgresults);
 
 		if (cdb_pgresults.numResults == 0)
 		{
 			elog(ERROR,
-				 "gp_endpoints_info didn't get back any data from the segDBs");
+			   "gp_endpoints_info didn't get back any data from the segDBs");
 		}
 		for (int i = 0; i < cdb_pgresults.numResults; i++)
 		{
@@ -267,7 +273,7 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 			mystatus->status =
 				(EndpointStatus *) palloc0(sizeof(EndpointStatus) * res_number);
 			mystatus->status_num = res_number;
-			int idx				 = 0;
+			int			idx = 0;
 
 			for (int i = 0; i < cdb_pgresults.numResults; i++)
 			{
@@ -296,7 +302,7 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 
 		/* get end-point status on master */
 		LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-		int cnt = 0;
+		int			cnt = 0;
 
 		for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
 		{
@@ -311,15 +317,15 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 			if (mystatus->status)
 			{
 				mystatus->status = (EndpointStatus *) repalloc(
-					mystatus->status,
-					sizeof(EndpointStatus) * mystatus->status_num);
+															mystatus->status,
+							  sizeof(EndpointStatus) * mystatus->status_num);
 			}
 			else
 			{
 				mystatus->status = (EndpointStatus *) palloc(
-					sizeof(EndpointStatus) * mystatus->status_num);
+							  sizeof(EndpointStatus) * mystatus->status_num);
 			}
-			int idx = 0;
+			int			idx = 0;
 
 			for (int i = 0; i < MAX_ENDPOINT_SIZE; i++)
 			{
@@ -328,7 +334,8 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 				if (!entry->empty)
 				{
 					EndpointStatus *status =
-						&mystatus->status[mystatus->status_num - cnt + idx];
+					&mystatus->status[mystatus->status_num - cnt + idx];
+
 					StrNCpy(mystatus->status[idx].name, entry->name,
 							ENDPOINT_NAME_LEN);
 					StrNCpy(mystatus->status[idx].cursorName, entry->cursorName,
@@ -336,12 +343,12 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 					get_token_by_session_id(entry->sessionID, entry->userID,
 											status->token);
 					status->dbid = contentid_get_dbid(
-						MASTER_CONTENT_ID, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY,
-						false);
+					MASTER_CONTENT_ID, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY,
+													  false);
 					status->attachStatus = entry->attachStatus;
-					status->senderPid	= entry->senderPid;
-					status->userId		 = entry->userID;
-					status->sessionId	= entry->sessionID;
+					status->senderPid = entry->senderPid;
+					status->userId = entry->userID;
+					status->sessionId = entry->sessionID;
 					idx++;
 				}
 			}
@@ -352,13 +359,14 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	funcctx  = SRF_PERCALL_SETUP();
+	funcctx = SRF_PERCALL_SETUP();
 	mystatus = funcctx->user_fctx;
 
 	while (mystatus->currIdx < mystatus->status_num)
 	{
-		Datum			result;
+		Datum		result;
 		EndpointStatus *qe_status = &mystatus->status[mystatus->currIdx++];
+
 		Assert(qe_status);
 
 		if (!allSessions && qe_status->sessionId != gp_session_id)
@@ -367,44 +375,46 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 		}
 
 		GpSegConfigEntry *segCnfInfo = dbid_get_dbinfo(qe_status->dbid);
+
 		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
 
-		char *token = print_token(qe_status->token);
-		values[0]   = CStringGetTextDatum(token);
+		char	   *token = print_token(qe_status->token);
+
+		values[0] = CStringGetTextDatum(token);
 		pfree(token);
-		nulls[0]  = false;
+		nulls[0] = false;
 		values[1] = CStringGetTextDatum(qe_status->cursorName);
-		nulls[1]  = false;
+		nulls[1] = false;
 		values[2] = Int32GetDatum(qe_status->sessionId);
-		nulls[2]  = false;
+		nulls[2] = false;
 		values[3] = CStringGetTextDatum(segCnfInfo->hostname);
-		nulls[3]  = false;
+		nulls[3] = false;
 		values[4] = Int32GetDatum(segCnfInfo->port);
-		nulls[4]  = false;
+		nulls[4] = false;
 		values[5] = Int32GetDatum(segCnfInfo->dbid);
-		nulls[5]  = false;
+		nulls[5] = false;
 		values[6] = ObjectIdGetDatum(qe_status->userId);
-		nulls[6]  = false;
+		nulls[6] = false;
 
 		/*
 		 * find out the status of end-point
 		 */
 		values[7] =
 			CStringGetTextDatum(status_enum_to_string(qe_status->attachStatus));
-		nulls[7]  = false;
+		nulls[7] = false;
 
 		if (qe_status)
 		{
 			values[8] = CStringGetTextDatum(qe_status->name);
-			nulls[8]  = false;
+			nulls[8] = false;
 		}
 		else
 		{
 			nulls[8] = true;
 		}
 
-		tuple  = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 		result = HeapTupleGetDatum(tuple);
 
 		SRF_RETURN_NEXT(funcctx, result);
@@ -416,14 +426,15 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
  * Display the status of all valid EndpointDesc of current
  * backend in shared memory
  */
-Datum gp_endpoints_status_info(PG_FUNCTION_ARGS)
+Datum
+gp_endpoints_status_info(PG_FUNCTION_ARGS)
 {
-	FuncCallContext		*funcctx;
+	FuncCallContext *funcctx;
 	EndpointsStatusInfo *mystatus;
-	MemoryContext		 oldcontext;
-	Datum				 values[10];
-	bool				 nulls[10] = {true};
-	HeapTuple			 tuple;
+	MemoryContext oldcontext;
+	Datum		values[10];
+	bool		nulls[10] = {true};
+	HeapTuple	tuple;
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -434,7 +445,7 @@ Datum gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tuple descriptor */
-		TupleDesc tupdesc = CreateTemplateTupleDesc(10, false);
+		TupleDesc	tupdesc = CreateTemplateTupleDesc(10, false);
 
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "token", TEXTOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "databaseid", INT4OID, -1, 0);
@@ -454,15 +465,15 @@ Datum gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
 		mystatus = (EndpointsStatusInfo *) palloc0(sizeof(EndpointsStatusInfo));
-		funcctx->user_fctx	 = (void *) mystatus;
+		funcctx->user_fctx = (void *) mystatus;
 		mystatus->endpointsNum = MAX_ENDPOINT_SIZE;
-		mystatus->currentIdx   = 0;
+		mystatus->currentIdx = 0;
 
 		/* return to original context when allocating transient memory */
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	funcctx  = SRF_PERCALL_SETUP();
+	funcctx = SRF_PERCALL_SETUP();
 	mystatus = funcctx->user_fctx;
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
@@ -470,41 +481,42 @@ Datum gp_endpoints_status_info(PG_FUNCTION_ARGS)
 	{
 		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
-		Datum result;
+		Datum		result;
 
 		const EndpointDesc *entry =
-			get_endpointdesc_by_index(mystatus->currentIdx);
+		get_endpointdesc_by_index(mystatus->currentIdx);
 
 		if (!entry->empty && (superuser() || entry->userID == GetUserId()))
 		{
-			char *status = NULL;
-			int8  token[ENDPOINT_TOKEN_LEN];
+			char	   *status = NULL;
+			int8		token[ENDPOINT_TOKEN_LEN];
+
 			get_token_by_session_id(entry->sessionID, entry->userID, token);
-			char *tokenStr = print_token(token);
+			char	   *tokenStr = print_token(token);
 
 			values[0] = CStringGetTextDatum(tokenStr);
-			nulls[0]  = false;
+			nulls[0] = false;
 			values[1] = Int32GetDatum(entry->databaseID);
-			nulls[1]  = false;
+			nulls[1] = false;
 			values[2] = Int32GetDatum(entry->senderPid);
-			nulls[2]  = false;
+			nulls[2] = false;
 			values[3] = Int32GetDatum(entry->receiverPid);
-			nulls[3]  = false;
-			status	= status_enum_to_string(entry->attachStatus);
+			nulls[3] = false;
+			status = status_enum_to_string(entry->attachStatus);
 			values[4] = CStringGetTextDatum(status);
-			nulls[4]  = false;
+			nulls[4] = false;
 			values[5] = Int32GetDatum(GpIdentity.dbid);
-			nulls[5]  = false;
+			nulls[5] = false;
 			values[6] = Int32GetDatum(entry->sessionID);
-			nulls[6]  = false;
+			nulls[6] = false;
 			values[7] = ObjectIdGetDatum(entry->userID);
-			nulls[7]  = false;
+			nulls[7] = false;
 			values[8] = CStringGetTextDatum(entry->name);
-			nulls[8]  = false;
+			nulls[8] = false;
 			values[9] = CStringGetTextDatum(entry->cursorName);
-			nulls[9]  = false;
-			tuple	 = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-			result	= HeapTupleGetDatum(tuple);
+			nulls[9] = false;
+			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+			result = HeapTupleGetDatum(tuple);
 			mystatus->currentIdx++;
 			LWLockRelease(ParallelCursorEndpointLock);
 			pfree(tokenStr);
@@ -519,7 +531,7 @@ Datum gp_endpoints_status_info(PG_FUNCTION_ARGS)
 char *
 status_enum_to_string(enum AttachStatus status)
 {
-	char *result = NULL;
+	char	   *result = NULL;
 
 	switch (status)
 	{
@@ -567,4 +579,3 @@ status_string_to_enum(const char *status)
 		elog(ERROR, "unknown end point status %s", status);
 	}
 }
-

@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  * cdbendpoint.h
- *    Functions supporting the Greenplum Endpoint PARALLEL RETRIEVE CURSOR.
+ *	  Functions supporting the Greenplum Endpoint PARALLEL RETRIEVE CURSOR.
  *
  * The PARALLEL RETRIEVE CURSOR is introduced to reduce the heavy burdens of
  * master node. If possible it will not gather the result to master, and
@@ -21,7 +21,7 @@
  *
  *
  * IDENTIFICATION
- *	    src/include/cdb/cdbendpoint.h
+ *		src/include/cdb/cdbendpoint.h
  *
  *-------------------------------------------------------------------------
  */
@@ -76,15 +76,15 @@ extern void EndpointCTXShmemInit(void);
  * Below functions should run on dispatcher.
  */
 extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
-	const struct Plan *planTree);
+								  const struct Plan *planTree);
 extern List *ChooseEndpointContentIDForParallelCursor(
-	const struct Plan *planTree, enum EndPointExecPosition *position);
+		  const struct Plan *planTree, enum EndPointExecPosition *position);
 extern void WaitEndpointReady(const struct Plan *planTree, const char *cursorName);
 
 /*
  * Below functions should run on Endpoints(QE/Entry DB).
  */
-extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char* cursorName);
+extern DestReceiver *CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char *cursorName);
 extern void DestroyTQDestReceiverForEndpoint(DestReceiver *endpointDest);
 
 /* UDFs for endpoints internal operation */
@@ -97,9 +97,9 @@ extern Datum gp_wait_parallel_retrieve_cursor(PG_FUNCTION_ARGS);
 /*
  * Below functions should run on retrieve role backend.
  */
-extern bool		 AuthEndpoint(Oid userID, const char *tokenStr);
+extern bool AuthEndpoint(Oid userID, const char *tokenStr);
 extern TupleDesc GetRetrieveStmtTupleDesc(const RetrieveStmt *stmt);
-extern void		 ExecRetrieveStmt(const RetrieveStmt *stmt, DestReceiver *dest);
+extern void ExecRetrieveStmt(const RetrieveStmt *stmt, DestReceiver *dest);
 
 
 /* cdbendpointutils.c */
