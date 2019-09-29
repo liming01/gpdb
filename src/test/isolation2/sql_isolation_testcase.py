@@ -433,14 +433,14 @@ class SQLIsolationExecutor(object):
                                                   passwd = given_passwd)
                     break
                 except Exception as e:
-                    if (("the database system is starting up" in str(e) or
+                    if self.mode == "retrieve" and ("auth token is invalid" in str(e) or "does not exist" in str(e)):
+                        self.create_exception = e
+                        break
+                    elif (("the database system is starting up" in str(e) or
                          "the database system is in recovery mode" in str(e)) and
                         retry > 1):
                         retry -= 1
                         time.sleep(0.1)
-                    if self.mode == "retrieve" and ("auth token is invalid" in str(e) or "does not exist" in str(e)):
-                        self.create_exception = e
-                        break
                     else:
                         raise
             return con
