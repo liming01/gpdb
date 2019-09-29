@@ -164,7 +164,7 @@ setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort
 	 * when endpoint on master
 	 */
 	if (Gp_role == GP_ROLE_DISPATCH ||
-	    ( Gp_role == GP_ROLE_EXECUTE && GpIdentity.segindex == -1) ||
+	    ( Gp_role == GP_ROLE_EXECUTE && GpIdentity.segindex == MASTER_CONTENT_ID) ||
 	    MyProcPort == NULL ||
 		(MyProcPort->laddr.addr.ss_family != AF_INET &&
 		 MyProcPort->laddr.addr.ss_family != AF_INET6))
