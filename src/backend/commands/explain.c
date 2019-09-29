@@ -638,39 +638,39 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 
 	if (cursorOptions & CURSOR_OPT_PARALLEL_RETRIEVE)
 	{
-		char endpoint_info[1024];
+		StringInfoData            endpointInfoStr;
 		enum EndPointExecPosition endPointExecPosition;
 		List *cids;
 
+		initStringInfo(&endpointInfoStr);
 		cids = ChooseEndpointContentIDForParallelCursor(
 			queryDesc->plannedstmt->planTree, &endPointExecPosition);
 		ExplainOpenGroup("Cursor", "Cursor", true, es);
 		switch(endPointExecPosition) {
 			case ENDPOINT_ON_Entry_DB: {
-				snprintf(endpoint_info, sizeof(endpoint_info), "on master");
+				appendStringInfo(&endpointInfoStr, "\"on master\"");
 				break;
 			}
 			case ENDPOINT_ON_SINGLE_QE:
 			case ENDPOINT_ON_SOME_QE: {
 				ListCell * cell;
 				bool isFirst = true;
-				size_t len = 0;
-				len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, "on segments: contentid [");
+				appendStringInfo(&endpointInfoStr, "on segments: contentid [");
 				foreach(cell, cids)
 				{
-					len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, (isFirst)?"%d":", %d", lfirst_int(cell));
+					appendStringInfo(&endpointInfoStr, (isFirst)?"%d":", %d", lfirst_int(cell));
 					isFirst = false;
 				}
-				len += snprintf(endpoint_info+len, sizeof(endpoint_info)-len, "]");
+				appendStringInfo(&endpointInfoStr, "]");
 				break;
 			}
 			case ENDPOINT_ON_ALL_QE:
 			default: {
-				snprintf(endpoint_info, sizeof(endpoint_info), "on all %d segments", getgpsegmentCount());
+				appendStringInfo(&endpointInfoStr, "on all %d segments", getgpsegmentCount());
 				break;
 			}
 		}
-		ExplainProperty("Endpoint", endpoint_info, false, es);
+		ExplainProperty("Endpoint", endpointInfoStr.data, false, es);
 		list_free(cids);
 		ExplainCloseGroup("Cursor", "Cursor", true, es);
 	}

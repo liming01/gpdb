@@ -121,14 +121,14 @@ print_token(const int8 *token)
 void
 SetParallelCursorExecRole(enum ParallelRetrCursorExecRole role)
 {
-	if (EndpointCtl.Gp_prce_role != PRCER_NONE && EndpointCtl.Gp_prce_role != role)
+	if (EndpointCtl.GpPrceRole != PRCER_NONE && EndpointCtl.GpPrceRole != role)
 		elog(ERROR, "endpoint role %s is already set to %s",
-			 endpoint_role_to_string(EndpointCtl.Gp_prce_role), endpoint_role_to_string(role));
+			 endpoint_role_to_string(EndpointCtl.GpPrceRole), endpoint_role_to_string(role));
 
 	elog(DEBUG3, "CDB_ENDPOINT: set endpoint role to %s",
 		 endpoint_role_to_string(role));
 
-	EndpointCtl.Gp_prce_role = role;
+	EndpointCtl.GpPrceRole = role;
 }
 
 /*
@@ -138,9 +138,9 @@ void
 ClearParallelCursorExecRole(void)
 {
 	elog(DEBUG3, "CDB_ENDPOINT: unset endpoint role %s",
-		 endpoint_role_to_string(EndpointCtl.Gp_prce_role));
+		 endpoint_role_to_string(EndpointCtl.GpPrceRole));
 
-	EndpointCtl.Gp_prce_role = PRCER_NONE;
+	EndpointCtl.GpPrceRole = PRCER_NONE;
 }
 
 /*
@@ -149,7 +149,7 @@ ClearParallelCursorExecRole(void)
 enum ParallelRetrCursorExecRole
 GetParallelCursorExecRole(void)
 {
-	return EndpointCtl.Gp_prce_role;
+	return EndpointCtl.GpPrceRole;
 }
 
 const char *
@@ -331,17 +331,17 @@ Datum gp_endpoints_info(PG_FUNCTION_ARGS)
 						&mystatus->status[mystatus->status_num - cnt + idx];
 					StrNCpy(mystatus->status[idx].name, entry->name,
 							ENDPOINT_NAME_LEN);
-					StrNCpy(mystatus->status[idx].cursorName, entry->cursor_name,
+					StrNCpy(mystatus->status[idx].cursorName, entry->cursorName,
 							NAMEDATALEN);
-					get_token_by_session_id(entry->session_id, entry->user_id,
+					get_token_by_session_id(entry->sessionID, entry->userID,
 											status->token);
 					status->dbid = contentid_get_dbid(
 						MASTER_CONTENT_ID, GP_SEGMENT_CONFIGURATION_ROLE_PRIMARY,
 						false);
-					status->attachStatus = entry->attach_status;
-					status->senderPid	= entry->sender_pid;
-					status->userId		 = entry->user_id;
-					status->sessionId	= entry->session_id;
+					status->attachStatus = entry->attachStatus;
+					status->senderPid	= entry->senderPid;
+					status->userId		 = entry->userID;
+					status->sessionId	= entry->sessionID;
 					idx++;
 				}
 			}
@@ -475,33 +475,33 @@ Datum gp_endpoints_status_info(PG_FUNCTION_ARGS)
 		const EndpointDesc *entry =
 			get_endpointdesc_by_index(mystatus->currentIdx);
 
-		if (!entry->empty && (superuser() || entry->user_id == GetUserId()))
+		if (!entry->empty && (superuser() || entry->userID == GetUserId()))
 		{
 			char *status = NULL;
 			int8  token[ENDPOINT_TOKEN_LEN];
-			get_token_by_session_id(entry->session_id, entry->user_id, token);
+			get_token_by_session_id(entry->sessionID, entry->userID, token);
 			char *tokenStr = print_token(token);
 
 			values[0] = CStringGetTextDatum(tokenStr);
 			nulls[0]  = false;
-			values[1] = Int32GetDatum(entry->database_id);
+			values[1] = Int32GetDatum(entry->databaseID);
 			nulls[1]  = false;
-			values[2] = Int32GetDatum(entry->sender_pid);
+			values[2] = Int32GetDatum(entry->senderPid);
 			nulls[2]  = false;
-			values[3] = Int32GetDatum(entry->receiver_pid);
+			values[3] = Int32GetDatum(entry->receiverPid);
 			nulls[3]  = false;
-			status	= status_enum_to_string(entry->attach_status);
+			status	= status_enum_to_string(entry->attachStatus);
 			values[4] = CStringGetTextDatum(status);
 			nulls[4]  = false;
 			values[5] = Int32GetDatum(GpIdentity.dbid);
 			nulls[5]  = false;
-			values[6] = Int32GetDatum(entry->session_id);
+			values[6] = Int32GetDatum(entry->sessionID);
 			nulls[6]  = false;
-			values[7] = ObjectIdGetDatum(entry->user_id);
+			values[7] = ObjectIdGetDatum(entry->userID);
 			nulls[7]  = false;
 			values[8] = CStringGetTextDatum(entry->name);
 			nulls[8]  = false;
-			values[9] = CStringGetTextDatum(entry->cursor_name);
+			values[9] = CStringGetTextDatum(entry->cursorName);
 			nulls[9]  = false;
 			tuple	 = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 			result	= HeapTupleGetDatum(tuple);

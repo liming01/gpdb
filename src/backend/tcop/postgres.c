@@ -3847,34 +3847,28 @@ ProcessInterrupts(const char* filename, int lineno)
 		 */
 		if (!DoingCommandRead)
 		{
-			char        *cancel_msg = NULL;
+			StringInfoData cancel_msg_str;
 
 			LockErrorCleanup();
+			initStringInfo(&cancel_msg_str);
 
 			if (HasCancelMessage())
 			{
-				/* cancel_msg will be ': "<msg>"' extra 4 for : ""*/
-				const int cancel_msg_len = MAX_CANCEL_MSG + 4;
 				char *buffer			 = palloc0(MAX_CANCEL_MSG);
-				cancel_msg				 = palloc0(cancel_msg_len);
 
 				GetCancelMessage(&buffer, MAX_CANCEL_MSG);
-				snprintf(cancel_msg, cancel_msg_len, ": \"%s\"", buffer);
+				appendStringInfo(&cancel_msg_str, ": \"%s\"", buffer);
 				pfree(buffer);
-			}
-			else
-			{
-				cancel_msg = "";
 			}
 
 			if (Gp_role == GP_ROLE_EXECUTE)
 				ereport(ERROR,
 						(errcode(ERRCODE_GP_OPERATION_CANCELED),
-						 errmsg("canceling MPP operation%s", cancel_msg)));
+						 errmsg("canceling MPP operation%s", cancel_msg_str.data)));
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_QUERY_CANCELED),
-						 errmsg("canceling statement due to user request%s", cancel_msg)));
+						 errmsg("canceling statement due to user request%s", cancel_msg_str.data)));
 		}
 	}
 

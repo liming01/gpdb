@@ -121,8 +121,8 @@ AuthEndpoint(Oid userID, const char *tokenStr)
 	if (parseError)
 		return isFound;
 
-	EndpointCtl.session_id = get_session_id_for_auth(userID, token);
-	if (EndpointCtl.session_id != InvalidSession)
+	EndpointCtl.sessionID = get_session_id_for_auth(userID, token);
+	if (EndpointCtl.sessionID != InvalidSession)
 	{
 		isFound = true;
 		before_shmem_exit(retrieve_exit_callback, (Datum) 0);
@@ -269,20 +269,20 @@ attach_endpoint(MsgQueueStatusEntry *entry)
 	Assert(entry);
 	Assert(entry->endpointName);
 
-	if (EndpointCtl.Gp_prce_role != PRCER_RECEIVER)
+	if (EndpointCtl.GpPrceRole != PRCER_RECEIVER)
 	{
 		elog(ERROR, "%s could not attach endpoint",
-			 endpoint_role_to_string(EndpointCtl.Gp_prce_role));
+			 endpoint_role_to_string(EndpointCtl.GpPrceRole));
 	}
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
-	Endpoint endpointDesc = find_endpoint(endpointName, EndpointCtl.session_id);
+	Endpoint endpointDesc = find_endpoint(endpointName, EndpointCtl.sessionID);
 	if (!endpointDesc)
 	{
 		elog(ERROR, "failed to attach non-existing endpoint %s", endpointName);
 	}
 
-	if (endpointDesc->user_id != GetUserId())
+	if (endpointDesc->userID != GetUserId())
 	{
 		ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 						errmsg("The PARALLEL RETRIEVE CURSOR was created by "
@@ -291,19 +291,19 @@ attach_endpoint(MsgQueueStatusEntry *entry)
 								"RETRIEVE CURSOR creator to retrieve.")));
 	}
 
-	if (endpointDesc->attach_status == Status_Attached &&
-		endpointDesc->receiver_pid != MyProcPid)
+	if (endpointDesc->attachStatus == Status_Attached &&
+		endpointDesc->receiverPid != MyProcPid)
 	{
-		attachedPid = endpointDesc->receiver_pid;
+		attachedPid = endpointDesc->receiverPid;
 		elog(ERROR, "Endpoint %s is already being retrieved by receiver(pid: %d)",
 			 endpointName, attachedPid);
 	}
 
-	if (endpointDesc->receiver_pid != InvalidPid &&
-		endpointDesc->receiver_pid != MyProcPid)
+	if (endpointDesc->receiverPid != InvalidPid &&
+		endpointDesc->receiverPid != MyProcPid)
 	{
 		/* already attached by other process before */
-		attachedPid = endpointDesc->receiver_pid;
+		attachedPid = endpointDesc->receiverPid;
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Endpoint %s is already attached by receiver(pid: %d)",
@@ -312,24 +312,24 @@ attach_endpoint(MsgQueueStatusEntry *entry)
 						   "session.")));
 	}
 
-	if (endpointDesc->sender_pid == InvalidPid)
+	if (endpointDesc->senderPid == InvalidPid)
 	{
 		/* Should not happen. */
-		Assert(endpointDesc->attach_status == Status_Finished);
+		Assert(endpointDesc->attachStatus == Status_Finished);
 	}
 
-	if (endpointDesc->receiver_pid == InvalidPid)
+	if (endpointDesc->receiverPid == InvalidPid)
 	{
-		endpointDesc->receiver_pid = MyProcPid;
+		endpointDesc->receiverPid = MyProcPid;
 		entry->retrieveStatus	  = RETRIEVE_STATUS_INIT;
 	}
-	endpointDesc->attach_status = Status_Attached;
+	endpointDesc->attachStatus = Status_Attached;
 	/* Not set if Status_Finished */
-	if (endpointDesc->attach_status == Status_Prepared)
+	if (endpointDesc->attachStatus == Status_Prepared)
 	{
-		endpointDesc->attach_status = Status_Attached;
+		endpointDesc->attachStatus = Status_Attached;
 	}
-	handle = endpointDesc->mq_dsm_handle;
+	handle = endpointDesc->mqDsmHandle;
 
 	LWLockRelease(ParallelCursorEndpointLock);
 	currentMQEntry = entry;
@@ -414,7 +414,7 @@ notify_sender(MsgQueueStatusEntry *entry, bool isFinished)
 {
 	EndpointDesc *endpoint;
 	LWLockAcquire(ParallelCursorEndpointLock, LW_SHARED);
-	endpoint = find_endpoint(entry->endpointName, EndpointCtl.session_id);
+	endpoint = find_endpoint(entry->endpointName, EndpointCtl.sessionID);
 	if (endpoint == NULL)
 	{
 		LWLockRelease(ParallelCursorEndpointLock);
@@ -423,9 +423,9 @@ notify_sender(MsgQueueStatusEntry *entry, bool isFinished)
 	}
 	if (isFinished)
 	{
-		endpoint->attach_status = Status_Finished;
+		endpoint->attachStatus = Status_Finished;
 	}
-	SetLatch(&endpoint->ack_done);
+	SetLatch(&endpoint->ackDone);
 	LWLockRelease(ParallelCursorEndpointLock);
 }
 
@@ -541,10 +541,10 @@ detach_endpoint(MsgQueueStatusEntry *entry, bool resetPID)
 {
 	EndpointDesc *endpoint = NULL;
 
-	Assert(EndpointCtl.Gp_prce_role == PRCER_RECEIVER);
+	Assert(EndpointCtl.GpPrceRole == PRCER_RECEIVER);
 
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
-	endpoint = find_endpoint(entry->endpointName, EndpointCtl.session_id);
+	endpoint = find_endpoint(entry->endpointName, EndpointCtl.sessionID);
 	if (endpoint == NULL)
 	{
 		/*
@@ -562,26 +562,26 @@ detach_endpoint(MsgQueueStatusEntry *entry, bool resetPID)
 	 * If the receiver pid get retrieve_cancel_action, the receiver pid is
 	 * invalid.
 	 */
-	if (endpoint->receiver_pid != MyProcPid &&
-		endpoint->receiver_pid != InvalidPid)
+	if (endpoint->receiverPid != MyProcPid &&
+		endpoint->receiverPid != InvalidPid)
 		elog(ERROR, "unmatched pid, expected %d but it's %d", MyProcPid,
-			 endpoint->receiver_pid);
+			 endpoint->receiverPid);
 
 	if (resetPID)
 	{
-		endpoint->receiver_pid = InvalidPid;
+		endpoint->receiverPid = InvalidPid;
 	}
 
 	/* Don't set if Status_Finished */
-	if (endpoint->attach_status == Status_Attached)
+	if (endpoint->attachStatus == Status_Attached)
 	{
 		if (entry->retrieveStatus == RETRIEVE_STATUS_FINISH)
 		{
-			endpoint->attach_status = Status_Finished;
+			endpoint->attachStatus = Status_Finished;
 		}
 		else
 		{
-			endpoint->attach_status = Status_Prepared;
+			endpoint->attachStatus = Status_Prepared;
 		}
 	}
 
@@ -600,7 +600,7 @@ retrieve_cancel_action(const char *endpointName, char *msg)
 	 * If current role is not receiver, the retrieve must already finished success
 	 * or get cleaned before.
 	 */
-	if (EndpointCtl.Gp_prce_role != PRCER_RECEIVER)
+	if (EndpointCtl.GpPrceRole != PRCER_RECEIVER)
 		elog(
 			DEBUG3,
 			"CDB_ENDPOINT: retrieve_cancel_action current role is not receiver.");
@@ -608,17 +608,17 @@ retrieve_cancel_action(const char *endpointName, char *msg)
 	LWLockAcquire(ParallelCursorEndpointLock, LW_EXCLUSIVE);
 
 	EndpointDesc *endpointDesc =
-		find_endpoint(endpointName, EndpointCtl.session_id);
-	if (endpointDesc && endpointDesc->receiver_pid == MyProcPid &&
-		endpointDesc->attach_status != Status_Finished)
+		find_endpoint(endpointName, EndpointCtl.sessionID);
+	if (endpointDesc && endpointDesc->receiverPid == MyProcPid &&
+		endpointDesc->attachStatus != Status_Finished)
 	{
-		endpointDesc->receiver_pid  = InvalidPid;
-		endpointDesc->attach_status = Status_Released;
-		if (endpointDesc->sender_pid != InvalidPid)
+		endpointDesc->receiverPid  = InvalidPid;
+		endpointDesc->attachStatus = Status_Released;
+		if (endpointDesc->senderPid != InvalidPid)
 		{
 			elog(DEBUG3, "CDB_ENDPOINT: signal sender to abort");
-			SetBackendCancelMessage(endpointDesc->sender_pid, msg);
-			kill(endpointDesc->sender_pid, SIGINT);
+			SetBackendCancelMessage(endpointDesc->senderPid, msg);
+			kill(endpointDesc->senderPid, SIGINT);
 		}
 	}
 
@@ -710,8 +710,8 @@ retrieve_xact_abort_callback(XactEvent ev, void *vp)
 	if (ev == XACT_EVENT_ABORT)
 	{
 		elog(DEBUG3, "CDB_ENDPOINT: retrieve xact abort callback");
-		if (EndpointCtl.Gp_prce_role == PRCER_RECEIVER &&
-			EndpointCtl.session_id != InvalidSession && currentMQEntry)
+		if (EndpointCtl.GpPrceRole == PRCER_RECEIVER &&
+			EndpointCtl.sessionID != InvalidSession && currentMQEntry)
 		{
 			if (currentMQEntry->retrieveStatus != RETRIEVE_STATUS_FINISH)
 				retrieve_cancel_action(currentMQEntry->endpointName,

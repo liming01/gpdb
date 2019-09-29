@@ -19,7 +19,6 @@
 #define ENDPOINT_TOKEN_STR_LEN           (2 + ENDPOINT_TOKEN_LEN * 2) // "tk0A1B...4E5F"
 #define InvalidSession                   (-1)
 
-#define GP_ENDPOINT_STATUS_INIT          "INIT"
 #define GP_ENDPOINT_STATUS_READY         "READY"
 #define GP_ENDPOINT_STATUS_RETRIEVING    "RETRIEVING"
 #define GP_ENDPOINT_STATUS_FINISH        "FINISH"
@@ -67,15 +66,15 @@ enum RetrieveStatus
 typedef struct EndpointDesc
 {
 	char name[ENDPOINT_NAME_LEN];      /* Endpoint name */
-	char cursor_name[NAMEDATALEN];     /* Parallel cursor name */
-	Oid database_id;                   /* Database OID */
-	pid_t sender_pid;                  /* The PID of EPR_SENDER(endpoint), set before endpoint sends data */
-	pid_t receiver_pid;                /* The retrieve role's PID that connect to current endpoint */
-	dsm_handle mq_dsm_handle;          /* DSM handle, which contains shared message queue */
-	Latch ack_done;	                   /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
-	enum AttachStatus attach_status;   /* The attach status of the endpoint */
-	int session_id;                    /* Connection session id */
-	Oid user_id;                       /* User ID of the current executed PARALLEL RETRIEVE CURSOR */
+	char cursorName[NAMEDATALEN];      /* Parallel cursor name */
+	Oid databaseID;                    /* Database OID */
+	pid_t senderPid;                   /* The PID of EPR_SENDER(endpoint), set before endpoint sends data */
+	pid_t receiverPid;                 /* The retrieve role's PID that connect to current endpoint */
+	dsm_handle mqDsmHandle;            /* DSM handle, which contains shared message queue */
+	Latch ackDone;	                   /* Latch to sync EPR_SENDER and EPR_RECEIVER status */
+	enum AttachStatus attachStatus;   /* The attach status of the endpoint */
+	int sessionID;                    /* Connection session id */
+	Oid userID;                       /* User ID of the current executed PARALLEL RETRIEVE CURSOR */
 	bool empty;                        /* Whether current EndpointDesc slot in DSM is free */
 } EndpointDesc;
 
@@ -86,11 +85,11 @@ typedef struct EndpointDesc
 typedef struct EndpointControl
 {
 	/* Current PARALLEL RETRIEVE CURSOR role */
-	enum ParallelRetrCursorExecRole Gp_prce_role;
+	enum ParallelRetrCursorExecRole GpPrceRole;
 	/* Which session that the endpoint is created in.
 	 * For senders, this is the same with gp_session_id.
 	 * For receivers, this is decided by the auth token. */
-	int session_id;
+	int sessionID;
 } EndpointControl;
 
 typedef EndpointDesc *Endpoint;
