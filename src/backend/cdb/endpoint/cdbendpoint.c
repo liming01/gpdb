@@ -179,8 +179,8 @@ static void register_session_info_callback(void);
 static void session_info_clean_callback(XactEvent ev, void *vp);
 static bool check_endpoint_finished_by_cursor_name(const char *cursorName,
 												   bool		   isWait);
-static void wait_for_init_by_cursor_name(const char *cursorName,
-										 const char *tokenStr);
+static void wait_for_ready_by_cursor_name(const char *cursorName,
+                                          const char *tokenStr);
 static bool check_parallel_retrieve_cursor(const char *cursorName, bool isWait);
 static bool check_parallel_cursor_errors(QueryDesc *queryDesc);
 
@@ -338,7 +338,7 @@ ChooseEndpointContentIDForParallelCursor(const struct Plan		   *planTree,
 void
 WaitEndpointReady(const struct Plan *planTree, const char *cursorName)
 {
-	call_endpoint_udf_on_qd(planTree, cursorName, 'w');
+	call_endpoint_udf_on_qd(planTree, cursorName, 'r');
 }
 
 /*
@@ -356,7 +356,7 @@ call_endpoint_udf_on_qd(const struct Plan *planTree, const char *cursorName,
 	enum EndPointExecPosition endPointExecPosition;
 	char 					  *tokenStr = "";
 
-	if (operator == 'w')
+	if (operator == 'r')
 	{
 		tokenStr = print_token(get_or_create_token_on_qd());
 	}
@@ -433,7 +433,7 @@ call_endpoint_udf_on_qd(const struct Plan *planTree, const char *cursorName,
 
 		cdbdisp_clearCdbPgResults(&cdb_pgresults);
 	}
-	if (operator == 'w')
+	if (operator == 'r')
 	{
 		pfree(tokenStr);
 	}
@@ -853,7 +853,7 @@ unset_endpoint_sender_pid(volatile EndpointDesc *endPointDesc)
 		sessionInfoEntry =
 			hash_search(sharedSessionInfoHash, &tag, HASH_FIND, NULL);
 		/* sessionInfoEntry may get removed on process(which executed
-		 * gp_operate_endpoints_token('w', *) UDF). This means xact finished.
+		 * gp_operate_endpoints_token('r', *) UDF). This means xact finished.
 		 * No need to set latch. */
 		if (sessionInfoEntry)
 		{
@@ -1206,10 +1206,10 @@ check_dispatch_connection(void)
  * Dispatch this UDF by "CdbDispatchCommandToSegments" and "CdbDispatchCommand",
  * It'll always dispatch to writer gang.
  *
- * c: check if the endpoints have been finished retrieving in a non-blocking way.
- * h: check if the endpoints have been finished retrieving in a blocking way. It
+ * c: [Check] check if the endpoints have been finished retrieving in a non-blocking way.
+ * w: [Wait] check if the endpoints have been finished retrieving in a blocking way. It
  *    will return until endpoints were finished, or any error occurs.
- * w: wait for the QE or the entry db initializing endpoints. It will return
+ * r: [Ready] wait for the QE or the entry db initializing endpoints. It will return
  *    until dest receiver is ready or timeout(5 seconds).
  */
 Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS)
@@ -1231,11 +1231,11 @@ Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS)
 		case 'c':
 			retVal = check_endpoint_finished_by_cursor_name(cursorName, false);
 			break;
-		case 'h':
+		case 'w':
 			retVal = check_endpoint_finished_by_cursor_name(cursorName, true);
 			break;
-		case 'w':
-			wait_for_init_by_cursor_name(cursorName, tokenStr);
+		case 'r':
+			wait_for_ready_by_cursor_name(cursorName, tokenStr);
 			retVal = true;
 			break;
 		default:
@@ -1253,7 +1253,7 @@ Datum gp_operate_endpoints_token(PG_FUNCTION_ARGS)
  * Register SessionInfoEntry clean up callback
  *
  * Since the SessionInfoEntry is created during WaitEndpointReady through
- * gp_operate_endpoints_token('w', *) UDF execute process(which is write gang or
+ * gp_operate_endpoints_token('r', *) UDF execute process(which is write gang or
  * QD), so callback needs to be registered on these processes.
  */
 void
@@ -1456,7 +1456,7 @@ check_endpoint_finished_by_cursor_name(const char *cursorName, bool isWait)
  * from QD through UDF.
  */
 void
-wait_for_init_by_cursor_name(const char *cursorName, const char *tokenStr)
+wait_for_ready_by_cursor_name(const char *cursorName, const char *tokenStr)
 {
 	EndpointDesc     *desc		 = NULL;
 	SessionInfoEntry *infoEntry  = NULL;
@@ -1631,7 +1631,7 @@ check_parallel_retrieve_cursor(const char *cursorName, bool isWait)
 	 */
 	PlannedStmt *stmt = (PlannedStmt *) linitial(portal->stmts);
 	retVal =
-		call_endpoint_udf_on_qd(stmt->planTree, cursorName, isWait ? 'h' : 'c');
+		call_endpoint_udf_on_qd(stmt->planTree, cursorName, isWait ? 'w' : 'c');
 
 #ifdef FAULT_INJECTOR
 	HOLD_INTERRUPTS();
