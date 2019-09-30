@@ -20,6 +20,8 @@ Parallel Retrieve Cursor has similar declaration and close syntax as
 normal cursor does. But other cursor operations are not supported
 (e.g.: MOVE).
 
+#NOTE: Orca is not support PARALLEL RETRIEVE CURSOR for now. It should
+fall back to postgres optimizer.
 
 Endpoint
 ========

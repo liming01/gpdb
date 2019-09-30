@@ -16,6 +16,8 @@
  * statement behavior is similar to the "FETCH count" statement, while it only
  * can be executed in retrieve mode connection to endpoint.
  *
+ * #NOTE: Orca is not support PARALLEL RETRIEVE CURSOR for now. It should fall back
+ * to postgres optimizer.
  *
  * Copyright (c) 2019-Present Pivotal Software, Inc
  *

@@ -85,14 +85,12 @@ installcheck-parallel-retrieve-cursor-check-segments:
 	fi
 
 installcheck-parallel-retrieve-cursor: install installcheck-parallel-retrieve-cursor-check-segments test_parallel_retrieve_cursor_extended_query
-	# TODO: Orca is not support by PARALLEL RETRIEVE CURSOR for now. Remove the optimizer
-	# setting when it is supported.
+	# NOTE: Orca is not support PARALLEL RETRIEVE CURSOR for now. It should fall back to postgres optimizer.
 	#
 	# Before running test, set statement_timeout to 1 minute so that even if some
 	# error make 'gp_wait_parallel_retrieve_cursor()' hang, it will be canceled when timeout.
 	#
 	# And also add test for test_parallel_retrieve_cursor_extended_query, only need to check command rc==0
-	default_optimizer=$$(gpconfig -s optimizer | grep "Master" | cut -d':' -f2) && \
 	default_master_timeout=$$(gpconfig -s statement_timeout | grep "Master" | cut -d':' -f2) && \
 	default_segment_timeout=$$(gpconfig -s statement_timeout | grep "Segment" | cut -d':' -f2) && \
 	if [ -z "$${default_optimizer}" ] || [ -z "$${default_master_timeout}" ] || [ -z "$${default_segment_timeout}" ] ; then \
@@ -102,7 +100,6 @@ installcheck-parallel-retrieve-cursor: install installcheck-parallel-retrieve-cu
 	  echo " Get gpconfig returns empty result " && exit -1; \
 	fi; \
 	gpconfig -c statement_timeout -v 60000 && \
-	gpconfig -c optimizer -v false && \
 	gpstop -u && \
 	gpconfig -s statement_timeout && \
 	./pg_isolation2_regress $(EXTRA_REGRESS_OPTS) --init-file=$(top_builddir)/src/test/regress/init_file --init-file=./init_file_parallel_retrieve_cursor --bindir='$(bindir)' --inputdir=$(srcdir) --dbname=isolation2parallelretrcursor --load-extension=gp_inject_fault --schedule=$(srcdir)/parallel_retrieve_cursor_schedule ; \
@@ -115,9 +112,7 @@ installcheck-parallel-retrieve-cursor: install installcheck-parallel-retrieve-cu
 		echo "[ERROR]: test_parallel_retrieve_cursor_extended_query test failed." ; \
 		cat test_parallel_retrieve_cursor_extended_query.log ; \
 	fi; \
-	gpconfig -c optimizer -v $${default_optimizer} -m $${default_optimizer} && \
 	gpconfig -c statement_timeout -v $${default_segment_timeout} -m $${default_master_timeout} && \
 	gpstop -u && \
-	gpconfig -s optimizer && \
 	gpconfig -s statement_timeout && \
 	exit "$$(( $${ret} || $${ret2} ))"
