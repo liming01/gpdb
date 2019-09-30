@@ -550,6 +550,8 @@ ROLLBACK
 
 
 -- Test6: error inject at the 1000th time while retrieving tuples from endpoint. other retrieve session finished.
+-- This test may cause GPDB hang/crash on MacOS because the UDP thread receive signal which shouldn't.
+-- (OS-X pthread_sigmask is broken: MPP-4923).
 1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
  gp_inject_fault 
 -----------------
