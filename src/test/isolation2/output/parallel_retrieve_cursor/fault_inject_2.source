@@ -1,0 +1,85 @@
+-- @Description Tests with faut inject
+--
+DROP TABLE IF EXISTS t1;
+DROP
+CREATE TABLE t1 (a INT) DISTRIBUTED by (a);
+CREATE
+insert into t1 select generate_series(1,100);
+INSERT 100
+
+DROP TABLE IF EXISTS t2;
+DROP
+CREATE TABLE t2 (a INT) DISTRIBUTED by (a);
+CREATE
+insert into t2 select generate_series(1,10000000);
+INSERT 10000000
+
+CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
+CREATE
+
+-- Test1: error inject at the 1000th time while retrieving tuples from endpoint. other retrieve session finished.
+-- This test may cause GPDB hang/crash on MacOS because the UDP thread receive signal which shouldn't.
+-- (OS-X pthread_sigmask is broken: MPP-4923).
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
+ gp_inject_fault 
+-----------------
+ Success:        
+(1 row)
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'interrupt', '', '', '', 1000, 1000, 0, 3::smallint);
+ gp_inject_fault 
+-----------------
+ Success:        
+(1 row)
+
+1: BEGIN;
+BEGIN
+1: DECLARE c1 PARALLEL RETRIEVE CURSOR FOR SELECT * from t2;
+DECLARE
+1: @out_sh 'parse_endpoint 6 1 2 3 4' : SELECT endpointname,token,hostname,port,status FROM gp_endpoints_info(true) WHERE cursorname='c1';
+ endpoint_id6_1 | token_id | host_id | port_id | READY
+ endpoint_id6_2 | token_id | host_id | port_id | READY
+ endpoint_id6_3 | token_id | host_id | port_id | READY
+(3 rows)
+1&: SELECT * FROM gp_wait_parallel_retrieve_cursor('c1');  <waiting ...>
+
+0R: @in_sh 'sub @TOKEN6 $TOKEN6' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
+ status 
+--------
+ READY  
+(1 row)
+0R&: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";  <waiting ...>
+
+2R: @in_sh 'sub @TOKEN6 $TOKEN6' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
+ status 
+--------
+ READY  
+(1 row)
+2R&: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";  <waiting ...>
+
+1R: @in_sh 'sub @TOKEN6 $TOKEN6' : SELECT status FROM GP_ENDPOINTS_STATUS_INFO() WHERE token='@TOKEN6';
+ status 
+--------
+ READY  
+(1 row)
+1R: @in_sh 'sub_endpoint_name @ENDPOINT6': RETRIEVE ALL FROM ENDPOINT "@ENDPOINT6";
+ERROR:  canceling statement due to user request
+
+1<:  <... completed>
+ERROR:  Endpoint for 'c1' get aborted. (cdbendpoint.c:LINENO)
+ERROR:  canceling MPP operation: "Endpoint retrieve statement aborted"
+
+0R<:  <... completed>
+ERROR:  canceling statement due to user request: "Signal the receiver to abort."
+2R<:  <... completed>
+ERROR:  canceling statement due to user request: "Signal the receiver to abort."
+
+1<:  <... completed>
+FAILED:  Execution failed
+1: ROLLBACK;
+ROLLBACK
+1: SELECT gp_inject_fault('fetch_tuples_from_endpoint', 'reset', 3);
+ gp_inject_fault 
+-----------------
+ Success:        
+(1 row)
+

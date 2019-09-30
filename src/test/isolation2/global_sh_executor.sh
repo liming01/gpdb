@@ -33,7 +33,7 @@ get_cell() {
 # Arg 3 (input): Column number.
 get_token_cell() {
     var_name=$1
-    get_cell $@
+    get_cell "$@"
     eval RETRIEVE_TOKEN="\$$var_name"
 }
 
