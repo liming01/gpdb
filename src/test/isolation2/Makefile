@@ -110,7 +110,7 @@ installcheck-parallel-retrieve-cursor: install installcheck-parallel-retrieve-cu
 	./test_parallel_retrieve_cursor_extended_query "gpadmin" "postgres" > test_parallel_retrieve_cursor_extended_query.log 2>&1 ; \
 	ret2=$$? ; \
 	if [ "$${ret2}" == 0 ]; then \
-		echo -e "[PASS]: test_parallel_retrieve_cursor_extended_query test pass. See test_parallel_retrieve_cursor_extended_query.log.\n" ; \
+		echo "[PASS]: test_parallel_retrieve_cursor_extended_query test pass. See test_parallel_retrieve_cursor_extended_query.log." ; echo "" ; \
 	else \
 		echo "[ERROR]: test_parallel_retrieve_cursor_extended_query test failed." ; \
 		cat test_parallel_retrieve_cursor_extended_query.log ; echo "" ; \
