@@ -337,7 +337,7 @@ cdbdisp_checkAckNotice_async(struct CdbDispatcherState *ds, bool wait, const cha
 	pParms->ackNoticeMsg = message;
 
 	prevWaitMode = pParms->waitMode;
-	pParms->waitMode = DISPATCH_WAIT_ACK_NOTICE;
+	pParms->waitMode = DISPATCH_WAIT_NONE;
 
 	checkDispatchResult(ds, wait);
 
@@ -356,8 +356,6 @@ cdbdisp_checkDispatchResult_async(struct CdbDispatcherState *ds,
 								  DispatchWaitMode waitMode)
 {
 	Assert(ds != NULL);
-	/* DISPATCH_WAIT_ACK_NOTICE can not be set in cdbdisp_checkDispatchResult_async */
-	Assert(waitMode != DISPATCH_WAIT_ACK_NOTICE);
 	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
 
 	/* cdbdisp_destroyDispatcherState is called */

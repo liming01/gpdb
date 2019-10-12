@@ -32,7 +32,6 @@ enum GangType;
 typedef enum DispatchWaitMode
 {
 	DISPATCH_WAIT_NONE = 0,			/* wait until QE fully completes */
-	DISPATCH_WAIT_ACK_NOTICE,		/* wait until QE send ack NOTICE back */
 	DISPATCH_WAIT_FINISH,			/* send query finish */
 	DISPATCH_WAIT_CANCEL			/* send query cancel */
 } DispatchWaitMode;
