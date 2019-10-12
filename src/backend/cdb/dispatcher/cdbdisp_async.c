@@ -68,8 +68,6 @@ typedef struct CdbDispatchCmdAsync
 	 */
 	volatile DispatchWaitMode waitMode;
 
-	const char		*ackNoticeMsg;
-
 	/*
 	 * Text information to dispatch: The format is type(1 byte) + length(size
 	 * of int) + content(n bytes)
@@ -334,7 +332,6 @@ cdbdisp_checkAckNotice_async(struct CdbDispatcherState *ds, bool wait, const cha
 	/* cdbdisp_destroyDispatcherState is called */
 	if (pParms == NULL)
 		return;
-	pParms->ackNoticeMsg = message;
 
 	prevWaitMode = pParms->waitMode;
 	pParms->waitMode = DISPATCH_WAIT_NONE;
@@ -399,7 +396,6 @@ cdbdisp_makeDispatchParams_async(int maxSlices, int largestGangSize, char *query
 	pParms->dispatchResultPtrArray = (CdbDispatchResult **) palloc0(size);
 	pParms->dispatchCount = 0;
 	pParms->waitMode = DISPATCH_WAIT_NONE;
-	pParms->ackNoticeMsg = NULL;
 	pParms->query_text = queryText;
 	pParms->query_text_len = len;
 
