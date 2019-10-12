@@ -81,6 +81,20 @@ typedef struct CdbDispatchCmdAsync
 
 } CdbDispatchCmdAsync;
 
+typedef struct SegAckInfo
+{
+	const char* expectedMessage;
+	const SegmentDatabaseDescriptor *segdbDesc;
+	bool ackNotice;
+	PQnoticeReceiver oldReceiver;
+} SegAckInfo;
+
+typedef struct AckNoticeInfo
+{
+	int segCount;
+	SegAckInfo *segAckInfos;
+} AckNoticeInfo;
+
 static void *cdbdisp_makeDispatchParams_async(int maxSlices, int largestGangSize, char *queryText, int len);
 
 static void cdbdisp_checkAckNotice_async(struct CdbDispatcherState *ds, bool wait, const char *message);
@@ -96,9 +110,9 @@ static void	cdbdisp_waitDispatchFinish_async(struct CdbDispatcherState *ds);
 static bool	cdbdisp_checkForCancel_async(struct CdbDispatcherState *ds);
 static int cdbdisp_getWaitSocketFd_async(struct CdbDispatcherState *ds);
 
-static void initAckNotice(const struct CdbDispatcherState *ds, const char *message);
+static AckNoticeInfo *initAckNotice(const struct CdbDispatcherState *ds, const char *message);
 static void ackNoticeReceiver(void *arg, const PGresult *res);
-static void endAckNotice(void);
+static void endAckNotice(AckNoticeInfo **ackNoticeInfo);
 
 DispatcherInternalFuncs DispatcherAsyncFuncs =
 {
@@ -117,7 +131,7 @@ static void dispatchCommand(CdbDispatchResult *dispatchResult,
 				int query_text_len);
 
 static void checkDispatchResult(CdbDispatcherState *ds,
-					bool wait);
+					bool wait, const AckNoticeInfo *ackNoticeInfo);
 
 static bool processResults(CdbDispatchResult *dispatchResult);
 
@@ -144,7 +158,7 @@ cdbdisp_checkForCancel_async(struct CdbDispatcherState *ds)
 {
 	Assert(ds);
 
-	checkDispatchResult(ds, false);
+	checkDispatchResult(ds, false, NULL);
 	return cdbdisp_checkResultsErrcode(ds->primaryResults);
 }
 
@@ -327,7 +341,7 @@ cdbdisp_checkAckNotice_async(struct CdbDispatcherState *ds, bool wait, const cha
 	DispatchWaitMode prevWaitMode;
 	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
 
-	initAckNotice(ds, message);
+	AckNoticeInfo *ackNoticeInfo = initAckNotice(ds, message);
 
 	/* cdbdisp_destroyDispatcherState is called */
 	if (pParms == NULL)
@@ -336,10 +350,10 @@ cdbdisp_checkAckNotice_async(struct CdbDispatcherState *ds, bool wait, const cha
 	prevWaitMode = pParms->waitMode;
 	pParms->waitMode = DISPATCH_WAIT_NONE;
 
-	checkDispatchResult(ds, wait);
+	checkDispatchResult(ds, wait, ackNoticeInfo);
 
 	pParms->waitMode = prevWaitMode;
-	endAckNotice();
+	endAckNotice(&ackNoticeInfo);
 }
 
 /*
@@ -366,7 +380,7 @@ cdbdisp_checkDispatchResult_async(struct CdbDispatcherState *ds,
 	if (waitMode != DISPATCH_WAIT_NONE)
 		pParms->waitMode = waitMode;
 
-	checkDispatchResult(ds, true);
+	checkDispatchResult(ds, true, NULL);
 
 	/*
 	 * It looks like everything went fine, make sure we don't miss a user
@@ -402,46 +416,40 @@ cdbdisp_makeDispatchParams_async(int maxSlices, int largestGangSize, char *query
 	return (void *) pParms;
 }
 
-typedef struct AckNoticeInfo
-{
-	const CdbDispatchCmdAsync *pParms;
-	const char* expectedMessage;
-	bool *ackNotice;
-	PQnoticeReceiver *oldReceivers;
-} AckNoticeInfo;
-
-static struct AckNoticeInfo *ackNoticeInfo = NULL;
-
-
-static void
+/*
+ * Init the AckNoticeInfo struct which will be used to check the ACK message from QE.
+ */
+static AckNoticeInfo *
 initAckNotice(const struct CdbDispatcherState *ds, const char *message)
 {
-	Assert(!ackNoticeInfo);
-
 	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
+	AckNoticeInfo *		 ackNoticeInfo = palloc(sizeof(struct AckNoticeInfo));
 
-	ackNoticeInfo = palloc(sizeof(struct AckNoticeInfo));
-	ackNoticeInfo->pParms = pParms;
-	ackNoticeInfo->ackNotice = palloc(sizeof(bool) * pParms->dispatchCount);
-	ackNoticeInfo->oldReceivers = palloc(sizeof(PQnoticeReceiver *) * pParms->dispatchCount);
-	ackNoticeInfo->expectedMessage = message;
+	ackNoticeInfo->segAckInfos =
+		palloc(sizeof(SegAckInfo) * pParms->dispatchCount);
+	ackNoticeInfo->segCount = pParms->dispatchCount;
+
 	for (int i = 0; i < pParms->dispatchCount; i++)
 	{
-		SegmentDatabaseDescriptor *segdbDesc = (pParms->dispatchResultPtrArray)[i]->segdbDesc;
-		ackNoticeInfo->ackNotice[i] = false;
-		ackNoticeInfo->oldReceivers[i] = PQsetNoticeReceiver(segdbDesc->conn, &ackNoticeReceiver, segdbDesc);
+		SegmentDatabaseDescriptor *segdbDesc =
+			(pParms->dispatchResultPtrArray)[i]->segdbDesc;
+		(ackNoticeInfo->segAckInfos[i]).segdbDesc = segdbDesc;
+		(ackNoticeInfo->segAckInfos[i]).ackNotice = false;
+		(ackNoticeInfo->segAckInfos[i]).oldReceiver = PQsetNoticeReceiver(
+			segdbDesc->conn, &ackNoticeReceiver, &ackNoticeInfo->segAckInfos[i]);
+		(ackNoticeInfo->segAckInfos[i]).expectedMessage = message;
 	}
+	return ackNoticeInfo;
 }
 
 static void
 ackNoticeReceiver(void *arg, const PGresult *res)
 {
-	SegmentDatabaseDescriptor *segdbDesc = (SegmentDatabaseDescriptor *) arg;
+	Assert(arg);
+	SegAckInfo *segAckInfo= (SegAckInfo *) arg;
 	PGMessageField *pfield;
 	const char* line = NULL;
 	const char* sqlstate = "00000";
-
-	Assert(ackNoticeInfo);
 
 	for (pfield = res->errFields; pfield != NULL; pfield = pfield->next)
 	{
@@ -456,34 +464,32 @@ ackNoticeReceiver(void *arg, const PGresult *res)
 				break;
 		}
 	}
-	for (int i = 0; i < ackNoticeInfo->pParms->dispatchCount; i++)
+	if (sqlstate_to_errcode(sqlstate) == ERRCODE_GP_ACK_DONE &&
+		strcmp(segAckInfo->expectedMessage, line) == 0)
 	{
-		if ((ackNoticeInfo->pParms->dispatchResultPtrArray)[i]
-				->segdbDesc->segindex == segdbDesc->segindex)
-		{
-			if (sqlstate_to_errcode(sqlstate) == ERRCODE_GP_ACK_DONE &&
-				strcmp(ackNoticeInfo->expectedMessage, line) == 0)
-			{
-				ackNoticeInfo->ackNotice[i] = true;
-			}
-			else
-			{
-				ackNoticeInfo->oldReceivers[i](arg, res);
-			}
-			break;
-		}
+		segAckInfo->ackNotice = true;
+	}
+	else
+	{
+		segAckInfo->oldReceiver(arg, res);
 	}
 }
 
 static void
-endAckNotice(void)
+endAckNotice(AckNoticeInfo **ackNoticeInfo)
 {
 	Assert(ackNoticeInfo);
-	Assert(ackNoticeInfo->ackNotice);
-	pfree(ackNoticeInfo->ackNotice);
-	pfree(ackNoticeInfo->oldReceivers);
-	pfree(ackNoticeInfo);
-	ackNoticeInfo = NULL;
+	Assert(*ackNoticeInfo);
+	Assert((*ackNoticeInfo)->segAckInfos);
+	for (int i = 0; i < (*ackNoticeInfo)->segCount; i++)
+	{
+		SegAckInfo *segAckInfo = &(*ackNoticeInfo)->segAckInfos[i];
+		/* Set the receiver back to the original one. */
+		PQsetNoticeReceiver(segAckInfo->segdbDesc->conn, segAckInfo->oldReceiver,
+							&segAckInfo->segdbDesc);
+	}
+	pfree(*ackNoticeInfo);
+	*ackNoticeInfo = NULL;
 }
 
 /*
@@ -497,7 +503,7 @@ endAckNotice(void)
  */
 static void
 checkDispatchResult(CdbDispatcherState *ds,
-					bool wait)
+					bool wait, const AckNoticeInfo *ackNoticeInfo)
 {
 	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
 	CdbDispatchResults *meleeResults = ds->primaryResults;
@@ -552,7 +558,7 @@ checkDispatchResult(CdbDispatcherState *ds,
 			 */
 			if (!dispatchResult->stillRunning)
 				continue;
-			if (ackNoticeInfo && ackNoticeInfo->ackNotice[i])
+			if (ackNoticeInfo && ackNoticeInfo->segAckInfos[i].ackNotice)
 				continue;
 
 			Assert(!cdbconn_isBadConnection(segdbDesc));
