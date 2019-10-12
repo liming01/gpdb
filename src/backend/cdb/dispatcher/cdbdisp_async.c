@@ -98,6 +98,10 @@ static void	cdbdisp_waitDispatchFinish_async(struct CdbDispatcherState *ds);
 static bool	cdbdisp_checkForCancel_async(struct CdbDispatcherState *ds);
 static int cdbdisp_getWaitSocketFd_async(struct CdbDispatcherState *ds);
 
+static void initAckNotice(const struct CdbDispatcherState *ds, const char *message);
+static void ackNoticeReceiver(void *arg, const PGresult *res);
+static void endAckNotice(void);
+
 DispatcherInternalFuncs DispatcherAsyncFuncs =
 {
 	cdbdisp_checkForCancel_async,
@@ -325,6 +329,8 @@ cdbdisp_checkAckNotice_async(struct CdbDispatcherState *ds, bool wait, const cha
 	DispatchWaitMode prevWaitMode;
 	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
 
+	initAckNotice(ds, message);
+
 	/* cdbdisp_destroyDispatcherState is called */
 	if (pParms == NULL)
 		return;
@@ -336,6 +342,7 @@ cdbdisp_checkAckNotice_async(struct CdbDispatcherState *ds, bool wait, const cha
 	checkDispatchResult(ds, wait);
 
 	pParms->waitMode = prevWaitMode;
+	endAckNotice();
 }
 
 /*
@@ -401,6 +408,90 @@ cdbdisp_makeDispatchParams_async(int maxSlices, int largestGangSize, char *query
 	return (void *) pParms;
 }
 
+typedef struct AckNoticeInfo
+{
+	const CdbDispatchCmdAsync *pParms;
+	const char* expectedMessage;
+	bool *ackNotice;
+	PQnoticeReceiver *oldReceivers;
+} AckNoticeInfo;
+
+static struct AckNoticeInfo *ackNoticeInfo = NULL;
+
+
+static void
+initAckNotice(const struct CdbDispatcherState *ds, const char *message)
+{
+	Assert(!ackNoticeInfo);
+
+	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
+
+	ackNoticeInfo = palloc(sizeof(struct AckNoticeInfo));
+	ackNoticeInfo->pParms = pParms;
+	ackNoticeInfo->ackNotice = palloc(sizeof(bool) * pParms->dispatchCount);
+	ackNoticeInfo->oldReceivers = palloc(sizeof(PQnoticeReceiver *) * pParms->dispatchCount);
+	ackNoticeInfo->expectedMessage = message;
+	for (int i = 0; i < pParms->dispatchCount; i++)
+	{
+		SegmentDatabaseDescriptor *segdbDesc = (pParms->dispatchResultPtrArray)[i]->segdbDesc;
+		ackNoticeInfo->ackNotice[i] = false;
+		ackNoticeInfo->oldReceivers[i] = PQsetNoticeReceiver(segdbDesc->conn, &ackNoticeReceiver, segdbDesc);
+	}
+}
+
+static void
+ackNoticeReceiver(void *arg, const PGresult *res)
+{
+	SegmentDatabaseDescriptor *segdbDesc = (SegmentDatabaseDescriptor *) arg;
+	PGMessageField *pfield;
+	const char* line = NULL;
+	const char* sqlstate = "00000";
+
+	Assert(ackNoticeInfo);
+
+	for (pfield = res->errFields; pfield != NULL; pfield = pfield->next)
+	{
+		switch (pfield->code)
+		{
+			case PG_DIAG_SQLSTATE:
+				sqlstate = pfield->contents;
+				break;
+			case PG_DIAG_MESSAGE_PRIMARY:
+				line = pfield->contents;
+
+				break;
+		}
+	}
+	for (int i = 0; i < ackNoticeInfo->pParms->dispatchCount; i++)
+	{
+		if ((ackNoticeInfo->pParms->dispatchResultPtrArray)[i]
+				->segdbDesc->segindex == segdbDesc->segindex)
+		{
+			if (sqlstate_to_errcode(sqlstate) == ERRCODE_GP_ACK_DONE &&
+				strcmp(ackNoticeInfo->expectedMessage, line) == 0)
+			{
+				ackNoticeInfo->ackNotice[i] = true;
+			}
+			else
+			{
+				ackNoticeInfo->oldReceivers[i](arg, res);
+			}
+			break;
+		}
+	}
+}
+
+static void
+endAckNotice(void)
+{
+	Assert(ackNoticeInfo);
+	Assert(ackNoticeInfo->ackNotice);
+	pfree(ackNoticeInfo->ackNotice);
+	pfree(ackNoticeInfo->oldReceivers);
+	pfree(ackNoticeInfo);
+	ackNoticeInfo = NULL;
+}
+
 /*
  * Receive and process results from all running QEs.
  *
@@ -424,11 +515,9 @@ checkDispatchResult(CdbDispatcherState *ds,
 	bool		sentSignal = false;
 	struct pollfd *fds;
 	uint8 ftsVersion = 0;
-	bool		*ackNotices;
 
 	db_count = pParms->dispatchCount;
 	fds = (struct pollfd *) palloc(db_count * sizeof(struct pollfd));
-	ackNotices = palloc0(db_count * sizeof(bool));
 	/*
 	 * OK, we are finished submitting the command to the segdbs. Now, we have
 	 * to wait for them to finish.
@@ -469,7 +558,7 @@ checkDispatchResult(CdbDispatcherState *ds,
 			 */
 			if (!dispatchResult->stillRunning)
 				continue;
-			if (pParms->waitMode == DISPATCH_WAIT_ACK_NOTICE && ackNotices[i])
+			if (ackNoticeInfo && ackNoticeInfo->ackNotice[i])
 				continue;
 
 			Assert(!cdbconn_isBadConnection(segdbDesc));
@@ -584,16 +673,10 @@ checkDispatchResult(CdbDispatcherState *ds,
 		else
 		{
 			handlePollSuccess(pParms, fds);
-			if (pParms->waitMode == DISPATCH_WAIT_ACK_NOTICE &&
-				checkACKQENotices(pParms->ackNoticeMsg))
-			{
-				ackNotices[i] = true;
-			}
 		}
 	}
 
 	pfree(fds);
-	pfree(ackNotices);
 }
 
 /*
