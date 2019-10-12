@@ -39,9 +39,8 @@
 #include "nodes/parsenodes.h"
 #include "tcop/dest.h"
 #include "storage/lwlock.h"
+#include "cdb/cdbdisp.h"
 
-/* ACK NOTICE MESSAGE FROM ENDPOINT QE/Entry DB to QD */
-#define ENDPOINT_READY "ENDPOINT_READY"
 
 /*
  * Roles that used in PARALLEL RETRIEVE CURSOR execution.
@@ -84,7 +83,7 @@ extern enum EndPointExecPosition GetParallelCursorEndpointPosition(
 								  const struct Plan *planTree);
 extern List *ChooseEndpointContentIDForParallelCursor(
 		  const struct Plan *planTree, enum EndPointExecPosition *position);
-extern void WaitEndpointReady(const struct Plan *planTree, const char *cursorName);
+extern void WaitEndpointReady(CdbDispatcherState* ds, const struct Plan *planTree, const char *cursorName);
 
 /*
  * Below functions should run on Endpoints(QE/Entry DB).

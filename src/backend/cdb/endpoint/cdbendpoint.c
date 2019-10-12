@@ -365,8 +365,19 @@ ChooseEndpointContentIDForParallelCursor(const struct Plan *planTree,
 }
 
 void
-WaitEndpointReady(const struct Plan *planTree, const char *cursorName)
+WaitEndpointReady(CdbDispatcherState* ds, const struct Plan *planTree, const char *cursorName)
 {
+	ErrorData *qeError = NULL;
+
+	cdbdisp_checkDispatchAckNotice(ds, true, ENDPOINT_READY);
+	if(cdbdisp_checkResultsErrcode(ds->primaryResults))
+	{
+		cdbdisp_getDispatchResults(ds, &qeError);
+		cdbdisp_destroyDispatcherState(ds);
+		ReThrowError(qeError);
+	}
+
+	// TODO: redesign the token dispatch logic, remove below code
 	call_endpoint_udf_on_qd(planTree, cursorName, 'r');
 }
 

@@ -42,6 +42,11 @@
 	ereport(NOTICE, (errcode(ERRCODE_SUCCESSFUL_COMPLETION), \
 			errmsg("%s: %s", ACK_NOTICE_MSG_HEADER, MSG)))
 
+
+/* ACK NOTICE MESSAGE FROM ENDPOINT QE/Entry DB to QD */
+#define ENDPOINT_READY "ENDPOINT_READY"
+
+
 /*
  * Endpoint attach status.
  */
