@@ -556,8 +556,9 @@ CreateTQDestReceiverForEndpoint(TupleDesc tupleDesc, const char *cursorName)
 		alloc_endpoint(cursorName, dsm_segment_handle(activeDsmSeg));
 
 	SEND_ACK_NOTICE(ENDPOINT_READY);
+	// TODO: rely on above logic to tell qd endpoint is ready, remove bolow code
 	/* Unblock the latch to finish declare statement. */
-//	declare_parallel_retrieve_ready(cursorName);
+	declare_parallel_retrieve_ready(cursorName);
 	return CreateTupleQueueDestReceiver(shmMqHandle);
 }
 

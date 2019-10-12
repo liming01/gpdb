@@ -372,8 +372,7 @@ cdbdisp_checkDispatchResult_async(struct CdbDispatcherState *ds,
 	 *
 	 * The waitMode argument is NONE when we are doing "normal work".
 	 */
-	if (waitMode == DISPATCH_WAIT_NONE || waitMode == DISPATCH_WAIT_FINISH ||
-		waitMode == DISPATCH_WAIT_ACK_NOTICE)
+	if (waitMode == DISPATCH_WAIT_NONE || waitMode == DISPATCH_WAIT_FINISH)
 		CHECK_FOR_INTERRUPTS();
 }
 
