@@ -42,6 +42,9 @@
 #include "cdb/cdbdisp.h"
 
 
+/* ACK NOTICE MESSAGE FROM ENDPOINT QE/Entry DB to QD */
+#define ENDPOINT_READY "ENDPOINT_READY"
+
 /*
  * Roles that used in PARALLEL RETRIEVE CURSOR execution.
  *
