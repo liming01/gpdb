@@ -44,6 +44,7 @@
 #include "cdb/cdbdisp_dtx.h"	/* for qdSerializeDtxContextInfo() */
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbcopy.h"
+#include "cdb/cdbendpoint.h"
 #include "executor/execUtils.h"
 
 #define QUERY_STRING_TRUNCATE_SIZE (1024)
@@ -1153,7 +1154,6 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 	pfree(sliceVector);
 
 	cdbdisp_waitDispatchFinish(ds);
-
 	/*
 	 * If bailed before completely dispatched, stop QEs and throw error.
 	 */
@@ -1190,6 +1190,17 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg_internal("unable to dispatch plan")));
+	}
+
+	if (queryDesc->parallel_retrieve_cursor)
+	{
+		cdbdisp_checkDispatchAckNotice(ds, true, ENDPOINT_READY);
+		if(cdbdisp_checkResultsErrcode(ds->primaryResults))
+		{
+			cdbdisp_getDispatchResults(ds, &qeError);
+			cdbdisp_destroyDispatcherState(ds);
+			ReThrowError(qeError);
+		}
 	}
 
 	if (DEBUG1 >= log_min_messages)

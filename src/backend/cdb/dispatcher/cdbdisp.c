@@ -103,6 +103,19 @@ cdbdisp_waitDispatchFinish(struct CdbDispatcherState *ds)
 }
 
 /*
+ * cdbdisp_checkDispatchAckNotice:
+ *
+ * Check for acknowledge NOTICE form QEs/EntryDB after cdbdisp_dispatchToGang().
+ *
+ */
+void
+cdbdisp_checkDispatchAckNotice(struct CdbDispatcherState *ds, bool wait, const char *message)
+{
+	if (pDispatchFuncs->checkResults != NULL)
+		(pDispatchFuncs->checkAckNotice) (ds, wait, message);
+}
+
+/*
  * cdbdisp_checkDispatchResult:
  *
  * Waits for completion of threads launched by cdbdisp_dispatchToGang().
@@ -134,7 +147,7 @@ cdbdisp_checkDispatchResult(struct CdbDispatcherState *ds,
 	}
 }
 
-/**
+/*
  * Check whether or not the PARALLEL RETRIEVE CURSOR Execution Finished
  * This func should be called after calling cdbdisp_checkDispatchResult().
  *

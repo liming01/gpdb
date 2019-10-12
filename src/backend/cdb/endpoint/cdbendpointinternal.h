@@ -36,6 +36,12 @@
  */
 #define ENDPOINT_NAME_LEN (NAMEDATALEN + 1 + 8 + 1 + 8)
 
+#define ACK_NOTICE_MSG_HEADER "^ACK_NOTICE^"
+
+#define SEND_ACK_NOTICE(MSG) \
+	ereport(NOTICE, (errcode(ERRCODE_SUCCESSFUL_COMPLETION), \
+			errmsg("%s: %s", ACK_NOTICE_MSG_HEADER, MSG)))
+
 /*
  * Endpoint attach status.
  */

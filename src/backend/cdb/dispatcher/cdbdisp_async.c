@@ -68,6 +68,8 @@ typedef struct CdbDispatchCmdAsync
 	 */
 	volatile DispatchWaitMode waitMode;
 
+	const char		*ackNoticeMsg;
+
 	/*
 	 * Text information to dispatch: The format is type(1 byte) + length(size
 	 * of int) + content(n bytes)
@@ -82,6 +84,8 @@ typedef struct CdbDispatchCmdAsync
 } CdbDispatchCmdAsync;
 
 static void *cdbdisp_makeDispatchParams_async(int maxSlices, int largestGangSize, char *queryText, int len);
+
+static void cdbdisp_checkAckNotice_async(struct CdbDispatcherState *ds, bool wait, const char *message);
 
 static void cdbdisp_checkDispatchResult_async(struct CdbDispatcherState *ds,
 								  DispatchWaitMode waitMode);
@@ -99,6 +103,7 @@ DispatcherInternalFuncs DispatcherAsyncFuncs =
 	cdbdisp_checkForCancel_async,
 	cdbdisp_getWaitSocketFd_async,
 	cdbdisp_makeDispatchParams_async,
+	cdbdisp_checkAckNotice_async,
 	cdbdisp_checkDispatchResult_async,
 	cdbdisp_dispatchToGang_async,
 	cdbdisp_waitDispatchFinish_async
@@ -307,6 +312,33 @@ cdbdisp_dispatchToGang_async(struct CdbDispatcherState *ds,
 }
 
 /*
+ * Check dispatch acknowledge NOTICE.
+ *
+ * Wait all dispatch work to get back specify acknowledge NOTICE,
+ * either success or fail. (Set stillRunning to true when
+ * one dispatch work is completed)
+ */
+static void
+cdbdisp_checkAckNotice_async(struct CdbDispatcherState *ds, bool wait, const char *message)
+{
+	Assert(ds != NULL);
+	DispatchWaitMode prevWaitMode;
+	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
+
+	/* cdbdisp_destroyDispatcherState is called */
+	if (pParms == NULL)
+		return;
+	pParms->ackNoticeMsg = message;
+
+	prevWaitMode = pParms->waitMode;
+	pParms->waitMode = DISPATCH_WAIT_ACK_NOTICE;
+
+	checkDispatchResult(ds, wait);
+
+	pParms->waitMode = prevWaitMode;
+}
+
+/*
  * Check dispatch result.
  *
  * Wait all dispatch work to complete, either success or fail.
@@ -317,6 +349,8 @@ cdbdisp_checkDispatchResult_async(struct CdbDispatcherState *ds,
 								  DispatchWaitMode waitMode)
 {
 	Assert(ds != NULL);
+	/* DISPATCH_WAIT_ACK_NOTICE can not be set in cdbdisp_checkDispatchResult_async */
+	Assert(waitMode != DISPATCH_WAIT_ACK_NOTICE);
 	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
 
 	/* cdbdisp_destroyDispatcherState is called */
@@ -338,7 +372,8 @@ cdbdisp_checkDispatchResult_async(struct CdbDispatcherState *ds,
 	 *
 	 * The waitMode argument is NONE when we are doing "normal work".
 	 */
-	if (waitMode == DISPATCH_WAIT_NONE || waitMode == DISPATCH_WAIT_FINISH)
+	if (waitMode == DISPATCH_WAIT_NONE || waitMode == DISPATCH_WAIT_FINISH ||
+		waitMode == DISPATCH_WAIT_ACK_NOTICE)
 		CHECK_FOR_INTERRUPTS();
 }
 
@@ -360,6 +395,7 @@ cdbdisp_makeDispatchParams_async(int maxSlices, int largestGangSize, char *query
 	pParms->dispatchResultPtrArray = (CdbDispatchResult **) palloc0(size);
 	pParms->dispatchCount = 0;
 	pParms->waitMode = DISPATCH_WAIT_NONE;
+	pParms->ackNoticeMsg = NULL;
 	pParms->query_text = queryText;
 	pParms->query_text_len = len;
 
@@ -389,10 +425,11 @@ checkDispatchResult(CdbDispatcherState *ds,
 	bool		sentSignal = false;
 	struct pollfd *fds;
 	uint8 ftsVersion = 0;
+	bool		*ackNotices;
 
 	db_count = pParms->dispatchCount;
 	fds = (struct pollfd *) palloc(db_count * sizeof(struct pollfd));
-
+	ackNotices = palloc0(db_count * sizeof(bool));
 	/*
 	 * OK, we are finished submitting the command to the segdbs. Now, we have
 	 * to wait for them to finish.
@@ -432,6 +469,8 @@ checkDispatchResult(CdbDispatcherState *ds,
 			 * Already finished with this QE?
 			 */
 			if (!dispatchResult->stillRunning)
+				continue;
+			if (pParms->waitMode == DISPATCH_WAIT_ACK_NOTICE && ackNotices[i])
 				continue;
 
 			Assert(!cdbconn_isBadConnection(segdbDesc));
@@ -544,10 +583,18 @@ checkDispatchResult(CdbDispatcherState *ds,
 		}
 		/* We have data waiting on one or more of the connections. */
 		else
+		{
 			handlePollSuccess(pParms, fds);
+			if (pParms->waitMode == DISPATCH_WAIT_ACK_NOTICE &&
+				checkACKQENotices(pParms->ackNoticeMsg))
+			{
+				ackNotices[i] = true;
+			}
+		}
 	}
 
 	pfree(fds);
+	pfree(ackNotices);
 }
 
 /*
