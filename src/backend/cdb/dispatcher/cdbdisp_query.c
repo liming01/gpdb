@@ -19,6 +19,8 @@
 #include "access/xact.h"
 #include "libpq-fe.h"
 #include "libpq-int.h"
+#include "libpq/libpq.h"
+#include "libpq/pqformat.h"
 #include "cdb/cdbconn.h"
 #include "cdb/cdbgang.h"
 #include "cdb/cdbutil.h"
@@ -1487,4 +1489,16 @@ formIdleSegmentIdList(void)
 	}
 
 	return segments;
+}
+
+void cdb_sendAckMessageToQD(const char *message)
+{
+	StringInfoData buf;
+
+	pq_beginmessage(&buf, 'A');
+	pq_sendint(&buf, MyProcPid, sizeof(int32));
+	pq_sendstring(&buf, CDB_QE_ACKNOLEDGE_NOTIFY_CHANNEL); /* channel */
+	pq_sendstring(&buf, message);
+	pq_endmessage(&buf);
+	pq_flush();
 }

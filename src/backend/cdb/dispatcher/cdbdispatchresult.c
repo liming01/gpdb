@@ -76,6 +76,7 @@ cdbdisp_makeResult(struct CdbDispatchResults *meleeResults,
 	dispatchResult->error_message = createPQExpBuffer();
 	dispatchResult->numrowsrejected = 0;
 	dispatchResult->numrowscompleted = 0;
+	dispatchResult->ackPGNotifies = NULL;
 
 	if (PQExpBufferBroken(dispatchResult->resultbuf) ||
 		PQExpBufferBroken(dispatchResult->error_message))
@@ -169,6 +170,15 @@ cdbdisp_resetResult(CdbDispatchResult *dispatchResult)
 		PQclear(*p);
 	}
 
+	PGnotify* pgnotify = (PGnotify *) dispatchResult->ackPGNotifies;
+	while (pgnotify)
+	{
+		PGnotify* temp = pgnotify;
+		pgnotify = temp->next;
+		PQfreemem(temp);
+	}
+	dispatchResult->ackPGNotifies = NULL;
+
 	/*
 	 * Reset summary indicators.
 	 */
@@ -180,6 +190,7 @@ cdbdisp_resetResult(CdbDispatchResult *dispatchResult)
 	 */
 	dispatchResult->hasDispatched = false;
 	dispatchResult->stillRunning = false;
+	dispatchResult->receivedAckMsg = false;
 	dispatchResult->sentSignal = DISPATCH_WAIT_NONE;
 	dispatchResult->wasCanceled = false;
 

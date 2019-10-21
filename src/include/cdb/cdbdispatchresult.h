@@ -23,6 +23,7 @@ struct pg_result;                   /* PGresult ... #include "libpq-fe.h" */
 struct SegmentDatabaseDescriptor;   /* #include "cdb/cdbconn.h" */
 struct StringInfoData;              /* #include "lib/stringinfo.h" */
 struct PQExpBufferData;             /* #include "libpq-int.h" */
+struct PGnotify;					/* PGnotify ... #include "libpq-fe.h" */
 
 typedef struct CdbPgResults
 {
@@ -94,6 +95,8 @@ typedef struct CdbDispatchResult
 	/* true => busy in dispatch thread */
 	bool stillRunning;
 
+	bool receivedAckMsg;
+
 	/* type of signal sent */
 	DispatchWaitMode sentSignal;
 
@@ -109,6 +112,8 @@ typedef struct CdbDispatchResult
 
 	/* num rows completed in COPY FROM ON SEGMENT */
 	int	numrowscompleted;
+
+	struct PGnotify *ackPGNotifies;
 } CdbDispatchResult;
 
 /*

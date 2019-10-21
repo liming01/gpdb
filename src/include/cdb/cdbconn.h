@@ -103,4 +103,6 @@ bool cdbconn_signalQE(SegmentDatabaseDescriptor *segdbDesc, char *errbuf, bool i
 
 extern void forwardQENotices(void);
 
+extern bool checkACKQENotices(const char *message);
+
 #endif   /* CDBCONN_H */

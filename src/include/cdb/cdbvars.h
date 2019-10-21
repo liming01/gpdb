@@ -35,6 +35,10 @@
 #ifndef PRIO_MAX
 #define PRIO_MAX 20
 #endif
+
+
+#define CDB_QE_ACKNOLEDGE_NOTIFY_CHANNEL "**ACK_NOTIFY**"
+
 /*
  * Parameters gp_session_role and gp_role
  *

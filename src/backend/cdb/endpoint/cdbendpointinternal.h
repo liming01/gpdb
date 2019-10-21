@@ -36,6 +36,11 @@
  */
 #define ENDPOINT_NAME_LEN (NAMEDATALEN + 1 + 8 + 1 + 8)
 
+
+/* ACK NOTICE MESSAGE FROM ENDPOINT QE/Entry DB to QD */
+#define ENDPOINT_READY "ENDPOINT_READY"
+
+
 /*
  * Endpoint attach status.
  */

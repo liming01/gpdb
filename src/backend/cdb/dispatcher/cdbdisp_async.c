@@ -68,6 +68,8 @@ typedef struct CdbDispatchCmdAsync
 	 */
 	volatile DispatchWaitMode waitMode;
 
+	const char	*ackMessage;
+
 	/*
 	 * Text information to dispatch: The format is type(1 byte) + length(size
 	 * of int) + content(n bytes)
@@ -82,6 +84,8 @@ typedef struct CdbDispatchCmdAsync
 } CdbDispatchCmdAsync;
 
 static void *cdbdisp_makeDispatchParams_async(int maxSlices, int largestGangSize, char *queryText, int len);
+
+static void cdbdisp_waitAckMessage_async(struct CdbDispatcherState *ds, const char *message);
 
 static void cdbdisp_checkDispatchResult_async(struct CdbDispatcherState *ds,
 								  DispatchWaitMode waitMode);
@@ -99,6 +103,7 @@ DispatcherInternalFuncs DispatcherAsyncFuncs =
 	cdbdisp_checkForCancel_async,
 	cdbdisp_getWaitSocketFd_async,
 	cdbdisp_makeDispatchParams_async,
+	cdbdisp_waitAckMessage_async,
 	cdbdisp_checkDispatchResult_async,
 	cdbdisp_dispatchToGang_async,
 	cdbdisp_waitDispatchFinish_async
@@ -125,6 +130,9 @@ static void
 
 static void
 			handlePollSuccess(CdbDispatchCmdAsync *pParms, struct pollfd *fds);
+
+static bool
+			isReceiveAckMessage(CdbDispatchResult *dispatchResult, const char *message);
 
 /*
  * Check dispatch result.
@@ -307,6 +315,39 @@ cdbdisp_dispatchToGang_async(struct CdbDispatcherState *ds,
 }
 
 /*
+ * Check dispatch acknowledge NOTICE.
+ *
+ * Wait all dispatch work to get back specify acknowledge NOTICE,
+ * either success or fail. (Set stillRunning to true when
+ * one dispatch work is completed)
+ */
+static void
+cdbdisp_waitAckMessage_async(struct CdbDispatcherState *ds, const char *message)
+{
+	Assert(ds != NULL);
+	DispatchWaitMode prevWaitMode;
+	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
+
+	/* cdbdisp_destroyDispatcherState is called */
+	if (pParms == NULL)
+		return;
+
+	pParms->ackMessage = message;
+	prevWaitMode = pParms->waitMode;
+	pParms->waitMode = DISPATCH_WAIT_ACK_MESSAGE;
+
+	for (int i = 0; i < pParms->dispatchCount; i++)
+	{
+		pParms->dispatchResultPtrArray[i]->receivedAckMsg = false;
+	}
+
+	checkDispatchResult(ds, true);
+
+	pParms->waitMode = prevWaitMode;
+	pParms->ackMessage = NULL;
+}
+
+/*
  * Check dispatch result.
  *
  * Wait all dispatch work to complete, either success or fail.
@@ -360,6 +401,7 @@ cdbdisp_makeDispatchParams_async(int maxSlices, int largestGangSize, char *query
 	pParms->dispatchResultPtrArray = (CdbDispatchResult **) palloc0(size);
 	pParms->dispatchCount = 0;
 	pParms->waitMode = DISPATCH_WAIT_NONE;
+	pParms->ackMessage = NULL;
 	pParms->query_text = queryText;
 	pParms->query_text_len = len;
 
@@ -392,7 +434,6 @@ checkDispatchResult(CdbDispatcherState *ds,
 
 	db_count = pParms->dispatchCount;
 	fds = (struct pollfd *) palloc(db_count * sizeof(struct pollfd));
-
 	/*
 	 * OK, we are finished submitting the command to the segdbs. Now, we have
 	 * to wait for them to finish.
@@ -432,6 +473,10 @@ checkDispatchResult(CdbDispatcherState *ds,
 			 * Already finished with this QE?
 			 */
 			if (!dispatchResult->stillRunning)
+				continue;
+
+			if (pParms->waitMode == DISPATCH_WAIT_ACK_MESSAGE &&
+				isReceiveAckMessage(dispatchResult, pParms->ackMessage))
 				continue;
 
 			Assert(!cdbconn_isBadConnection(segdbDesc));
@@ -478,7 +523,9 @@ checkDispatchResult(CdbDispatcherState *ds,
 		 */
 		if (!wait)
 			timeout = 0;
-		else if (pParms->waitMode == DISPATCH_WAIT_NONE || sentSignal)
+		else if (pParms->waitMode == DISPATCH_WAIT_NONE ||
+				 pParms->waitMode == DISPATCH_WAIT_ACK_MESSAGE ||
+				 sentSignal)
 			timeout = DISPATCH_WAIT_TIMEOUT_MSEC;
 		else
 			timeout = DISPATCH_WAIT_CANCEL_TIMEOUT_MSEC;
@@ -508,7 +555,8 @@ checkDispatchResult(CdbDispatcherState *ds,
 			FtsNotifyProber();
 			checkSegmentAlive(pParms);
 
-			if (pParms->waitMode != DISPATCH_WAIT_NONE)
+			if (pParms->waitMode != DISPATCH_WAIT_NONE &&
+				pParms->waitMode != DISPATCH_WAIT_ACK_MESSAGE)
 			{
 				signalQEs(pParms);
 				sentSignal = true;
@@ -520,7 +568,8 @@ checkDispatchResult(CdbDispatcherState *ds,
 		/* If the time limit expires, poll() returns 0 */
 		else if (n == 0)
 		{
-			if (pParms->waitMode != DISPATCH_WAIT_NONE)
+			if (pParms->waitMode != DISPATCH_WAIT_NONE&&
+				pParms->waitMode != DISPATCH_WAIT_ACK_MESSAGE)
 			{
 				signalQEs(pParms);
 				sentSignal = true;
@@ -600,6 +649,33 @@ dispatchCommand(CdbDispatchResult *dispatchResult,
 	ELOG_DISPATCHER_DEBUG("Command dispatched to QE (%s)", dispatchResult->segdbDesc->whoami);
 }
 
+static bool
+isReceiveAckMessage(CdbDispatchResult *dispatchResult, const char *message)
+{
+	bool received = false;
+	PGnotify* ackNotifies = (PGnotify *) dispatchResult->ackPGNotifies;
+
+	if (!message)
+		elog(ERROR, "Notify ACK message is required.");
+
+	if (dispatchResult->receivedAckMsg)
+		return dispatchResult->receivedAckMsg;
+
+	while (ackNotifies)
+	{
+		if (strcmp(ackNotifies->extra, message) == 0)
+		{
+			received = true;
+			dispatchResult->receivedAckMsg = true;
+		}
+		PGnotify* temp = ackNotifies;
+		ackNotifies = temp->next;
+		PQfreemem(temp);
+	}
+	dispatchResult->ackPGNotifies = NULL;
+	return received;
+}
+
 /*
  * Helper function to checkDispatchResult that handles errors that occur
  * during the poll() call.
@@ -618,6 +694,9 @@ handlePollError(CdbDispatchCmdAsync *pParms)
 
 		/* Skip if already finished or didn't dispatch. */
 		if (!dispatchResult->stillRunning)
+			continue;
+
+		if (pParms->waitMode == DISPATCH_WAIT_ACK_MESSAGE && dispatchResult->receivedAckMsg)
 			continue;
 
 		/* We're done with this QE, sadly. */
@@ -670,6 +749,9 @@ handlePollSuccess(CdbDispatchCmdAsync *pParms,
 		 * Skip if already finished or didn't dispatch.
 		 */
 		if (!dispatchResult->stillRunning)
+			continue;
+
+		if (pParms->waitMode == DISPATCH_WAIT_ACK_MESSAGE && dispatchResult->receivedAckMsg)
 			continue;
 
 		ELOG_DISPATCHER_DEBUG("looking for results from %d of %d (%s)",
@@ -751,6 +833,8 @@ signalQEs(CdbDispatchCmdAsync *pParms)
 
 		if (!dispatchResult->stillRunning ||
 			dispatchResult->wasCanceled ||
+			(pParms->waitMode == DISPATCH_WAIT_ACK_MESSAGE &&
+			 dispatchResult->receivedAckMsg) ||
 			cdbconn_isBadConnection(segdbDesc))
 			continue;
 
@@ -990,49 +1074,59 @@ processResults(CdbDispatchResult *dispatchResult)
 
 	forwardQENotices();
 
-	/*
-	 * If there was nextval request then respond back on this libpq connection
-	 * with the next value. Check and process nextval message only if QD has not
-	 * already hit the error. Since QD could have hit the error while processing
-	 * the previous nextval_qd() request itself and since full error handling is
-	 * not complete yet like releasing all the locks, etc.., shouldn't attempt
-	 * to call nextval_qd() again.
-	 */
-	PGnotify *nextval = PQnotifies(segdbDesc->conn);
-	if ((elog_geterrcode() == 0) && nextval &&
-		strcmp(nextval->relname, "nextval") == 0)
+	PGnotify *qnotifies = PQnotifies(segdbDesc->conn);
+	if (qnotifies && elog_geterrcode() == 0)
 	{
-		int64 last;
-		int64 cached;
-		int64 increment;
-		bool overflow;
-		int dbid;
-		int seq_oid;
-
-		if (sscanf(nextval->extra, "%d:%d", &dbid, &seq_oid) != 2)
-			elog(ERROR, "invalid nextval message");
-
-		if (dbid != MyDatabaseId)
-			elog(ERROR, "nextval message database id:%d doesn't match my database id:%d",
-				 dbid, MyDatabaseId);
-
-		PG_TRY();
-		{
-			nextval_qd(seq_oid, &last, &cached, &increment, &overflow);
-		}
-		PG_CATCH();
-		{
-			send_sequence_response(segdbDesc->conn, seq_oid, last, cached, increment, overflow, true /* error */);
-			PG_RE_THROW();
-		}
-		PG_END_TRY();
 		/*
-		 * respond back on this libpq connection with the next value
+		 * If there was nextval request then respond back on this libpq connection
+		 * with the next value. Check and process nextval message only if QD has not
+		 * already hit the error. Since QD could have hit the error while processing
+		 * the previous nextval_qd() request itself and since full error handling is
+		 * not complete yet like releasing all the locks, etc.., shouldn't attempt
+		 * to call nextval_qd() again.
 		 */
-		send_sequence_response(segdbDesc->conn, seq_oid, last, cached, increment, overflow, false /* error */);
+		if (strcmp(qnotifies->relname, "nextval") == 0)
+		{
+			int64 last;
+			int64 cached;
+			int64 increment;
+			bool overflow;
+			int dbid;
+			int seq_oid;
+
+			if (sscanf(qnotifies->extra, "%d:%d", &dbid, &seq_oid) != 2)
+				elog(ERROR, "invalid nextval message");
+
+			if (dbid != MyDatabaseId)
+				elog(ERROR, "nextval message database id:%d doesn't match my database id:%d",
+					 dbid, MyDatabaseId);
+
+			PG_TRY();
+			{
+				nextval_qd(seq_oid, &last, &cached, &increment, &overflow);
+			}
+			PG_CATCH();
+			{
+				send_sequence_response(segdbDesc->conn, seq_oid, last, cached, increment, overflow, true /* error */);
+				PG_RE_THROW();
+			}
+			PG_END_TRY();
+			/*
+			 * respond back on this libpq connection with the next value
+			 */
+			send_sequence_response(segdbDesc->conn, seq_oid, last, cached, increment, overflow, false /* error */);
+		}
+
+		/*  */
+		if (strcmp(qnotifies->relname, CDB_QE_ACKNOLEDGE_NOTIFY_CHANNEL) == 0)
+		{
+			qnotifies->next = (struct pgNotify *) dispatchResult->ackPGNotifies;
+			dispatchResult->ackPGNotifies = (struct PGnotify *) qnotifies;
+			qnotifies = NULL;
+		}
 	}
-	if (nextval)
-		PQfreemem(nextval);
+	if (qnotifies)
+		PQfreemem(qnotifies);
 
 	forwardQENotices();
 
