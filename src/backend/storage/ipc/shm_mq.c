@@ -18,8 +18,10 @@
 
 #include "postgres.h"
 
+#include "libpq/libpq.h"
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
+#include "storage/ipc.h"
 #include "storage/procsignal.h"
 #include "storage/shm_mq.h"
 #include "storage/spin.h"
@@ -1051,6 +1053,10 @@ shm_mq_wait_internal(volatile shm_mq *mq, PGPROC *volatile * ptr,
 			BgwHandleStatus status;
 			pid_t		pid;
 			bool		detached;
+			int			wr = 0;
+
+			/* An interrupt may have occurred while we were waiting. */
+			CHECK_FOR_INTERRUPTS();
 
 			if (QueryFinishPending)
 				break;
@@ -1081,14 +1087,21 @@ shm_mq_wait_internal(volatile shm_mq *mq, PGPROC *volatile * ptr,
 				}
 			}
 
+			/*exit if the libpq connect is lost*/
+			pq_startmsgread();
+			if (pq_peekbyte() == EOF) {
+				proc_exit(1);
+			}
+			pq_endmsgread();
+			
 			/* Wait to be signalled. */
-			WaitLatch(MyLatch, WL_LATCH_SET, 0);
+			wr = WaitLatch(MyLatch, WL_LATCH_SET | WL_TIMEOUT, 100);
+
+			if (wr & WL_TIMEOUT)
+				continue;
 
 			/* Reset the latch so we don't spin. */
 			ResetLatch(MyLatch);
-
-			/* An interrupt may have occurred while we were waiting. */
-			CHECK_FOR_INTERRUPTS();
 		}
 	}
 	PG_CATCH();
