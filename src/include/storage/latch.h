@@ -117,6 +117,7 @@ typedef struct Latch
 #define WL_SOCKET_WRITEABLE  (1 << 2)
 #define WL_TIMEOUT			 (1 << 3)
 #define WL_POSTMASTER_DEATH  (1 << 4)
+#define WL_EXIT_ON_LIBPQ_DEATH	 (1 << 5)
 
 /*
  * prototypes for functions in latch.c

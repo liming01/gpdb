@@ -48,10 +48,12 @@
 #include <sys/select.h>
 #endif
 
+#include "libpq/libpq.h"
 #include "miscadmin.h"
 #include "portability/instr_time.h"
 #include "postmaster/postmaster.h"
 #include "storage/barrier.h"
+#include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/pmsignal.h"
 #include "storage/shmem.h"
@@ -215,6 +217,8 @@ WaitLatchOrSocket(volatile Latch *latch, int wakeEvents, pgsocket sock,
 	instr_time	start_time,
 				cur_time;
 	long		cur_timeout;
+	int fds_pmd = 0; // pfds[] index for WL_POSTMASTER_DEATH
+	int fds_pqd = 0; // pfds[] index for WL_EXIT_ON_LIBPQ_DEATH
 
 #ifdef HAVE_POLL
 	struct pollfd pfds[3];
@@ -332,6 +336,16 @@ WaitLatchOrSocket(volatile Latch *latch, int wakeEvents, pgsocket sock,
 			pfds[nfds].fd = postmaster_alive_fds[POSTMASTER_FD_WATCH];
 			pfds[nfds].events = POLLIN;
 			pfds[nfds].revents = 0;
+			fds_pmd = nfds;
+			nfds++;
+		}
+		if (wakeEvents & WL_EXIT_ON_LIBPQ_DEATH)
+		{
+			/* postmaster fd, if used, is always in pfds[nfds - 1] */
+			pfds[nfds].fd = MyProcPort->sock;
+			pfds[nfds].events = POLLIN;
+			pfds[nfds].revents = 0;
+			fds_pqd = nfds;
 			nfds++;
 		}
 
@@ -389,7 +403,7 @@ WaitLatchOrSocket(volatile Latch *latch, int wakeEvents, pgsocket sock,
 			 * errors either, treat those cases as postmaster death, too.
 			 */
 			if ((wakeEvents & WL_POSTMASTER_DEATH) &&
-				(pfds[nfds - 1].revents & (POLLHUP | POLLIN | POLLERR | POLLNVAL)))
+				(pfds[fds_pmd].revents & (POLLHUP | POLLIN | POLLERR | POLLNVAL)))
 			{
 				/*
 				 * According to the select(2) man page on Linux, select(2) may
@@ -403,6 +417,16 @@ WaitLatchOrSocket(volatile Latch *latch, int wakeEvents, pgsocket sock,
 				 */
 				if (!PostmasterIsAlive())
 					result |= WL_POSTMASTER_DEATH;
+			}
+			if ((wakeEvents & WL_EXIT_ON_LIBPQ_DEATH) &&
+				(pfds[fds_pqd].revents & (POLLHUP | POLLIN | POLLERR | POLLNVAL)))
+			{
+				/*exit if the libpq connect is lost*/
+				pq_startmsgread();
+				if (pq_peekbyte() == EOF) {
+					proc_exit(1);
+				}
+				pq_endmsgread();
 			}
 		}
 #else							/* !HAVE_POLL */
