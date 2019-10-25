@@ -80,6 +80,7 @@
 Section: Class 00 - Successful Completion
 
 00000    S    ERRCODE_SUCCESSFUL_COMPLETION                                  successful_completion
+00M01    S    ERRCODE_GP_ACK_DONE                                            gp_ack_done
 
 Section: Class 01 - Warning
 

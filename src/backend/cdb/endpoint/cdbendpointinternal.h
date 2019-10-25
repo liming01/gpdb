@@ -36,6 +36,14 @@
  */
 #define ENDPOINT_NAME_LEN (NAMEDATALEN + 1 + 8 + 1 + 8)
 
+#define SEND_ACK_NOTICE(MSG) \
+	ereport(NOTICE, (errcode(ERRCODE_GP_ACK_DONE), \
+			errmsg("%s", MSG)))
+
+/* ACK NOTICE MESSAGE FROM ENDPOINT QE/Entry DB to QD */
+#define ENDPOINT_READY "ENDPOINT_READY"
+
+
 /*
  * Endpoint attach status.
  */

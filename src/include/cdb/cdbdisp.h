@@ -51,6 +51,7 @@ typedef struct DispatcherInternalFuncs
 	bool (*checkForCancel)(struct CdbDispatcherState *ds);
 	int (*getWaitSocketFd)(struct CdbDispatcherState *ds);
 	void* (*makeDispatchParams)(int maxSlices, int largestGangSize, char *queryText, int queryTextLen);
+	void (*checkAckNotice)(struct CdbDispatcherState *ds, bool wait, const char* message);
 	void (*checkResults)(struct CdbDispatcherState *ds, DispatchWaitMode waitMode);
 	void (*dispatchToGang)(struct CdbDispatcherState *ds, struct Gang *gp, int sliceIndex);
 	void (*waitDispatchFinish)(struct CdbDispatcherState *ds);
@@ -101,6 +102,15 @@ void
 cdbdisp_waitDispatchFinish(struct CdbDispatcherState *ds);
 
 /*
+ * cdbdisp_checkDispatchAckNotice:
+ *
+ * Check for acknowledge NOTICE form QEs/EntryDB after cdbdisp_dispatchToGang().
+ *
+ */
+void
+cdbdisp_checkDispatchAckNotice(struct CdbDispatcherState *ds, bool wait, const char *message);
+
+/*
  * CdbCheckDispatchResult:
  *
  * Waits for completion of threads launched by cdbdisp_dispatchToGang().
@@ -111,7 +121,7 @@ cdbdisp_waitDispatchFinish(struct CdbDispatcherState *ds);
 void
 cdbdisp_checkDispatchResult(struct CdbDispatcherState *ds, DispatchWaitMode waitMode);
 
-/**
+/*
  * Check whether or not the PARALLEL RETRIEVE CURSOR Execution Finished
  * This func should be called after calling cdbdisp_checkDispatchResult().
  *
